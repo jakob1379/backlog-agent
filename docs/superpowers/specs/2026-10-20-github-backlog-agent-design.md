@@ -1,0 +1,284 @@
+# GitHub backlog agent: design
+
+Date: 2026-10-20. Owner: jakob1379.
+
+## Why
+
+The owner's GitHub backlog is mostly Dependabot noise and security alerts:
+33 open Dependabot PRs and 141 open alerts (5 critical, 62 high) across 46 active repos
+(recon, 2026-10-20). Fixes are usually version bumps, not code. The owner wants this to clear
+itself with as little human attention as possible, and to keep their attention for the items
+that really need a human.
+
+Recon showed that most of the backlog is **not** waiting on an agent. The existing
+auto-merge workflow rejects it:
+
+- The shared workflow in 6 repos only auto-merges `semver-patch` and `semver-minor`.
+  `dependabot/fetch-metadata` returns `update-type: null` for grouped PRs and for Nix
+  flake-input SHA bumps, so 17 of 33 PRs are always skipped.
+- The workflow triggers only on `opened`/`synchronize`/`reopened`, so PRs opened before the
+  workflow existed (bank-focus) were never processed.
+- Canvas-Code-Correction's required `test` check runs `uv audit`, which fails on 53 lockfile
+  vulnerabilities. No single bump clears it, so all 9 PRs are red forever.
+
+So the plan has two parts: a one-time cleanup (Phase 0), then an hourly agent that only
+handles what auto-merge can't (Phase 1).
+
+## Goals
+
+- Green Dependabot PRs merge with no human and no agent: GitHub auto-merge does it.
+- An hourly agent drives red or stuck Dependabot PRs and uncovered security alerts to merged
+  PRs, without anyone in the loop when the change touches only manifests, lockfiles or CI config.
+- Anything that needs judgement lands with the owner as a clearly flagged review request, not
+  as silent noise.
+
+## Non-goals
+
+- Setting up CI across repos in general. That's a separate project, later. The only exception
+  is Q16 below.
+- Code-scanning and secret-scanning alerts.
+- The general issue and PR backlog. That's Phase 2, with Linear as the place where it's
+  prioritized.
+- Running when T3 is closed.
+
+## Anti-goals (a failure even if it "works")
+
+- Merging anything whose only "green" signal is a non-test status (CodeRabbit, neutral CodeQL)
+  or that sits in a repo with no required checks.
+- Dismissing a security alert. That's always the owner's call.
+- Agent-made source-code changes merging without the owner reviewing them.
+- Filling the owner's inbox with low-value PRs or review requests that pile up. Opening PRs
+  nobody will merge is the problem being fixed, not the fix.
+- Spending Opus runs on archived or dead repos.
+
+## Scope
+
+- In scope: non-archived, non-fork repos owned by `jakob1379` or by orgs where the owner is
+  admin. Inactive but non-archived repos are in scope.
+- Out of scope: archived repos (keepsake only), and forks (all have alerts disabled and no
+  Dependabot PRs).
+- Repos with no CI, meaning no required checks in a ruleset: the agent leaves their Dependabot
+  PRs alone. The exception is Q16: pacify, br18 and brobizz-usage get a "minimal CI" task.
+
+## Definitions
+
+- **Green:** every status check required by the default branch's ruleset has passed. Nothing
+  else counts. Required checks come only from rulesets; there is no classic branch protection
+  with required checks anywhere.
+- **Has CI:** the default branch's ruleset has at least one required status check.
+- **Task:** exactly one of
+  - one Dependabot PR
+  - one security alert, or a group of alerts for the same package in the same repo
+  - one "fix main" job for a repo whose default branch is red
+  - one "add minimal CI" job (Q16 repos only)
+
+## Phase 0: one-time, run in this session under the owner's own `gh` login
+
+Each step is shown to the owner and confirmed before it runs.
+
+1. **Archived repos with open PRs: close them.** Archived repos are read-only, so for each
+   one: unarchive, close every open PR with a one-line comment, then re-archive. Current list:
+   - jga-streamlit-apps/wifi-qr-generator: 51 PRs
+   - gridfinity-plate-generator: 4 (3 Dependabot + 1 pre-commit-ci)
+   - ruff-explain: 1
+   - talk-on-nix: 1
+   - who-speaks: 1
+
+   58 PRs in total. This needs Administration rights, which the agent token deliberately
+   doesn't have.
+2. **Smukfestify (Q17):** close its 3 open PRs, then archive it. It's currently *not*
+   archived; the last push was 2023-01-23.
+3. **Fix the shared auto-merge workflow (Q14)** in Canvas-Code-Correction, homelab,
+   jakob1379.github.io, text2ics, pymdown-symbolic-snippets and bank-focus. One PR per repo:
+   - In `dependabot.yml`, restrict every `groups:` entry to `update-types: [minor, patch]`, so
+     a group can never contain a major. Majors then arrive as separate, ungrouped PRs.
+   - Workflow condition: auto-merge when update-type is patch or minor, **or** the PR is a
+     group (`dependency-group` is set), **or** the ecosystem is `github-actions` or a Nix
+     flake input. Never majors.
+   - The owner reviews and merges these 6 PRs.
+4. **Kick PRs that predate the workflow:** comment `@dependabot rebase` on those PRs (e.g.
+   bank-focus), so the workflow runs on them.
+
+Phase 0 must be finished before Phase 1 is scheduled.
+
+## Phase 1: hourly agent
+
+### Runtime
+
+- A T3 scheduled task, `{"type":"interval","everyMs":3600000}`, bound to the thread where
+  this was designed. The prompt is: "Read and follow `<dir>/PROMPT.md` exactly." This is the
+  same pattern as the existing daily seeq-dx briefing (`daily-briefing/PROMPT.md`).
+- Files live in a new `backlog-agent/` directory next to `daily-briefing/`: `PROMPT.md`, a
+  ledger, and any helper script.
+- GitHub credentials: a fine-grained PAT at `~/.config/backlog-agent/gh-token`, owner
+  `jakob1379`, all repositories. Permissions:
+  - Contents: read and write
+  - Pull requests: read and write
+  - Workflows: read and write
+  - Issues: read and write
+  - Actions: read
+  - Commit statuses: read
+  - Dependabot alerts: read
+  - Metadata: read
+
+  **No** Administration. It has been verified to work inside the sandbox:
+  `export GH_TOKEN=$(cat …)` makes `gh` skip the keyring, which the sandbox can't reach.
+  Git pushes must also use this token, e.g. by passing
+  `-c credential.helper='!gh auth git-credential'` on the command line; the sandbox can't write
+  `~/.gitconfig`.
+- Network: api.github.com and github.com, plus whatever package registries a relock needs.
+
+### Each hourly run (the dispatcher)
+
+1. **Reconcile.** For every task in the ledger marked running, check its outcome
+   (`task_status`) and record done, blocked or failed.
+2. **Collect candidates** across the in-scope repos:
+   - open Dependabot alerts
+   - open Dependabot PRs and their required-check state
+   - the default branch's state for each repo
+3. **Drop** anything that:
+   - is already running
+   - has a ledger entry marked blocked
+   - is auto-merge-eligible and green (auto-merge handles it)
+   - is a Dependabot PR in a no-CI repo
+4. **Derive the "fix main" tasks.** If a repo's default branch is red, create one "fix main"
+   task for it, and hold that repo's Dependabot-PR tasks until main is green. Alert tasks
+   still run; see the hold rule.
+5. **Rank:**
+   1. critical and high alerts
+   2. "fix main" tasks blocking those alerts
+   3. medium and low alerts
+   4. red or stuck Dependabot PRs, oldest first
+   5. majors
+6. **Dispatch** the top tasks until **3** tasks are running in total (a cap on concurrent
+   tasks, not only on new ones per hour). **Hard cap: 24 child runs per calendar day**
+   (Europe/Copenhagen time). Retries count toward the cap. When the cap is reached, the
+   dispatcher starts nothing new until midnight. It says so once in that day's summary. Each task gets its own child agent via
+   `delegate_task`: provider `claudeAgent`, model `claude-opus-5-5`, effort `high`, one task
+   per agent. Record the task ID, the key (`owner/repo#pr`, `owner/repo:GHSA-…`,
+   `owner/repo:fix-main`, `owner/repo:add-ci`) and the start time in the ledger.
+7. **Report.** Post a short summary in this thread **only if something changed**: tasks
+   started, merged, blocked or needing the owner, and any admin-only steps queued for them.
+   Silent hours stay silent.
+
+### Child agent rules (one task each)
+
+- Clone the target repo into a fresh per-task directory under `$TMPDIR`. Never work in the
+  owner's local checkouts.
+- Commits follow Conventional Commits, e.g.
+  `fix(deps): bump urllib3 to 2.5.0 (GHSA-xxxx)` or `ci: …`.
+- **Red Dependabot PR (Q4):** read the failing run's logs (Actions read) and push the fix
+  commits onto the Dependabot branch. After that, Dependabot stops rebasing that PR, so the
+  agent owns it.
+  - If the fix touches only manifests, lockfiles or CI config: enable auto-merge
+    (`gh pr merge --auto --squash`).
+  - If the fix touches source code: no auto-merge. Add the `needs-review` label and request
+    a review from `jakob1379`.
+- **Major bump PR (Q3):** same as above. A major never gets auto-merge from the workflow,
+  but the agent may enable it if the Q4 manifest-only rule holds and CI is green.
+- **Alert with no PR (Q5), best practice:**
+  - Target the alert's `first_patched_version`, i.e. the smallest version that fixes it. If
+    that crosses a major, treat the change as source-touching: `needs-review`.
+  - For transitive dependencies, first upgrade the direct dependency that pulls it in. Use an
+    ecosystem override only when that parent has no fixed release: npm `overrides`, pnpm
+    `pnpm.overrides`, yarn `resolutions`, uv `constraint-dependencies`/`override-dependencies`,
+    a Nix input bump. When adding an override, leave a one-line comment in the manifest
+    explaining why it's there and when to remove it.
+  - Regenerate the lockfile with the repo's own tool. Never hand-edit lockfiles.
+  - Open one PR per package per repo, covering every alert for that package. The PR body lists
+    the GHSA/CVE IDs, severity, the vulnerable range and the fixed version.
+  - Never dismiss an alert. If there's no patched version, or the dependency looks unused or
+    dev-only, report it in the summary with a suggested dismissal reason for the owner. Mark
+    it blocked in the ledger so it isn't retried every hour.
+  - The alert closes on its own when the fix reaches the default branch.
+- **Fix main (Q6):** make the default branch's required checks pass, using the same
+  manifest-only versus source rule. For Canvas-Code-Correction that means relocking so that
+  `uv audit` passes.
+- **Add minimal CI (Q16):** only pacify, br18 and brobizz-usage. Open a PR adding one workflow
+  that runs the repo's existing build/test command (e.g. `nix flake check`, `uv run pytest`).
+  Label it `needs-review`. The ruleset and `allow_auto_merge` setup needs admin rights, so it
+  goes into the summary as an admin step for the owner.
+- **Gave up:** label the PR `agent:blocked`, if there is one, with a one-comment reason, and
+  record blocked in the ledger. The dispatcher won't retry blocked items. Unblocking is done
+  by hand: remove the label or clear the ledger entry.
+- Never merge directly, never force-push branches that aren't Dependabot's, never touch
+  archived repos, never change repo settings.
+
+## Phase 2 (later, needs Linear auth)
+
+Linear becomes the place where the owner's human backlog is prioritized. Only items that need
+a human go there: `needs-review` PRs, blocked items, admin steps, and GitHub issues. Bot PRs
+don't. Linear isn't authenticated yet (neither the claude.ai Linear connector nor
+`linear-server`).
+
+## Decided by the owner
+
+- The agent never merges green PRs; GitHub auto-merge does that. The agent handles only red
+  or stuck PRs, alerts with no PR, the "fix main" tasks, and the Q16 CI tasks.
+- Auto-merge is set up once (Phase 0), and only in repos whose ruleset has required checks.
+- Major bumps never auto-merge through the workflow.
+- Q4: the manifest-only vs source rule, plus requesting the owner as reviewer.
+- Q5: follow best practices for alerts with no PR (made concrete above). Never dismiss.
+- A red default branch becomes one "fix main" task that blocks that repo's other tasks.
+- One child agent per task, Opus 5.5 high, at most 3 running.
+- Priority order as listed in the dispatcher.
+- Phase 1 is GitHub only. Phase 2 uses Linear, and only for items that need a human.
+- Runs as an hourly T3 task bound to this thread. It only reports when something changed.
+- Fine-grained PAT, not classic.
+- Phase 0 workflow fix in the 6 repos.
+- "Green" means the required checks in the ruleset passed.
+- Minimal CI only for pacify, br18 and brobizz-usage.
+- Archive Smukfestify. Close the open PRs in archived repos.
+- Archived repos are ignored. Inactive repos are in scope. CI setup in general comes later.
+
+## Facts checked after the builder review (2026-10-20)
+
+- **Org repos:** the only non-archived org repos are Hofleverandorerne (2) and NaySten-Labs
+  (1). None has open Dependabot PRs or alerts. Phase 1 is therefore limited to `jakob1379`,
+  and the single PAT is enough. If an org repo gets work later, that org gets its own token.
+  jga-streamlit-apps/wifi-qr-generator is archived and is handled in Phase 0 under the
+  owner's login.
+- `allow_auto_merge` is true in all 6 workflow repos and false in pacify, br18 and
+  brobizz-usage. The Q16 admin step enables it there.
+- No ruleset in these 9 repos requires an approving review. homelab has a `pull_request`
+  rule with 0 required approvals. So "manifest-only, no human" can merge, and the owner can
+  merge their own `needs-review` PRs.
+- Every other repo with Dependabot PRs or alerts has no CI, so it's out of scope for
+  auto-merge until the later CI project.
+
+## Designer's calls (check these)
+
+- The reviewer request (Q4) only goes on `needs-review` PRs, not on PRs that will auto-merge
+  minutes later, to avoid inbox noise. GitHub rejects review requests from a PR's own author.
+  Agent-opened PRs are authored by `jakob1379` through the PAT, so on those the owner is set
+  as **assignee** instead, plus the `needs-review` label.
+- Each child clones into `$TMPDIR` rather than using T3 worktree isolation. T3 worktrees are
+  worktrees of *this* repo, not of the target repo.
+- Durable state is a ledger file plus GitHub labels, not anything in conversation memory.
+- The cap is 3 *concurrent* tasks, so tasks that run long can't pile up.
+- **Retries:** a task that fails (crash, timeout, flaky relock) is retried at most once. A
+  second failure marks it blocked.
+- **"Stuck" PR** means one of:
+  - mergeable state is CONFLICTING
+  - auto-merge is enabled and the required checks are green, but the PR hasn't merged
+    within 2 hours
+  - the PR predates the workflow and is still unprocessed after Phase 0
+- **No audit ignores.** Adding an ignore or allowlist entry to `uv audit`, `npm audit` or
+  similar counts as dismissing an alert, so the owner decides. If "fix main" can't get to
+  green because a vulnerability has no patched version, the task is blocked. The summary
+  names the specific advisories the owner needs to rule on.
+- **Hold rule:** while a repo's "fix main" task is running or waiting on review, that repo's
+  alert tasks still run. Their PRs just won't auto-merge until main is green. Only the
+  repo's Dependabot-PR tasks are held. This keeps critical alerts from being frozen behind a
+  slow "fix main".
+- **Network:** children run in auto mode and declare the registry hosts per command
+  (`allowed_domains`): pypi.org, files.pythonhosted.org, registry.npmjs.org,
+  cache.nixos.org, github.com, api.github.com, objects.githubusercontent.com, plus whatever
+  the repo's lockfile names. The sandbox is never disabled.
+
+## Left to the builder
+
+- Ledger format and location inside `backlog-agent/`.
+- Exactly how candidates are collected (GraphQL vs REST) and how it's paced.
+- Summary wording and format.
+- How to detect "touches only manifests, lockfiles or CI config" for each ecosystem.
