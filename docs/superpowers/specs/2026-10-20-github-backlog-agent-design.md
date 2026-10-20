@@ -102,7 +102,7 @@ Each step is shown to the owner and confirmed before it runs.
 Phase 0 must be finished before Phase 1 is scheduled.
 
 Status as of 2026-10-20:
-- **Steps 1–2 are done.** 66 PRs were closed and 6 repos are archived. While
+- **Steps 1–2 are done.** 68 PRs were closed and 6 repos are archived. While
   wifi-qr-generator was unarchived, Dependabot opened 10 new PRs; those were closed in a
   second short window. Lesson: keep the unarchive window as short as possible.
 - Steps 3–4 are still open.
