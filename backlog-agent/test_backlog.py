@@ -7,7 +7,7 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from backlog import finish, start, used_today
+from backlog import finish, plan, start, used_today
 
 NOW = datetime(2026, 10, 21, 12, tzinfo=UTC)
 
@@ -53,6 +53,216 @@ class LedgerTest(unittest.TestCase):
         self.assertEqual(L["starts"], ["2026-10-20T12:00:00+00:00", NOW.isoformat()])
 
 
+def alert(
+    package="urllib3",
+    severity="high",
+    covered_by_pr=None,
+    created_at="2026-10-01T00:00:00Z",
+):
+    return {
+        "ghsa": f"GHSA-{package}-{severity}",
+        "severity": severity,
+        "ecosystem": "pip",
+        "package": package,
+        "range": "< 2.5.0",
+        "first_patched": "2.5.0",
+        "created_at": created_at,
+        "covered_by_pr": covered_by_pr,
+    }
+
+
+def pr(
+    number,
+    checks="red",
+    created_at="2026-10-01T00:00:00Z",
+    major=False,
+    labels=(),
+    mergeable="MERGEABLE",
+):
+    return {
+        "number": number,
+        "title": f"Bump x {number}",
+        "created_at": created_at,
+        "labels": list(labels),
+        "mergeable": mergeable,
+        "auto_merge_since": None,
+        "checks": checks,
+        "major": major,
+    }
+
+
+def repo(name="o/r", has_ci=True, main="green", prs=(), alerts=()):
+    return {
+        "repo": name,
+        "has_ci": has_ci,
+        "main": main,
+        "prs": list(prs),
+        "alerts": list(alerts),
+    }
+
+
+def cands(*repos, needs_review_open=0):
+    return {
+        "generated": NOW.isoformat(),
+        "needs_review_open": needs_review_open,
+        "repos": list(repos),
+    }
+
+
+def keys(result):
+    return [t["key"] for t in result["dispatch"]]
+
+
+class PlanTest(unittest.TestCase):
+    def test_alert_covered_by_pr_is_not_a_task(self):
+        c = cands(
+            repo(alerts=[alert("urllib3", covered_by_pr=7), alert("idna")], prs=[pr(7)])
+        )
+        result = plan(c, empty(), NOW)
+        self.assertNotIn("o/r:dep:pip:urllib3", keys(result))
+        self.assertIn("o/r:dep:pip:idna", keys(result))
+
+    def test_red_main_holds_pr_tasks_not_alert_tasks(self):
+        c = cands(repo(main="red", prs=[pr(3)], alerts=[alert()]))
+        result = plan(c, empty(), NOW)
+        self.assertEqual(sorted(keys(result)), ["o/r:dep:pip:urllib3", "o/r:fix-main"])
+        self.assertEqual(result["held"], ["o/r#3"])
+
+    def test_red_pr_is_a_task_when_main_green(self):
+        result = plan(cands(repo(prs=[pr(3)])), empty(), NOW)
+        self.assertEqual(keys(result), ["o/r#3"])
+        self.assertEqual(result["dispatch"][0]["pr"], 3)
+
+    def test_green_pr_younger_than_2h_is_dropped_older_is_stuck(self):
+        young = pr(1, checks="green", created_at="2026-10-21T11:00:00+00:00")
+        old = pr(2, checks="green", created_at="2026-10-21T09:00:00+00:00")
+        armed = {
+            **pr(3, checks="green", created_at="2026-10-01T00:00:00Z"),
+            "auto_merge_since": "2026-10-21T11:30:00+00:00",
+        }
+        conflicting = pr(4, checks="pending", mergeable="CONFLICTING")
+        pending = pr(5, checks="pending")
+        result = plan(
+            cands(repo(prs=[young, old, armed, conflicting, pending])), empty(), NOW
+        )
+        self.assertEqual(sorted(keys(result)), ["o/r#2", "o/r#4"])
+
+    def test_labelled_prs_are_dropped(self):
+        prs = [pr(1, labels=["needs-review"]), pr(2, labels=["agent:blocked"])]
+        self.assertEqual(keys(plan(cands(repo(prs=prs)), empty(), NOW)), [])
+
+    def test_no_ci_repo_prs_dropped_but_alerts_kept(self):
+        c = cands(repo(has_ci=False, main=None, prs=[pr(1)], alerts=[alert()]))
+        result = plan(c, empty(), NOW)
+        self.assertEqual(keys(result), ["o/r:dep:pip:urllib3"])
+        self.assertFalse(result["dispatch"][0]["has_ci"])
+
+    def test_rank_order(self):
+        c = cands(
+            repo("o/high", main="red", alerts=[alert("a", "high")]),
+            repo("o/low", alerts=[alert("b", "low")]),
+            repo(
+                "o/prs",
+                prs=[
+                    pr(2, created_at="2026-10-05T00:00:00Z"),
+                    pr(1, created_at="2026-10-02T00:00:00Z"),
+                    pr(3, major=True, created_at="2026-09-01T00:00:00Z"),
+                ],
+            ),
+            repo("o/plain-red", main="red"),
+            repo("jakob1379/pacify", has_ci=False, main=None),
+        )
+        result = plan(c, empty(), NOW)
+        self.assertEqual(
+            keys(result), ["o/high:dep:pip:a", "o/high:fix-main", "o/low:dep:pip:b"]
+        )
+        self.assertEqual(
+            keys(result) + result["queued"],
+            [
+                "o/high:dep:pip:a",
+                "o/high:fix-main",
+                "o/low:dep:pip:b",
+                "o/plain-red:fix-main",
+                "o/prs#1",
+                "o/prs#2",
+                "o/prs#3",
+                "jakob1379/pacify:add-ci",
+            ],
+        )
+
+    def test_pr_covering_critical_alert_ranks_first(self):
+        c = cands(
+            repo(
+                prs=[pr(9)],
+                alerts=[alert("x", "critical", covered_by_pr=9), alert("y", "medium")],
+            )
+        )
+        self.assertEqual(keys(plan(c, empty(), NOW))[0], "o/r#9")
+
+    def test_failed_is_retried_blocked_running_done_are_not(self):
+        L = empty()
+        for n, status in [(1, "failed"), (2, "blocked"), (3, "running"), (4, "done")]:
+            start(L, f"o/r#{n}", f"t{n}", NOW)
+            if status != "running":
+                finish(L, f"o/r#{n}", status, "", NOW)
+        result = plan(cands(repo(prs=[pr(1), pr(2), pr(3), pr(4)])), L, NOW)
+        self.assertEqual(keys(result), ["o/r#1"])
+
+    def test_needs_review_cap_drops_no_ci_and_add_ci(self):
+        c = cands(
+            repo("o/noci", has_ci=False, main=None, alerts=[alert("a")]),
+            repo("o/ci", alerts=[alert("b")]),
+            repo("jakob1379/br18", has_ci=False, main=None),
+            needs_review_open=5,
+        )
+        self.assertEqual(keys(plan(c, empty(), NOW)), ["o/ci:dep:pip:b"])
+        c["needs_review_open"] = 4
+        self.assertEqual(len(keys(plan(c, empty(), NOW))), 3)
+
+    def test_slots_respect_running_and_daily_cap(self):
+        c = cands(repo(prs=[pr(n) for n in range(1, 6)]))
+        L = empty()
+        start(L, "x/y#1", "t1", NOW)
+        start(L, "x/y#2", "t2", NOW)
+        self.assertEqual(len(plan(c, L, NOW)["dispatch"]), 1)
+
+        L = empty()
+        L["starts"] = [NOW.isoformat()] * 24
+        first = plan(c, L, NOW)
+        second = plan(c, L, NOW)
+        self.assertEqual((first["dispatch"], first["announce_cap"]), ([], True))
+        self.assertEqual((second["dispatch"], second["announce_cap"]), ([], False))
+
+    def test_resolved_and_stale_done(self):
+        L = empty()
+        for key in ["o/r#1", "o/r#2", "o/r#3"]:
+            start(L, key, "t", NOW)
+        finish(L, "o/r#1", "done", "", NOW)
+        finish(L, "o/r#2", "done", "", datetime(2026, 10, 19, 11, tzinfo=UTC))
+        result = plan(cands(repo(prs=[pr(2)])), L, NOW)
+        self.assertEqual(result["resolved"], ["o/r#1"])
+        self.assertEqual(
+            result["newly_blocked"],
+            [{"key": "o/r#2", "note": "still open 48h after agent finished"}],
+        )
+        self.assertEqual(L["tasks"]["o/r#2"]["status"], "blocked")
+        self.assertEqual(sorted(L["tasks"]), ["o/r#2", "o/r#3"])
+
+    def test_done_item_still_open_but_not_a_task_is_not_resolved(self):
+        L = empty()
+        for key in ["o/r#1", "o/r:dep:pip:urllib3"]:
+            start(L, key, "t", NOW)
+            finish(L, key, "done", "", NOW)
+        c = cands(
+            repo(
+                prs=[pr(1, labels=["needs-review"]), pr(2)],
+                alerts=[alert(covered_by_pr=2)],
+            )
+        )
+        self.assertEqual(plan(c, L, NOW)["resolved"], [])
+        self.assertEqual(sorted(L["tasks"]), ["o/r#1", "o/r:dep:pip:urllib3"])
+
+
 SCRIPT = Path(__file__).with_name("backlog.py")
 
 
@@ -79,6 +289,17 @@ class CliTest(unittest.TestCase):
                 (entry["status"], entry["task_id"], entry["note"]),
                 ("done", "task-abc", "merged"),
             )
+
+    def test_plan_prints_result_and_saves_ledger(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            cpath.write_text(json.dumps(cands(repo(prs=[pr(1)]))))
+            cli(path, "start", "gone/repo#9", "t")
+            cli(path, "finish", "gone/repo#9", "done", "")
+            out = json.loads(cli(path, "plan", str(cpath)))
+            self.assertEqual([t["key"] for t in out["dispatch"]], ["o/r#1"])
+            self.assertEqual(out["resolved"], ["gone/repo#9"])
+            self.assertEqual(json.loads(path.read_text())["tasks"], {})
 
 
 if __name__ == "__main__":

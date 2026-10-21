@@ -10,6 +10,13 @@ MAX_RUNNING = 3
 DAILY_CAP = 24
 TZ = ZoneInfo("Europe/Copenhagen")
 MAX_ATTEMPTS = 2
+STALE_DONE_AFTER = timedelta(hours=48)
+STALE_NOTE = "still open 48h after agent finished"
+STUCK_AFTER = timedelta(hours=2)
+SKIP_LABELS = {"needs-review", "agent:blocked"}
+NEEDS_REVIEW_CAP = 5
+SKIP_STATUSES = {"running", "done", "blocked"}
+ADD_CI_REPOS = {"jakob1379/pacify", "jakob1379/br18", "jakob1379/brobizz-usage"}
 
 LEDGER = Path(os.environ.get("BACKLOG_LEDGER", Path(__file__).with_name("ledger.json")))
 
@@ -60,6 +67,136 @@ def used_today(ledger: dict, now: datetime) -> int:
     )
 
 
+def pr_needs_work(p: dict, now: datetime) -> bool:
+    if SKIP_LABELS & set(p["labels"]):
+        return False
+    if p["mergeable"] == "CONFLICTING" or p["checks"] == "red":
+        return True
+    since = datetime.fromisoformat(p["auto_merge_since"] or p["created_at"])
+    return p["checks"] == "green" and now - since >= STUCK_AFTER
+
+
+SEVERITY = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+NO_SEVERITY = 4
+
+
+def candidate_tasks(candidates: dict, now: datetime) -> list[tuple]:
+    ranked = []
+    for r in candidates["repos"]:
+        base = {"repo": r["repo"], "has_ci": r["has_ci"]}
+        covered, groups = {}, {}
+        for a in r["alerts"]:
+            sev = SEVERITY[a["severity"]]
+            if a["covered_by_pr"] is None:
+                groups.setdefault((a["ecosystem"], a["package"]), []).append(a)
+            else:
+                covered[a["covered_by_pr"]] = min(
+                    sev, covered.get(a["covered_by_pr"], NO_SEVERITY)
+                )
+        repo_sev = min(
+            (SEVERITY[a["severity"]] for a in r["alerts"]), default=NO_SEVERITY
+        )
+        for (eco, pkg), alerts in groups.items():
+            sev = min(SEVERITY[a["severity"]] for a in alerts)
+            task = {
+                **base,
+                "key": f"{r['repo']}:dep:{eco}:{pkg}",
+                "kind": "alert",
+                "alerts": alerts,
+            }
+            ranked.append(
+                (1 if sev <= 1 else 3, sev, min(a["created_at"] for a in alerts), task)
+            )
+        if r["has_ci"] and r["main"] == "red":
+            task = {**base, "key": f"{r['repo']}:fix-main", "kind": "fix-main"}
+            ranked.append((2 if repo_sev <= 1 else 4, repo_sev, "", task))
+        for p in r["prs"] if r["has_ci"] else []:
+            if pr_needs_work(p, now):
+                sev = covered.get(p["number"], NO_SEVERITY)
+                tier = 1 if sev <= 1 else 6 if p["major"] else 5
+                task = {
+                    **base,
+                    "key": f"{r['repo']}#{p['number']}",
+                    "kind": "pr",
+                    "pr": p["number"],
+                }
+                ranked.append((tier, sev, p["created_at"], task))
+        if r["repo"] in ADD_CI_REPOS and not r["has_ci"]:
+            ranked.append(
+                (
+                    7,
+                    NO_SEVERITY,
+                    "",
+                    {**base, "key": f"{r['repo']}:add-ci", "kind": "add-ci"},
+                )
+            )
+    ranked.sort(key=lambda x: x[:3])
+    return [{**task, "tier": tier} for tier, _, _, task in ranked]
+
+
+def present_keys(candidates: dict) -> set[str]:
+    keys = set()
+    for r in candidates["repos"]:
+        name = r["repo"]
+        keys |= {f"{name}#{p['number']}" for p in r["prs"]}
+        keys |= {f"{name}:dep:{a['ecosystem']}:{a['package']}" for a in r["alerts"]}
+        if r["main"] == "red":
+            keys.add(f"{name}:fix-main")
+        if not r["has_ci"]:
+            keys.add(f"{name}:add-ci")
+    return keys
+
+
+def plan(candidates: dict, ledger: dict, now: datetime) -> dict:
+    present = present_keys(candidates)
+    resolved, newly_blocked = [], []
+    for key, e in list(ledger["tasks"].items()):
+        if e["status"] == "running":
+            continue
+        if key not in present:
+            del ledger["tasks"][key]
+            if e["status"] == "done":
+                resolved.append(key)
+        elif (
+            e["status"] == "done"
+            and now - datetime.fromisoformat(e["finished"]) >= STALE_DONE_AFTER
+        ):
+            e.update(status="blocked", note=STALE_NOTE)
+            newly_blocked.append({"key": key, "note": STALE_NOTE})
+    tasks = candidate_tasks(candidates, now)
+    keys = {t["key"] for t in tasks}
+    held = [
+        t["key"] for t in tasks if t["kind"] == "pr" and f"{t['repo']}:fix-main" in keys
+    ]
+    review_full = candidates["needs_review_open"] >= NEEDS_REVIEW_CAP
+    ready = [
+        t
+        for t in tasks
+        if t["key"] not in held
+        and ledger["tasks"].get(t["key"], {}).get("status") not in SKIP_STATUSES
+        and not (review_full and (not t["has_ci"] or t["kind"] == "add-ci"))
+    ]
+    running = sum(e["status"] == "running" for e in ledger["tasks"].values())
+    used = used_today(ledger, now)
+    slots = max(0, min(MAX_RUNNING - running, DAILY_CAP - used))
+    today = now.astimezone(TZ).date().isoformat()
+    announce_cap = (
+        used >= DAILY_CAP and bool(ready) and ledger["cap_announced"] != today
+    )
+    if announce_cap:
+        ledger["cap_announced"] = today
+    return {
+        "dispatch": ready[:slots],
+        "queued": [t["key"] for t in ready[slots:]],
+        "held": held,
+        "running": running,
+        "used_today": used,
+        "announce_cap": announce_cap,
+        "resolved": resolved,
+        "newly_blocked": newly_blocked,
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -70,10 +207,15 @@ def main() -> None:
     p.add_argument("key")
     p.add_argument("status", choices=["done", "blocked", "failed"])
     p.add_argument("note")
+    p = sub.add_parser("plan")
+    p.add_argument("candidates", type=Path)
     args = ap.parse_args()
     now = datetime.now(UTC)
     ledger = load_ledger(LEDGER)
-    if args.cmd == "start":
+    if args.cmd == "plan":
+        result = plan(json.loads(args.candidates.read_text()), ledger, now)
+        print(json.dumps(result, indent=2))
+    elif args.cmd == "start":
         start(ledger, args.key, args.task_id, now)
     else:
         print(finish(ledger, args.key, args.status, args.note, now))
