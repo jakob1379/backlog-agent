@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -12,6 +13,7 @@ MAX_RUNNING = 3
 DAILY_CAP = 24
 TZ = ZoneInfo("Europe/Copenhagen")
 MAX_ATTEMPTS = 2
+OVERDUE_AFTER = timedelta(hours=6)
 STALE_DONE_AFTER = timedelta(hours=48)
 STALE_NOTE = "still open 48h after agent finished"
 STUCK_AFTER = timedelta(hours=2)
@@ -61,6 +63,19 @@ def finish(ledger: dict, key: str, status: str, note: str, now: datetime) -> str
     return status
 
 
+def running_tasks(ledger: dict, now: datetime) -> list[dict]:
+    return [
+        {
+            "key": key,
+            "task_id": e["task_id"],
+            "attempts": e["attempts"],
+            "overdue": now - datetime.fromisoformat(e["started"]) >= OVERDUE_AFTER,
+        }
+        for key, e in ledger["tasks"].items()
+        if e["status"] == "running"
+    ]
+
+
 def used_today(ledger: dict, now: datetime) -> int:
     today = now.astimezone(TZ).date()
     return sum(
@@ -108,9 +123,16 @@ def is_major(text: str) -> bool:
     return any(a != b for a, b in VERSION_BUMP.findall(text))
 
 
+def dependency_lines(p: dict) -> str:
+    lines = [
+        ln for ln in p["body"].splitlines() if ln.startswith(("Bumps ", "Updates "))
+    ]
+    return "\n".join([p["title"], *lines])
+
+
 def covering_pr(package: str, prs: list[dict]) -> int | None:
     pattern = re.compile(rf"(?<![\w.-]){re.escape(package)}(?![\w.-])", re.IGNORECASE)
-    matches = [p["number"] for p in prs if pattern.search(f"{p['title']}\n{p['body']}")]
+    matches = [p["number"] for p in prs if pattern.search(dependency_lines(p))]
     return min(matches, default=None)
 
 
@@ -191,7 +213,7 @@ def present_keys(candidates: dict) -> set[str]:
         name = r["repo"]
         keys |= {f"{name}#{p['number']}" for p in r["prs"]}
         keys |= {alert_key(name, a) for a in r["alerts"]}
-        if r["main"] == "red":
+        if r["has_ci"] and r["main"] != "green":
             keys.add(f"{name}:fix-main")
         if not r["has_ci"]:
             keys.add(f"{name}:add-ci")
@@ -217,7 +239,9 @@ def plan(candidates: dict, ledger: dict, now: datetime) -> dict:
     tasks = candidate_tasks(candidates, now)
     keys = {t["key"] for t in tasks}
     held = [
-        t["key"] for t in tasks if t["kind"] == "pr" and f"{t['repo']}:fix-main" in keys
+        t["key"]
+        for t in tasks
+        if t["kind"] == "pr" and t["tier"] != 1 and f"{t['repo']}:fix-main" in keys
     ]
     review_full = candidates["needs_review_open"] >= NEEDS_REVIEW_CAP
     ready = [
@@ -237,7 +261,10 @@ def plan(candidates: dict, ledger: dict, now: datetime) -> dict:
     if announce_cap:
         ledger["cap_announced"] = today
     return {
-        "dispatch": ready[:slots],
+        "dispatch": [
+            {**t, "attempt": ledger["tasks"].get(t["key"], {}).get("attempts", 0) + 1}
+            for t in ready[:slots]
+        ],
         "queued": [t["key"] for t in ready[slots:]],
         "held": held,
         "running": running,
@@ -268,7 +295,10 @@ QUERY = """query($endCursor: String) { viewer {
 
 
 def gh(*args: str):
-    r = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
+    for _ in range(3):
+        r = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
+        if not r.returncode or "HTTP 4" in r.stderr:
+            break
     if r.returncode:
         raise RuntimeError(f"gh {' '.join(args[:2])}: {r.stderr.strip()}")
     return json.loads(r.stdout)
@@ -392,6 +422,7 @@ def main() -> None:
     p.add_argument("status", choices=["done", "blocked", "failed"])
     p.add_argument("note")
     sub.add_parser("collect")
+    sub.add_parser("running")
     p = sub.add_parser("plan")
     p.add_argument("candidates", type=Path)
     args = ap.parse_args()
@@ -400,13 +431,17 @@ def main() -> None:
         return
     now = datetime.now(UTC)
     ledger = load_ledger(LEDGER)
+    if args.cmd == "running":
+        print(json.dumps(running_tasks(ledger, now), indent=2))
+        return
     if args.cmd == "plan":
         result = plan(json.loads(args.candidates.read_text()), ledger, now)
         print(json.dumps(result, indent=2))
     elif args.cmd == "start":
         start(ledger, args.key, args.task_id, now)
     else:
-        print(finish(ledger, args.key, args.status, args.note, now))
+        note = sys.stdin.read().strip() if args.note == "-" else args.note
+        print(finish(ledger, args.key, args.status, note, now))
     save_ledger(LEDGER, ledger)
 
 

@@ -231,6 +231,7 @@ class PlanTest(unittest.TestCase):
                 finish(L, f"o/r#{n}", status, "", NOW)
         result = plan(cands(repo(prs=[pr(1), pr(2), pr(3), pr(4)])), L, NOW)
         self.assertEqual(keys(result), ["o/r#1"])
+        self.assertEqual(result["dispatch"][0]["attempt"], 2)
 
     def test_needs_review_cap_drops_no_ci_and_add_ci(self):
         c = cands(
@@ -363,6 +364,42 @@ class CoveringPrTest(unittest.TestCase):
         self.assertIsNone(covering_pr("ssl", prs))
 
 
+class ReviewFixTest(unittest.TestCase):
+    def test_fix_main_survives_pending_main(self):
+        L = empty()
+        start(L, "o/r:fix-main", "t", NOW)
+        finish(L, "o/r:fix-main", "blocked", "needs owner", NOW)
+        plan(cands(repo(main="pending")), L, NOW)
+        result = plan(cands(repo(main="red")), L, NOW)
+        self.assertEqual(keys(result), [])
+        self.assertEqual(L["tasks"]["o/r:fix-main"]["status"], "blocked")
+
+    def test_release_notes_and_boilerplate_do_not_count_as_coverage(self):
+        body = (
+            "Bumps [requests](https://github.com/psf/requests) from 2.31.0 to 2.32.0.\n"
+            "<details><summary>Release notes</summary>Pin urllib3 below 3.</details>\n"
+            "- `@dependabot merge` will merge this PR after your CI passes on it"
+        )
+        prs = [
+            {"number": 4, "title": "Bump requests from 2.31.0 to 2.32.0", "body": body}
+        ]
+        self.assertEqual(covering_pr("requests", prs), 4)
+        self.assertIsNone(covering_pr("urllib3", prs))
+        self.assertIsNone(covering_pr("merge", prs))
+
+    def test_pr_covering_critical_alert_is_not_held(self):
+        c = cands(
+            repo(
+                main="red",
+                prs=[pr(7), pr(8)],
+                alerts=[alert("x", "critical", covered_by_pr=7)],
+            )
+        )
+        result = plan(c, empty(), NOW)
+        self.assertEqual(keys(result), ["o/r#7", "o/r:fix-main"])
+        self.assertEqual(result["held"], ["o/r#8"])
+
+
 SCRIPT = Path(__file__).with_name("backlog.py")
 
 
@@ -400,6 +437,36 @@ class CliTest(unittest.TestCase):
             self.assertEqual([t["key"] for t in out["dispatch"]], ["o/r#1"])
             self.assertEqual(out["resolved"], ["gone/repo#9"])
             self.assertEqual(json.loads(path.read_text())["tasks"], {})
+
+    def test_running_lists_tasks_with_overdue_flag(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d, "ledger.json")
+            L = empty()
+            start(L, "o/r#1", "old", datetime(2026, 1, 1, tzinfo=UTC))
+            start(L, "o/r#2", "new", datetime.now(UTC))
+            path.write_text(json.dumps(L))
+            out = json.loads(cli(path, "running"))
+            self.assertEqual(
+                [(t["key"], t["task_id"], t["overdue"]) for t in out],
+                [("o/r#1", "old", True), ("o/r#2", "new", False)],
+            )
+
+    def test_finish_reads_note_from_stdin(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d, "ledger.json")
+            cli(path, "start", "o/r#1", "t")
+            env = {**os.environ, "BACKLOG_LEDGER": str(path)}
+            note = "it's $(rm -rf /) `x`"
+            subprocess.run(
+                [sys.executable, SCRIPT, "finish", "o/r#1", "done", "-"],
+                input=note,
+                env=env,
+                text=True,
+                check=True,
+            )
+            self.assertEqual(
+                json.loads(path.read_text())["tasks"]["o/r#1"]["note"], note
+            )
 
 
 if __name__ == "__main__":

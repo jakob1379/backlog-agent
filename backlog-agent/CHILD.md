@@ -13,9 +13,11 @@ the `RESULT:` line. Background: `/home/jsg/.t3/worktrees/random/feat-backlog-age
    `github.com`, `objects.githubusercontent.com`, plus the registries the repo uses
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
    the lockfile names). Work inside the sandbox; when a host is refused, add it and rerun.
-3. Clone into a fresh directory:
-   `git -c credential.helper= -c credential.helper='!gh auth git-credential' clone https://github.com/<repo>.git "$TMPDIR/<key with / # : replaced by ->"`.
-   Push with the same two `-c` flags.
+3. Clone into a fresh directory, `CLONE="$TMPDIR/<key with / # : replaced by ->"`:
+   `git -c credential.helper= -c credential.helper='!gh auth git-credential' clone https://github.com/<repo>.git "$CLONE"`.
+   Push with the same two `-c` flags. Run every later git and gh command as
+   `cd <that literal path> && …`, so it always acts on the target repo. `$CLONE` below
+   stands for that path; shell variables don't survive between commands, so write it out.
 4. Read the repo's README, CI workflows and the required checks
    (`gh api repos/<repo>/rules/branches/<default>`), so your local check matches CI.
 
@@ -23,13 +25,19 @@ Done when: the clone exists and you can name the command that reproduces each re
 
 ## Lanes
 
-A diff is **manifest-only** when every changed path is a dependency manifest
-(`pyproject.toml`, `package.json`, `flake.nix`, `Cargo.toml`, `go.mod`, …), a lockfile, or under
-`.github/`.
+Choose the lane from the commits **you** add.
 
-- **Auto-merge lane**: the task's `has_ci` is true, the diff is manifest-only, and every
-  version change stays within its major. Run `gh pr merge <n> --auto --squash`.
-- **Review lane**: everything else. Add the label `needs-review` (create it first with
+- **Auto-merge lane** needs all of these:
+  - the task's `has_ci` is true
+  - every required check is green on the final head commit
+  - your commits change only dependency declarations (the dependency sections of
+    `pyproject.toml`, `package.json`, `flake.nix`, `Cargo.toml`, `go.mod`, …) and lockfiles
+  - either the PR is Dependabot's (a green Dependabot major qualifies), or every version you
+    changed stays within its major
+
+  If all hold, run `cd "$CLONE" && gh pr merge <n> --auto --squash`.
+- **Review lane**: everything else, including any edit to a workflow, a script, test, lint,
+  coverage or audit config, or source code. Add the label `needs-review` (create it first with
   `gh label create needs-review --color FBCA04 --force`). On a Dependabot PR, request a review
   from `jakob1379`, and assign `jakob1379` if GitHub rejects the request. On a PR you opened,
   assign `jakob1379`.
@@ -37,16 +45,25 @@ A diff is **manifest-only** when every changed path is a dependency manifest
 When `has_ci` is false, the PR always goes to the review lane, because a repo with no required
 checks merges the moment auto-merge is on.
 
+Make each check pass by fixing what it reports. Every check, step and test stays at least as
+strict as you found it. If the only path to green runs less of a check, the task is blocked.
+
 ## Branches by kind
 
 ### `pr`: red or stuck Dependabot PR `#<pr>`
 
 - **CONFLICTING**, and every commit is Dependabot's: comment `@dependabot recreate`. Done.
-- **Green but not merged**: if auto-merge is off and the PR qualifies for the auto-merge lane,
-  enable it. If auto-merge is on, comment `@dependabot rebase` once. Done.
+- **CONFLICTING with other commits**: merge the default branch into the head branch in
+  `$CLONE`, resolve the conflicts, push, and choose the lane.
+- **Green but not merged**:
+  - Auto-merge on: comment `@dependabot rebase` once.
+  - Auto-merge off, and the PR qualifies: enable it.
+  - Auto-merge off, and the PR doesn't qualify: put it in the review lane.
+
+  Done.
 - **Red**: follow `mattpocock-skills:diagnosing-bugs`. The feedback loop is the failing
   required check, reproduced locally from its Actions log (`gh run view <id> --log-failed`).
-  Commit the fix onto the PR's head branch (`gh pr checkout <pr>`) and push. Then choose the
+  Commit the fix onto the PR's head branch (`cd "$CLONE" && gh pr checkout <pr>`) and push. Then choose the
   lane from the PR's full diff. Pushing your own commit means Dependabot stops rebasing this PR,
   so it is yours from now on.
 

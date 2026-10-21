@@ -4,7 +4,8 @@
 
 `backlog.py` holds every rule: ranking, holds, the 3-running and 24-a-day caps, retries, and
 the ledger. Your job is to run it, start the children it names, and report. Read the state only
-from its output, and change the ledger only through its `start` and `finish` commands.
+from its output (`running`, `plan`), and change the ledger only through its `start` and
+`finish` commands.
 
 ## 0. Guard
 
@@ -14,11 +15,23 @@ The runtime lives on this branch, never on `main`.
 
 ## 1. Reconcile
 
-For every ledger entry with status `running` (`jq` on `$W/backlog-agent/ledger.json`), call
-`task_status` with its `task_id`. Once the task is terminal, take the child's last
-`RESULT: <status> — <note>` line (no such line counts as `failed`) and run
-`$B finish '<key>' <status> '<note>'`. Keep the status it prints, because `failed` can come
-back as `blocked`.
+`$B running` lists every running entry as `{key, task_id, attempts, overdue}`. For each one,
+call `task_status` with its `task_id`:
+
+- Terminal: take the child's last `RESULT: <status> — <note>` line. If there is no such line,
+  the status is `failed`.
+- `task_status` errors, or `overdue` is true: call `task_cancel`, then record `failed`, with
+  the note `lost or hung task`.
+
+Record the outcome by passing the note on stdin, so no quoting is involved:
+
+```
+$B finish '<key>' <status> - <<'NOTE_END'
+<note>
+NOTE_END
+```
+
+Keep the status it prints, because `failed` can come back as `blocked`.
 
 Done when no ledger entry is `running` with a terminal task behind it.
 
@@ -39,20 +52,23 @@ For each task in `dispatch`, in order:
    - `target: {"providerInstanceId": "claudeAgent", "model": "claude-opus-5-5", "options": {"effort": "high"}}`
    - `mode: "async"`, `isolation: "shared"`, `role: "implementation"`
    - `title: "backlog: <key>"`
-   - `clientRequestId: "<key>#<attempts + 1>"`
+   - `clientRequestId: "<key>#<attempt>"`
    - `task: "Read and follow /home/jsg/.t3/worktrees/random/feat-backlog-agent/backlog-agent/CHILD.md exactly. Task: <the task object as JSON>"`
-2. Run `$B start '<key>' <taskId>`.
+2. Once `delegate_task` returns a `taskId`, run `$B start '<key>' <taskId>`. If it fails,
+   skip the `start`, and list the key under **Failed to start** in the report.
 
 ## 4. Report
 
-There is something to report when any of these happened this run: a `finish` in step 1, or a
-non-empty `dispatch`, `resolved` or `newly_blocked`, or `announce_cap` is true. In that case
+There is something to report when any of these happened this run: a `finish` in step 1, a
+failed start, a non-empty `dispatch`, `resolved` or `newly_blocked`, or `announce_cap` is
+true. In that case
 reply with at most 10 lines, each linking to its PR or repo:
 
 - **Started**: the keys from `dispatch`.
 - **Merged/closed**: the keys from `resolved`.
 - **Needs you**: every `blocked` finish and every `newly_blocked` entry, with the owner action
   each one names. This includes admin steps from `add-ci` results.
+- **Failed to start**: the keys whose `delegate_task` failed, with the error.
 - **Cap**: when `announce_cap` is true, say the daily cap of 24 is reached and how many tasks
   are `queued`.
 

@@ -300,6 +300,11 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
   5. red/stuck non-major PRs, oldest first
   6. major PRs
   7. add-CI
+- **Lane rule tightened (from the final review):** the agent's own commits may auto-merge
+  only when they change dependency declarations and lockfiles. Edits to workflows, scripts, or
+  test/lint/coverage/audit config always go to review, because a PR's workflow edit can
+  weaken the very check that gates its auto-merge. Green Dependabot majors may still
+  auto-merge (Q3).
 - **Runtime:** branch `feat/backlog-agent` in its T3 worktree, never `main`. The branch is
   never merged into `main`, and the worktree stays while the schedule exists.
 
