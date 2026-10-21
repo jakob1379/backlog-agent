@@ -58,7 +58,13 @@ SCRIPT = Path(__file__).with_name("backlog.py")
 
 def cli(ledger_path, *args):
     env = {**os.environ, "BACKLOG_LEDGER": str(ledger_path)}
-    return subprocess.run([sys.executable, SCRIPT, *args], env=env, capture_output=True, text=True, check=True).stdout
+    return subprocess.run(
+        [sys.executable, SCRIPT, *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
 
 
 class CliTest(unittest.TestCase):
@@ -69,7 +75,10 @@ class CliTest(unittest.TestCase):
             out = cli(path, "finish", "o/r#1", "done", "merged")
             entry = json.loads(path.read_text())["tasks"]["o/r#1"]
             self.assertEqual(out.strip(), "done")
-            self.assertEqual((entry["status"], entry["task_id"], entry["note"]), ("done", "task-abc", "merged"))
+            self.assertEqual(
+                (entry["status"], entry["task_id"], entry["note"]),
+                ("done", "task-abc", "merged"),
+            )
 
 
 if __name__ == "__main__":

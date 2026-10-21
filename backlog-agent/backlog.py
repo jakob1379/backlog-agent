@@ -28,11 +28,19 @@ def save_ledger(path: Path, ledger: dict) -> None:
 
 def start(ledger: dict, key: str, task_id: str, now: datetime) -> None:
     entry = ledger["tasks"].get(key, {"attempts": 0})
-    entry.update(status="running", task_id=task_id, attempts=entry["attempts"] + 1,
-                 started=now.isoformat(), finished=None, note="")
+    entry.update(
+        status="running",
+        task_id=task_id,
+        attempts=entry["attempts"] + 1,
+        started=now.isoformat(),
+        finished=None,
+        note="",
+    )
     ledger["tasks"][key] = entry
     cutoff = now - timedelta(days=2)
-    ledger["starts"] = [t for t in ledger["starts"] if datetime.fromisoformat(t) >= cutoff]
+    ledger["starts"] = [
+        t for t in ledger["starts"] if datetime.fromisoformat(t) >= cutoff
+    ]
     ledger["starts"].append(now.isoformat())
 
 
@@ -46,7 +54,10 @@ def finish(ledger: dict, key: str, status: str, note: str, now: datetime) -> str
 
 def used_today(ledger: dict, now: datetime) -> int:
     today = now.astimezone(TZ).date()
-    return sum(datetime.fromisoformat(t).astimezone(TZ).date() == today for t in ledger["starts"])
+    return sum(
+        datetime.fromisoformat(t).astimezone(TZ).date() == today
+        for t in ledger["starts"]
+    )
 
 
 def main() -> None:
