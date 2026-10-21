@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Runtime home is this worktree: `/home/jsg/.t3/worktrees/random/feat-backlog-agent/backlog-agent/`. The sandbox can't write to the root checkout, and the scheduled thread is attached to this worktree. Don't remove the worktree while the schedule exists.
+- **Runtime branch and worktree.** The runtime lives on branch `feat/backlog-agent` in worktree `/home/jsg/.t3/worktrees/random/feat-backlog-agent/`, never on `main`. The schedule is bound to this thread, which is attached to that worktree. `feat/backlog-agent` is never merged into `main`, and the worktree is never removed while the schedule exists. PROMPT.md step 0 enforces this.
 - Every `gh` call in the agent runs with `export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token)` and `allowed_domains` that include `api.github.com`. Never print the token.
 - Phase 0 runs under the owner's own `gh` login (outside the sandbox), and each outward-facing step is shown to the owner and confirmed first.
 - `MAX_RUNNING = 3`, `DAILY_CAP = 24` (every start counts, retries too), `TZ = "Europe/Copenhagen"`, `MAX_ATTEMPTS = 2`.
@@ -20,6 +20,13 @@
 - Child agent: `target = {providerInstanceId: "claudeAgent", model: "claude-opus-5-5", options: {effort: "high"}}` (check the exact option id in `orchestrator_capabilities`), `mode: "async"`, `isolation: "shared"`, `runtimeMode` unset, `clientRequestId = "<key>#<attempt>"`.
 - Required checks come only from `GET repos/{o}/{r}/rules/branches/{default}` → `type == "required_status_checks"`. Passing conclusions are `SUCCESS`, `NEUTRAL` and `SKIPPED`.
 - In GraphQL, a Dependabot PR's `author.login` is `"dependabot"`, not `"dependabot[bot]"`.
+- Skills (`mattpocock-skills:`):
+  - `tdd` for Tasks 3–5. Seams: `start`/`finish`/`used_today`, `plan`, `required_state`, `is_major`. Vertical slices, one test, then one implementation.
+  - `writing-for-agents` for PROMPT.md and CHILD.md.
+  - `pr` for every PR body, including the children's.
+  - `diagnosing-bugs` inside CHILD.md for red-PR and fix-main tasks.
+  - `code-review` for the final branch review against `main` with the spec.
+  - `retro` is user-invoked only; suggest it after the supervised run.
 - Conventional commits. No code comments except `shortcut:` notes and the manifest override comment the spec requires.
 
 ## Deviations from the spec (decided while planning, written back to the spec in Task 1)
@@ -71,7 +78,7 @@ Runs in this session under the owner's login. Nothing is pushed until the owner 
   - Run `nix run nixpkgs#actionlint -- .github/workflows/dependabot-auto-merge.yml` in each clone. Expected: no output, exit 0.
   - Run `nix run nixpkgs#yq-go -- . .github/dependabot.yml`. Expected: the file parses.
 - [ ] **Step 4:** Show the owner the 6 diffs in one message and wait for approval.
-- [ ] **Step 5:** On approval, in each repo:
+- [ ] **Step 5:** On approval, in each repo (PR body via `mattpocock-skills:pr`):
   - Create branch `ci/dependabot-automerge-majors-only`.
   - Commit `ci: auto-merge all non-major dependabot updates`.
   - Push and run `gh pr create`. The body names the old filter's failure: grouped PRs and SHA bumps have `update-type: null`.
@@ -111,7 +118,7 @@ Runs after the owner has merged the Task 1 PRs.
   - `used_today(ledger: dict, now: datetime) -> int`
   - CLI: `backlog.py start KEY TASK_ID` and `backlog.py finish KEY done|blocked|failed NOTE`. Ledger path: `Path(__file__).with_name("ledger.json")`.
 
-- [ ] **Step 1: Write the failing tests** (`unittest`, using `now` as a fixed aware datetime):
+- [ ] **Step 1: Write the failing tests** one slice at a time, per `mattpocock-skills:tdd` (`unittest`, using `now` as a fixed aware datetime):
 
 ```python
 def test_start_counts_attempts_and_starts(self):
@@ -275,6 +282,7 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
 ### Task 6: CHILD.md and PROMPT.md, then a supervised first run
 
 **Files:**
+- Both files are written with `mattpocock-skills:writing-for-agents`.
 - Create: `backlog-agent/CHILD.md`. This is the spec's "Child agent rules" made executable:
   - **Setup and scope.**
     - The child receives one task JSON.
@@ -284,6 +292,9 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
   - **Auto-merge and review.**
     - Enable auto-merge only when `has_ci` is true **and** the diff touches only manifests, lockfiles or `.github/`.
     - Otherwise add the label `needs-review`, creating it if it's missing. Request jakob1379 as reviewer on Dependabot PRs; assign jakob1379 on PRs the agent authored.
+  - **Skills.**
+    - Red PR and fix-main: follow `mattpocock-skills:diagnosing-bugs`. The feedback loop is the failing required check, reproduced locally.
+    - PR bodies: `mattpocock-skills:pr`.
   - **Never:**
     - merge, or force-push a non-Dependabot branch
     - change settings, dismiss an alert, or add an audit ignore
@@ -292,6 +303,7 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
   - **Network.** Declare `allowed_domains` per command from the spec's list.
   - **Output.** The final line must be exactly `RESULT: done|blocked|failed — <one line>`. `blocked` also adds `agent:blocked` with one comment, when a PR exists.
 - Create: `backlog-agent/PROMPT.md`. Sections:
+  0. **Guard.** Check that `git -C <worktree> branch --show-current` is `feat/backlog-agent` and that `<worktree>/backlog-agent/backlog.py` exists. If either fails, post one line and stop. Never run from `main`.
   1. **Reconcile.** For each running ledger key, call `task_status(task_id)`. When it's terminal, parse the `RESULT:` line (if it's missing, record `failed`) and run `backlog.py finish`.
   2. **Collect.** Run `backlog.py collect > $TMPDIR/c.json`. If that fails, post the error once and stop.
   3. **Plan.** Run `backlog.py plan $TMPDIR/c.json`.
@@ -309,7 +321,8 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
   - With the owner's go, dispatch only the top task, then wait for its completion notification.
   - Check its PR/branch by hand against CHILD.md: correct label/auto-merge decision, conventional commit, no settings touched, `RESULT:` line present.
   - Run `finish`.
-- [ ] **Step 4:** Fix whatever the supervised run exposed in CHILD.md, then commit `feat(backlog-agent): add dispatcher and child prompts`.
+- [ ] **Step 4:** Fix whatever the supervised run exposed in CHILD.md, then commit `feat(backlog-agent): add dispatcher and child prompts`. Suggest the owner run `/mattpocock-skills:retro` on the child's thread.
+- [ ] **Step 5:** Run `mattpocock-skills:code-review` with fixed point `main` and the spec path. Fix the confirmed findings, then commit.
 
 ### Task 7: Schedule
 
@@ -321,4 +334,4 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
 
   Report the returned `nextRunAt`.
 - [ ] **Step 2:** After the first scheduled run, check that it posted either nothing or a summary of 10 lines or fewer, and that `ledger.json` has the expected entries.
-- [ ] **Step 3: Push.** Push `feat/backlog-agent` and open a PR to `main` for history, then `link_pull_request`. Keep the worktree, because it is the runtime home.
+- [ ] **Step 3: Push.** Push `feat/backlog-agent` to origin as a backup. Open no PR to `main`, because the runtime stays off `main`.
