@@ -127,6 +127,10 @@ SEVERITY = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 NO_SEVERITY = 4
 
 
+def alert_key(repo: str, a: dict) -> str:
+    return f"{repo}:dep:{a['ecosystem']}:{re.sub(r'[-_.]+', '-', a['package']).lower()}"
+
+
 def candidate_tasks(candidates: dict, now: datetime) -> list[tuple]:
     ranked = []
     for r in candidates["repos"]:
@@ -135,7 +139,7 @@ def candidate_tasks(candidates: dict, now: datetime) -> list[tuple]:
         for a in r["alerts"]:
             sev = SEVERITY[a["severity"]]
             if a["covered_by_pr"] is None:
-                groups.setdefault((a["ecosystem"], a["package"]), []).append(a)
+                groups.setdefault(alert_key(r["repo"], a), []).append(a)
             else:
                 covered[a["covered_by_pr"]] = min(
                     sev, covered.get(a["covered_by_pr"], NO_SEVERITY)
@@ -143,11 +147,11 @@ def candidate_tasks(candidates: dict, now: datetime) -> list[tuple]:
         repo_sev = min(
             (SEVERITY[a["severity"]] for a in r["alerts"]), default=NO_SEVERITY
         )
-        for (eco, pkg), alerts in groups.items():
+        for key, alerts in groups.items():
             sev = min(SEVERITY[a["severity"]] for a in alerts)
             task = {
                 **base,
-                "key": f"{r['repo']}:dep:{eco}:{pkg}",
+                "key": key,
                 "kind": "alert",
                 "alerts": alerts,
             }
@@ -186,7 +190,7 @@ def present_keys(candidates: dict) -> set[str]:
     for r in candidates["repos"]:
         name = r["repo"]
         keys |= {f"{name}#{p['number']}" for p in r["prs"]}
-        keys |= {f"{name}:dep:{a['ecosystem']}:{a['package']}" for a in r["alerts"]}
+        keys |= {alert_key(name, a) for a in r["alerts"]}
         if r["main"] == "red":
             keys.add(f"{name}:fix-main")
         if not r["has_ci"]:

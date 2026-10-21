@@ -130,6 +130,22 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn("o/r:dep:pip:urllib3", keys(result))
         self.assertIn("o/r:dep:pip:idna", keys(result))
 
+    def test_package_names_group_case_and_separator_insensitively(self):
+        c = cands(
+            repo(
+                alerts=[
+                    alert("GitPython"),
+                    alert("gitpython"),
+                    alert("pydantic_settings"),
+                ]
+            )
+        )
+        result = plan(c, empty(), NOW)
+        self.assertEqual(
+            sorted(keys(result)),
+            ["o/r:dep:pip:gitpython", "o/r:dep:pip:pydantic-settings"],
+        )
+
     def test_red_main_holds_pr_tasks_not_alert_tasks(self):
         c = cands(repo(main="red", prs=[pr(3)], alerts=[alert()]))
         result = plan(c, empty(), NOW)
