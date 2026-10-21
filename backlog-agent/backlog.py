@@ -2,6 +2,8 @@
 import argparse
 import json
 import os
+import re
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -65,6 +67,51 @@ def used_today(ledger: dict, now: datetime) -> int:
         datetime.fromisoformat(t).astimezone(TZ).date() == today
         for t in ledger["starts"]
     )
+
+
+PASSING = {"SUCCESS", "NEUTRAL", "SKIPPED"}
+WAITING = {"PENDING", "EXPECTED"}
+
+
+def required_state(contexts: list[dict], required: list[str]) -> str | None:
+    if not required:
+        return None
+    latest = {}
+    for node in contexts:
+        name = node.get("name") or node.get("context")
+        if name in required and node.get("startedAt", "") >= latest.get(name, {}).get(
+            "startedAt", ""
+        ):
+            latest[name] = node
+    states = []
+    for name in required:
+        node = latest.get(name)
+        if (
+            node is None
+            or node.get("status", "COMPLETED") != "COMPLETED"
+            or node.get("state") in WAITING
+        ):
+            states.append("pending")
+        else:
+            states.append(
+                "green"
+                if (node.get("conclusion") or node.get("state")) in PASSING
+                else "red"
+            )
+    return "red" if "red" in states else "pending" if "pending" in states else "green"
+
+
+VERSION_BUMP = re.compile(r"from v?(\d+)(?:\.\d+)*\b\S* to v?(\d+)(?:\.\d+)*\b")
+
+
+def is_major(text: str) -> bool:
+    return any(a != b for a, b in VERSION_BUMP.findall(text))
+
+
+def covering_pr(package: str, prs: list[dict]) -> int | None:
+    pattern = re.compile(rf"(?<![\w.-]){re.escape(package)}(?![\w.-])", re.IGNORECASE)
+    matches = [p["number"] for p in prs if pattern.search(f"{p['title']}\n{p['body']}")]
+    return min(matches, default=None)
 
 
 def pr_needs_work(p: dict, now: datetime) -> bool:
@@ -197,6 +244,139 @@ def plan(candidates: dict, ledger: dict, now: datetime) -> dict:
     }
 
 
+QUERY = """query($endCursor: String) { viewer {
+  repositories(first: 20, after: $endCursor, ownerAffiliations: OWNER, isArchived: false, isFork: false) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      nameWithOwner
+      defaultBranchRef { name target { oid } }
+      pullRequests(states: OPEN, first: 50) { nodes {
+        number title body createdAt mergeable headRefOid author { login }
+        labels(first: 20) { nodes { name } }
+        autoMergeRequest { enabledAt } } }
+      vulnerabilityAlerts(states: OPEN, first: 100) { nodes {
+        createdAt
+        securityAdvisory { ghsaId }
+        securityVulnerability {
+          severity vulnerableVersionRange
+          package { name ecosystem }
+          firstPatchedVersion { identifier } } } } } } } }"""
+
+
+def gh(*args: str):
+    r = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
+    if r.returncode:
+        raise RuntimeError(f"gh {' '.join(args[:2])}: {r.stderr.strip()}")
+    return json.loads(r.stdout)
+
+
+def required_checks(repo: str, branch: str) -> list[str]:
+    try:
+        rules = gh("api", f"repos/{repo}/rules/branches/{branch}")
+    except RuntimeError as e:
+        if "HTTP 403" in str(e):
+            return []
+        raise
+    return [
+        c["context"]
+        for r in rules
+        if r["type"] == "required_status_checks"
+        for c in r["parameters"]["required_status_checks"]
+    ]
+
+
+def commit_contexts(repo: str, sha: str) -> list[dict]:
+    runs = gh(
+        "api",
+        "--paginate",
+        "--slurp",
+        f"repos/{repo}/commits/{sha}/check-runs?per_page=100",
+    )
+    status = gh("api", f"repos/{repo}/commits/{sha}/status")
+    return [
+        {
+            "name": c["name"],
+            "status": c["status"].upper(),
+            "conclusion": (c["conclusion"] or "").upper() or None,
+            "startedAt": c["started_at"] or "",
+        }
+        for page in runs
+        for c in page["check_runs"]
+    ] + [
+        {"context": st["context"], "state": st["state"].upper()}
+        for st in status["statuses"]
+    ]
+
+
+def sha_state(repo: str, sha: str, required: list[str]) -> str | None:
+    return required_state(commit_contexts(repo, sha), required) if required else None
+
+
+def collect() -> dict:
+    # shortcut: first 50 PRs / 100 alerts per repo, paginate those if a repo ever exceeds them
+    pages = gh("api", "graphql", "--paginate", "--slurp", "-f", f"query={QUERY}")
+    repos, needs_review_open = [], 0
+    for node in (
+        n for page in pages for n in page["data"]["viewer"]["repositories"]["nodes"]
+    ):
+        name, branch = node["nameWithOwner"], node["defaultBranchRef"]
+        required = required_checks(name, branch["name"]) if branch else []
+        all_prs = node["pullRequests"]["nodes"]
+        needs_review_open += sum(
+            "needs-review" in {lb["name"] for lb in p["labels"]["nodes"]}
+            for p in all_prs
+        )
+        prs = [p for p in all_prs if (p["author"] or {}).get("login") == "dependabot"]
+
+        repos.append(
+            {
+                "repo": name,
+                "has_ci": bool(required),
+                "main": sha_state(name, branch["target"]["oid"], required)
+                if branch
+                else None,
+                "prs": [
+                    {
+                        "number": p["number"],
+                        "title": p["title"],
+                        "created_at": p["createdAt"],
+                        "labels": [lb["name"] for lb in p["labels"]["nodes"]],
+                        "mergeable": p["mergeable"],
+                        "auto_merge_since": (p["autoMergeRequest"] or {}).get(
+                            "enabledAt"
+                        ),
+                        "checks": sha_state(name, p["headRefOid"], required),
+                        "major": is_major(f"{p['title']}\n{p['body']}"),
+                    }
+                    for p in prs
+                ],
+                "alerts": [
+                    alert_record(a, prs) for a in node["vulnerabilityAlerts"]["nodes"]
+                ],
+            }
+        )
+    return {
+        "generated": datetime.now(UTC).isoformat(),
+        "needs_review_open": needs_review_open,
+        "repos": repos,
+    }
+
+
+def alert_record(a: dict, prs: list[dict]) -> dict:
+    v = a["securityVulnerability"]
+    severity = v["severity"].lower()
+    return {
+        "ghsa": a["securityAdvisory"]["ghsaId"],
+        "severity": "medium" if severity == "moderate" else severity,
+        "ecosystem": v["package"]["ecosystem"].lower(),
+        "package": v["package"]["name"],
+        "range": v["vulnerableVersionRange"],
+        "first_patched": (v["firstPatchedVersion"] or {}).get("identifier"),
+        "created_at": a["createdAt"],
+        "covered_by_pr": covering_pr(v["package"]["name"], prs),
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -207,9 +387,13 @@ def main() -> None:
     p.add_argument("key")
     p.add_argument("status", choices=["done", "blocked", "failed"])
     p.add_argument("note")
+    sub.add_parser("collect")
     p = sub.add_parser("plan")
     p.add_argument("candidates", type=Path)
     args = ap.parse_args()
+    if args.cmd == "collect":
+        print(json.dumps(collect(), indent=2))
+        return
     now = datetime.now(UTC)
     ledger = load_ledger(LEDGER)
     if args.cmd == "plan":

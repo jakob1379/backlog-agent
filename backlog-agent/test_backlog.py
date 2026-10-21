@@ -7,7 +7,15 @@ import unittest
 from datetime import UTC, datetime
 from pathlib import Path
 
-from backlog import finish, plan, start, used_today
+from backlog import (
+    covering_pr,
+    finish,
+    is_major,
+    plan,
+    required_state,
+    start,
+    used_today,
+)
 
 NOW = datetime(2026, 10, 21, 12, tzinfo=UTC)
 
@@ -261,6 +269,82 @@ class PlanTest(unittest.TestCase):
         )
         self.assertEqual(plan(c, L, NOW)["resolved"], [])
         self.assertEqual(sorted(L["tasks"]), ["o/r#1", "o/r:dep:pip:urllib3"])
+
+
+def run(name, conclusion, started="2026-10-21T10:00:00Z", status="COMPLETED"):
+    return {
+        "__typename": "CheckRun",
+        "name": name,
+        "conclusion": conclusion,
+        "status": status,
+        "startedAt": started,
+    }
+
+
+def ctx(state):
+    return {"__typename": "StatusContext", "context": "ci", "state": state}
+
+
+class RequiredStateTest(unittest.TestCase):
+    def test_missing_required_check_is_pending(self):
+        self.assertEqual(required_state([run("lint", "SUCCESS")], ["test"]), "pending")
+
+    def test_latest_rerun_wins(self):
+        nodes = [
+            run("test", "SUCCESS", "2026-10-21T11:00:00Z"),
+            run("test", "FAILURE", "2026-10-21T10:00:00Z"),
+        ]
+        self.assertEqual(required_state(nodes, ["test"]), "green")
+        nodes = [
+            run("test", "SUCCESS", "2026-10-21T10:00:00Z"),
+            run("test", "FAILURE", "2026-10-21T11:00:00Z"),
+        ]
+        self.assertEqual(required_state(nodes, ["test"]), "red")
+
+    def test_status_context_counts(self):
+        self.assertEqual(required_state([ctx("SUCCESS")], ["ci"]), "green")
+        self.assertEqual(required_state([ctx("PENDING")], ["ci"]), "pending")
+        self.assertEqual(required_state([ctx("EXPECTED")], ["ci"]), "pending")
+        self.assertEqual(required_state([ctx("ERROR")], ["ci"]), "red")
+
+    def test_neutral_and_skipped_pass_in_progress_is_pending(self):
+        nodes = [
+            run("a", "NEUTRAL"),
+            run("b", "SKIPPED"),
+            run("c", None, status="IN_PROGRESS"),
+        ]
+        self.assertEqual(required_state(nodes, ["a", "b"]), "green")
+        self.assertEqual(required_state(nodes, ["a", "c"]), "pending")
+        self.assertIsNone(required_state(nodes, []))
+
+
+class IsMajorTest(unittest.TestCase):
+    def test_is_major(self):
+        self.assertTrue(is_major("Bump requests from 1.9.2 to 2.0.0"))
+        self.assertFalse(is_major("Bump ruff from 4.1 to 4.2"))
+        self.assertTrue(is_major("Bump actions/checkout from v3 to v4"))
+        self.assertFalse(is_major("Bump nixpkgs from abc123 to def456"))
+        group = "Bumps the python group with 2 updates\nUpdates `a` from 1.0.0 to 1.1.0\nUpdates `b` from 1.4 to 2.0"
+        self.assertTrue(is_major(group))
+        self.assertFalse(is_major("Bumps the nix group"))
+        self.assertFalse(is_major("Bump nixpkgs from 3f2a1c4 to 7b9e0d1"))
+        self.assertTrue(is_major("Bump x from 1.0.0-rc.1 to 2.0.0."))
+
+
+class CoveringPrTest(unittest.TestCase):
+    def test_covering_pr_matches_whole_package_names(self):
+        prs = [
+            {"number": 8, "title": "Bump idna-ssl from 1.0 to 1.1", "body": ""},
+            {
+                "number": 5,
+                "title": "Bump the python group",
+                "body": "Updates `IDNA` from 3.6 to 3.7",
+            },
+            {"number": 3, "title": "Bump @babel/core from 7.1 to 7.2", "body": ""},
+        ]
+        self.assertEqual(covering_pr("idna", prs), 5)
+        self.assertEqual(covering_pr("@babel/core", prs), 3)
+        self.assertIsNone(covering_pr("ssl", prs))
 
 
 SCRIPT = Path(__file__).with_name("backlog.py")
