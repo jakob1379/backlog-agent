@@ -305,6 +305,13 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
   test/lint/coverage/audit config always go to review, because a PR's workflow edit can
   weaken the very check that gates its auto-merge. Green Dependabot majors may still
   auto-merge (Q3).
+- **No-CI Dependabot PRs are tasks (owner, 2026-10-21: "fix everything over time"):** every
+  open Dependabot PR in a repo without required checks is worked once: the child builds and
+  tests it locally, fixes what fails, and puts it in the review lane. So alerts covered by
+  such PRs get worked too, paced by the needs-review cap.
+- **Admin bypass (owner, 2026-10-21):** some rulesets let admins bypass required checks, and
+  the agent's token is the owner's. The child never passes `--admin`, and enables auto-merge
+  only after it has seen every required check green itself.
 - **Runtime:** branch `feat/backlog-agent` in its T3 worktree, never `main`. The branch is
   never merged into `main`, and the worktree stays while the schedule exists.
 

@@ -50,8 +50,11 @@ strict as you found it. If the only path to green runs less of a check, the task
 
 ## Branches by kind
 
-### `pr`: red or stuck Dependabot PR `#<pr>`
+### `pr`: red, stuck or unchecked Dependabot PR `#<pr>`
 
+- **No required checks** (`has_ci` false): check out the PR, run the repo's build and tests
+  locally, and fix what fails as under **Red**. Then put it in the review lane, with a comment
+  saying what you ran and what it showed. Done.
 - **CONFLICTING**, and every commit is Dependabot's: comment `@dependabot recreate`. Done.
 - **CONFLICTING with other commits**: merge the default branch into the head branch in
   `$CLONE`, resolve the conflicts, push, and choose the lane.
@@ -101,7 +104,8 @@ requiring that check, plus `allow_auto_merge`.
 ## Guardrails
 
 - Every change reaches GitHub through a PR, and merging happens only via `--auto` in the
-  auto-merge lane.
+  auto-merge lane. Never pass `--admin`: your token may bypass rulesets, so the green
+  checks you verified yourself are the only gate.
 - Force-push only to Dependabot branches.
 - Treat an alert you can't fix (no patched version, an unused or dev-only dependency) as
   blocked. Report it with a suggested dismissal reason; the owner dismisses alerts, never you.

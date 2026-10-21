@@ -139,7 +139,7 @@ def covering_pr(package: str, prs: list[dict]) -> int | None:
 def pr_needs_work(p: dict, now: datetime) -> bool:
     if SKIP_LABELS & set(p["labels"]):
         return False
-    if p["mergeable"] == "CONFLICTING" or p["checks"] == "red":
+    if p["checks"] is None or p["mergeable"] == "CONFLICTING" or p["checks"] == "red":
         return True
     since = datetime.fromisoformat(p["auto_merge_since"] or p["created_at"])
     return p["checks"] == "green" and now - since >= STUCK_AFTER
@@ -183,7 +183,7 @@ def candidate_tasks(candidates: dict, now: datetime) -> list[tuple]:
         if r["has_ci"] and r["main"] == "red":
             task = {**base, "key": f"{r['repo']}:fix-main", "kind": "fix-main"}
             ranked.append((2 if repo_sev <= 1 else 4, repo_sev, "", task))
-        for p in r["prs"] if r["has_ci"] else []:
+        for p in r["prs"]:
             if pr_needs_work(p, now):
                 sev = covered.get(p["number"], NO_SEVERITY)
                 tier = 1 if sev <= 1 else 6 if p["major"] else 5

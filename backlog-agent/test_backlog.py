@@ -175,10 +175,12 @@ class PlanTest(unittest.TestCase):
         prs = [pr(1, labels=["needs-review"]), pr(2, labels=["agent:blocked"])]
         self.assertEqual(keys(plan(cands(repo(prs=prs)), empty(), NOW)), [])
 
-    def test_no_ci_repo_prs_dropped_but_alerts_kept(self):
-        c = cands(repo(has_ci=False, main=None, prs=[pr(1)], alerts=[alert()]))
+    def test_no_ci_repo_prs_are_tasks_until_labelled(self):
+        prs = [pr(1, checks=None), pr(2, checks=None, labels=["needs-review"])]
+        alerts = [alert("urllib3", covered_by_pr=1), alert("idna", "low")]
+        c = cands(repo(has_ci=False, main=None, prs=prs, alerts=alerts))
         result = plan(c, empty(), NOW)
-        self.assertEqual(keys(result), ["o/r:dep:pip:urllib3"])
+        self.assertEqual(keys(result), ["o/r#1", "o/r:dep:pip:idna"])
         self.assertFalse(result["dispatch"][0]["has_ci"])
 
     def test_rank_order(self):
