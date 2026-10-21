@@ -92,9 +92,11 @@ Each step is shown to the owner and confirmed before it runs.
    jakob1379.github.io, text2ics, pymdown-symbolic-snippets and bank-focus. One PR per repo:
    - In `dependabot.yml`, restrict every `groups:` entry to `update-types: [minor, patch]`, so
      a group can never contain a major. Majors then arrive as separate, ungrouped PRs.
-   - Workflow condition: auto-merge when update-type is patch or minor, **or** the PR is a
-     group (`dependency-group` is set), **or** the ecosystem is `github-actions` or a Nix
-     flake input. Never majors.
+   - Workflow condition: auto-merge when fetch-metadata's `updated-dependencies-json` is
+     non-empty and contains no `version-update:semver-major`. This covers groups and Nix and
+     Actions SHA bumps the same way. It never lets a major through, and it fails closed when
+     the metadata can't be parsed. (Revised 2026-10-21; the earlier draft listed
+     patch/minor/group/ecosystem cases separately.)
    - The owner reviews and merges these 6 PRs.
 4. **Kick PRs that predate the workflow:** comment `@dependabot rebase` on those PRs (e.g.
    bank-focus), so the workflow runs on them.
@@ -198,8 +200,9 @@ Status as of 2026-10-20:
     it blocked in the ledger so it isn't retried every hour.
   - The alert closes on its own when the fix reaches the default branch.
 - **Fix main (Q6):** make the default branch's required checks pass, using the same
-  manifest-only versus source rule. For Canvas-Code-Correction that means relocking so that
-  `uv audit` passes.
+  manifest-only versus source rule. (As of 2026-10-21, Canvas-Code-Correction's main is red
+  on the required `SonarCloud Code Analysis` check, while `test` is green on main and red on
+  all 13 Dependabot PRs.)
 - **Add minimal CI (Q16):** only pacify, br18 and brobizz-usage. Open a PR adding one workflow
   that runs the repo's existing build/test command (e.g. `nix flake check`, `uv run pytest`).
   Label it `needs-review`. The ruleset and `allow_auto_merge` setup needs admin rights, so it
@@ -281,6 +284,24 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
   (`allowed_domains`): pypi.org, files.pythonhosted.org, registry.npmjs.org,
   cache.nixos.org, github.com, api.github.com, objects.githubusercontent.com, plus whatever
   the repo's lockfile names. The sandbox is never disabled.
+
+## Planning changes (2026-10-21)
+
+- **Alert task key:** `owner/repo:dep:<ecosystem>:<package>`, since one task covers every
+  alert for that package.
+- **Needs-review cap:** while 5 or more open PRs carry `needs-review`, the dispatcher starts
+  no task in a no-CI repo and no add-CI task. Those can only end in `needs-review`, and
+  without the cap about 141 alerts would bury the owner.
+- **Tiers:**
+  1. critical/high alerts, plus Dependabot PRs that cover one
+  2. fix-main in a repo with a critical/high alert
+  3. medium/low alerts
+  4. other fix-main
+  5. red/stuck non-major PRs, oldest first
+  6. major PRs
+  7. add-CI
+- **Runtime:** branch `feat/backlog-agent` in its T3 worktree, never `main`. The branch is
+  never merged into `main`, and the worktree stays while the schedule exists.
 
 ## Left to the builder
 
