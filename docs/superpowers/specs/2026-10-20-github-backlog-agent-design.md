@@ -119,10 +119,11 @@ Status as of 2026-10-20:
 ### Runtime
 
 - A T3 scheduled task, `{"type":"interval","everyMs":3600000}`. Each run starts a new thread
-  in the `random` T3 project's main checkout (`/home/jsg/Documents/jsg/random`). Its gitignored
-  `.claude/settings.local.json` holds the agent's allow rules, so every run and its children get
-  them. The runtime lives in a fixed git worktree, `/home/jsg/Documents/jsg/random_backlog-agent`,
-  on `feat/backlog-agent`, outside T3's worktree lifecycle. The dispatcher may fix its own rules,
+  in the `random_backlog-agent` T3 project, whose root is the fixed git worktree
+  `/home/jsg/Documents/jsg/random_backlog-agent` on `feat/backlog-agent`, outside T3's worktree
+  lifecycle. The project's thread mode must be `local`, or every run creates a new worktree. Its
+  gitignored `.claude/settings.local.json` holds the agent's allow rules, so every run and its
+  children get them. Nothing lives in `random`'s main checkout. The dispatcher may fix its own rules,
   prompts and docs there, committing and pushing a backup of the branch (PROMPT.md step 5). The prompt is: "Read and follow
   `<dir>/PROMPT.md` exactly." A run can only read the children it started itself, so each
   thread reconciles its own children when they finish. Later runs only take over overdue ones.
@@ -242,8 +243,8 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
 - One child agent per task, Opus 5.5 high, at most 3 running.
 - Priority order as listed in the dispatcher.
 - Phase 1 is GitHub only. Phase 2 uses Linear, and only for items that need a human.
-- Runs as an hourly T3 task, one new thread per run, in the `random` main checkout; it maintains
-  its own runtime in the `random_backlog-agent` worktree. It only reports when something changed.
+- Runs as an hourly T3 task, one new thread per run, inside its own `random_backlog-agent`
+  worktree, which it maintains itself. It only reports when something changed.
 - Fine-grained PAT, not classic.
 - Phase 0 workflow fix in the 6 repos.
 - "Green" means the required checks in the ruleset passed.
