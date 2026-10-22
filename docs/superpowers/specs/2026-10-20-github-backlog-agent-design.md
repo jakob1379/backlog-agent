@@ -97,6 +97,11 @@ Each step is shown to the owner and confirmed before it runs.
      Actions SHA bumps the same way. It never lets a major through, and it fails closed when
      the metadata can't be parsed. (Revised 2026-10-21; the earlier draft listed
      patch/minor/group/ecosystem cases separately.)
+   - **Superseded 2026-10-22.** That condition failed open. Grouped uv security updates report
+     `update-type: null`, and the JSON has no `semver-major` string, so pymdown-symbolic-snippets#2
+     (pymdown-extensions 10 → 11) auto-merged. The condition is now: `update-type` is
+     `semver-patch` or `semver-minor`, or `package-ecosystem` is `nix` (SHA inputs with no version).
+     Grouped uv updates with a null `update-type` are left to the backlog agent.
    - The owner reviews and merges these 6 PRs.
 4. **Kick PRs that predate the workflow:** comment `@dependabot rebase` on those PRs (e.g.
    bank-focus), so the workflow runs on them.
@@ -113,9 +118,11 @@ Status as of 2026-10-20:
 
 ### Runtime
 
-- A T3 scheduled task, `{"type":"interval","everyMs":3600000}`, bound to the thread where
-  this was designed. The prompt is: "Read and follow `<dir>/PROMPT.md` exactly." This is the
-  same pattern as the existing daily seeq-dx briefing (`daily-briefing/PROMPT.md`).
+- A T3 scheduled task, `{"type":"interval","everyMs":3600000}`. Each run starts a new thread
+  in the `backlog-agent` T3 project, whose root is this worktree, so every run and its children
+  share the worktree's `.claude/settings.local.json`. The prompt is: "Read and follow
+  `<dir>/PROMPT.md` exactly." A run can only read the children it started itself, so each
+  thread reconciles its own children when they finish. Later runs only take over overdue ones.
 - Files live in a new `backlog-agent/` directory next to `daily-briefing/`: `PROMPT.md`, a
   ledger, and any helper script.
 - GitHub credentials: a fine-grained PAT at `~/.config/backlog-agent/gh-token`, owner
@@ -232,7 +239,8 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
 - One child agent per task, Opus 5.5 high, at most 3 running.
 - Priority order as listed in the dispatcher.
 - Phase 1 is GitHub only. Phase 2 uses Linear, and only for items that need a human.
-- Runs as an hourly T3 task bound to this thread. It only reports when something changed.
+- Runs as an hourly T3 task, one new thread per run, in a fixed project rooted at this
+  worktree. It only reports when something changed.
 - Fine-grained PAT, not classic.
 - Phase 0 workflow fix in the 6 repos.
 - "Green" means the required checks in the ruleset passed.

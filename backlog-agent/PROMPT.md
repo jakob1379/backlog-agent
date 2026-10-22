@@ -20,8 +20,10 @@ call `task_status` with its `task_id`:
 
 - Terminal: take the child's last `RESULT: <status> — <note>` line. If there is no such line,
   the status is `failed`.
-- `task_status` errors, or `overdue` is true: call `task_cancel`, then record `failed`, with
-  the note `lost or hung task`.
+- `task_status` errors: each run is a new thread, and only the thread that started a child can
+  read it. That thread reconciles the child when it finishes, so leave the entry alone.
+- `overdue` is true: call `task_cancel` and ignore any error it returns, then record `failed`,
+  with the note `lost or hung task`.
 
 Record the outcome by passing the note on stdin, so no quoting is involved:
 
