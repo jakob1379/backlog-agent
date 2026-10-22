@@ -119,8 +119,9 @@ Status as of 2026-10-20:
 ### Runtime
 
 - A T3 scheduled task, `{"type":"interval","everyMs":3600000}`. Each run starts a new thread
-  in the `backlog-agent` T3 project, whose root is this worktree, so every run and its children
-  share the worktree's `.claude/settings.local.json`. The prompt is: "Read and follow
+  in the `random` T3 project's main checkout (`/home/jsg/Documents/jsg/random`). Its gitignored
+  `.claude/settings.local.json` holds the same allow rules as this worktree's, so every run and
+  its children get them. Runtime files are still read from this worktree by absolute path. The prompt is: "Read and follow
   `<dir>/PROMPT.md` exactly." A run can only read the children it started itself, so each
   thread reconciles its own children when they finish. Later runs only take over overdue ones.
 - Files live in a new `backlog-agent/` directory next to `daily-briefing/`: `PROMPT.md`, a
@@ -239,8 +240,7 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
 - One child agent per task, Opus 5.5 high, at most 3 running.
 - Priority order as listed in the dispatcher.
 - Phase 1 is GitHub only. Phase 2 uses Linear, and only for items that need a human.
-- Runs as an hourly T3 task, one new thread per run, in a fixed project rooted at this
-  worktree. It only reports when something changed.
+- Runs as an hourly T3 task, one new thread per run, in the `random` main checkout. It only reports when something changed.
 - Fine-grained PAT, not classic.
 - Phase 0 workflow fix in the 6 repos.
 - "Green" means the required checks in the ruleset passed.
