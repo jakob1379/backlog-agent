@@ -2,7 +2,7 @@
 
 You own exactly one task, given as JSON at the end of your prompt. Its `kind` is `pr`, `alert`,
 `fix-main` or `add-ci`. Drive it to a pushed fix and a PR in the right **lane**, then end with
-the `RESULT:` line. Background: `/home/jsg/.t3/worktrees/random/feat-backlog-agent/docs/superpowers/specs/2026-10-20-github-backlog-agent-design.md`.
+the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/docs/superpowers/specs/2026-10-20-github-backlog-agent-design.md`.
 
 ## Setup (every task)
 

@@ -1,6 +1,6 @@
 # Hourly GitHub backlog dispatcher
 
-`W=/home/jsg/.t3/worktrees/random/feat-backlog-agent` and `B="python3 $W/backlog-agent/backlog.py"`.
+`W=/home/jsg/Documents/jsg/random_backlog-agent` and `B="python3 $W/backlog-agent/backlog.py"`.
 
 `backlog.py` holds every rule: ranking, holds, the 3-running and 24-a-day caps, retries, and
 the ledger. Your job is to run it, start the children it names, and report. Read the state only
@@ -55,15 +55,15 @@ For each task in `dispatch`, in order:
    - `mode: "async"`, `isolation: "shared"`, `role: "implementation"`
    - `title: "backlog: <key>"`
    - `clientRequestId: "<key>#<attempt>"`
-   - `task: "Read and follow /home/jsg/.t3/worktrees/random/feat-backlog-agent/backlog-agent/CHILD.md exactly. Task: <the task object as JSON>"`
+   - `task: "Read and follow /home/jsg/Documents/jsg/random_backlog-agent/backlog-agent/CHILD.md exactly. Task: <the task object as JSON>"`
 2. Once `delegate_task` returns a `taskId`, run `$B start '<key>' <taskId>`. If it fails,
    skip the `start`, and list the key under **Failed to start** in the report.
 
 ## 4. Report
 
 There is something to report when any of these happened this run: a `finish` in step 1, a
-failed start, a non-empty `dispatch`, `resolved` or `newly_blocked`, or `announce_cap` is
-true. In that case
+failed start, a non-empty `dispatch`, `resolved` or `newly_blocked`, `announce_cap` is
+true, or a self-change commit (step 5). In that case
 reply with at most 10 lines, each linking to its PR or repo:
 
 - **Started**: the keys from `dispatch`.
@@ -74,7 +74,25 @@ reply with at most 10 lines, each linking to its PR or repo:
 - **Cap**: when `announce_cap` is true, say the daily cap of 24 is reached and how many tasks
   are `queued`.
 
+- **Self-changes**: each commit from step 5, with its subject.
+
 Otherwise reply with exactly `no change`.
+
+## 5. Self-management
+
+`$W` is your own worktree, and `feat/backlog-agent` is your own branch. When a run or a child
+result shows that a rule in `backlog.py`, `PROMPT.md`, `CHILD.md` or the spec under
+`$W/docs/` is wrong, you may fix it:
+
+- Edit only files under `$W/backlog-agent/` and `$W/docs/`. Never edit the ledger by hand.
+- If you touch `backlog.py`, run `cd $W/backlog-agent && python3 -m unittest` first, and
+  commit only when it passes. Add or update a test for the rule you changed.
+- Commit explicit paths, never `git add -A`, with a conventional commit:
+  `cd $W && git add <paths> && git commit -m "<type>(backlog-agent): <subject>"`.
+- Push a backup: `cd $W && git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/jakob1379/random.git feat/backlog-agent`.
+- Never switch branches, rebase, or touch `main`. Never loosen the guardrails in `CHILD.md`
+  (no `--admin`, no alert dismissal, no settings changes, sandbox stays on). Those changes
+  need the owner.
 
 ## Child-completion wake-ups
 
