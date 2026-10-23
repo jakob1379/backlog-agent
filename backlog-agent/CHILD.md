@@ -133,7 +133,8 @@ HANDOFF:
 
 Include only what would have saved you time: a command the sandbox or permission gate
 refused, a tool or environment surprise, or a rule in this file that was wrong or unclear.
-Leave out the task's own details. Write `HANDOFF: none` when there is nothing.
+Leave out the task's own details; point to a PR or commit by URL instead of repeating it. Never
+include a token or secret. Write `HANDOFF: none` when there is nothing.
 
 End with exactly one line, as your final line:
 
