@@ -16,8 +16,10 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
    `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache;`
    (`gh run view --log-failed` writes to `~/.cache/gh`, and uv installs Pythons under `~`).
-   `nix develop` can't reach the nix daemon from the sandbox; run the check's own commands
-   directly instead (e.g. `uv run …`), and say in the PR which ones you couldn't run.
+   No `nix` command (`nix develop`, `nix build`, `nix flake check`) can reach the nix daemon
+   from the sandbox, and the sandbox stays on: never set `dangerouslyDisableSandbox`. Run the
+   check's own commands directly instead (e.g. `uv run …`), and say in the PR which ones you
+   couldn't run, including any check that is itself a `nix` command.
 3. Clone into a fresh directory, `CLONE="/home/jsg/Documents/jsg/random_backlog-agent/work/<key with / # : replaced by ->"`.
    It is gitignored, and the lockfile next to it (`<same name>.lock`) says which thread owns
    this task; never touch the lockfile. Delete the directory first if an earlier attempt left

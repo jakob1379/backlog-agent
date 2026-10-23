@@ -318,7 +318,11 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
 - **Network:** children run in auto mode and declare the registry hosts per command
   (`allowed_domains`): pypi.org, files.pythonhosted.org, registry.npmjs.org,
   cache.nixos.org, github.com, api.github.com, objects.githubusercontent.com, plus whatever
-  the repo's lockfile names. The sandbox is never disabled.
+  the repo's lockfile names. The sandbox is never disabled. On 2026-10-24 three children
+  (t3code-flake#19, rich-card#29 and #35) broke this rule: the sandbox can't reach the nix
+  daemon, so they ran `nix flake check`/`nix build` with the sandbox disabled, and the
+  permission gate approved it. CHILD.md now says so explicitly. Whether nix checks may run
+  outside the sandbox is the owner's decision.
 
 ## Planning changes (2026-10-21)
 
