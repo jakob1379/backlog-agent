@@ -80,12 +80,17 @@ strict as you found it. If the only path to green runs less of a check, the task
 
 ### `alert`: every alert in `alerts`, for one package
 
+0. First check the version on the default branch: its lockfile, and
+   `gh api repos/<repo>/dependency-graph/sbom --jq '.sbom.packages[] | select(.name=="<pkg>") | .versionInfo'`.
+   If every copy is already at or above `first_patched`, the alert is stale: open no PR, and
+   end `blocked`, naming the alert numbers and the dismissal reason `inaccurate` (or a
+   Dependabot rescan) for the owner.
 1. Target `first_patched` for each alert, i.e. the smallest version that fixes it. When the
    package is transitive, upgrade the direct dependency that pulls it in. Use an ecosystem
    override (npm `overrides`, pnpm `pnpm.overrides`, yarn `resolutions`, uv
    `override-dependencies`/`constraint-dependencies`, a Nix input bump) only when that parent
    has no fixed release. Next to the override, write a one-line comment saying why it is there
-   and when to remove it.
+   and when to remove it; in `package.json`, which has no comments, use a top-level `"//"` key.
 2. Regenerate the lockfile with the repo's own tool (`uv lock`, `npm install`, `nix flake
    lock`, …), and run the required checks locally.
 3. Use branch `backlog-agent/<key slug>`. If that branch or its PR already exists from an
