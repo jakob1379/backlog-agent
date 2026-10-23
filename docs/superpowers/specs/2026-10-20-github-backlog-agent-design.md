@@ -248,6 +248,12 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
 - Q5: follow best practices for alerts with no PR (made concrete above). Never dismiss.
 - A red default branch becomes one "fix main" task that blocks that repo's other tasks.
 - One child agent per task, Opus 5.5 high, at most 3 running.
+- Within a run, children run one at a time (owner, 2026-10-23). Each child ends with a
+  `HANDOFF:` block, and the dispatcher passes every block collected so far in the run to the
+  next child. Overlapping runs can still have 3 tasks claimed in total. When the run has
+  something to report, a final steward agent (`backlog-agent/STEWARD.md`) audits the spec,
+  the plan and the prompts against GitHub, the ledger and the handoffs. It fixes stale docs
+  itself, and only names any `backlog.py` fix it finds.
 - Priority order as listed in the dispatcher.
 - Phase 1 is GitHub only. Phase 2 uses Linear, and only for items that need a human.
 - Runs as an hourly T3 task, one new thread per run, inside its own `random_backlog-agent`

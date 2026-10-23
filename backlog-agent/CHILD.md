@@ -124,6 +124,17 @@ Delete `$CLONE` before your last line, whatever the outcome. Everything you need
 When you give up, add the label `agent:blocked` to the PR (if one exists), with a single
 comment explaining why.
 
+Just before that line, write a handoff for the next agent in this run:
+
+```
+HANDOFF:
+- <at most 5 bullets>
+```
+
+Include only what would have saved you time: a command the sandbox or permission gate
+refused, a tool or environment surprise, or a rule in this file that was wrong or unclear.
+Leave out the task's own details. Write `HANDOFF: none` when there is nothing.
+
 End with exactly one line, as your final line:
 
 `RESULT: done|blocked|failed — <PR URL or what happened, one line>`
