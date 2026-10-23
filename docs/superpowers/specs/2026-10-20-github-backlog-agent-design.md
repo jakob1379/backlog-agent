@@ -108,11 +108,17 @@ Each step is shown to the owner and confirmed before it runs.
 
 Phase 0 must be finished before Phase 1 is scheduled.
 
-Status as of 2026-10-20:
-- **Steps 1–2 are done.** 68 PRs were closed and 6 repos are archived. While
+Status as of 2026-10-23: **Phase 0 is done.**
+- **Steps 1–2 (2026-10-20).** 68 PRs were closed and 6 repos are archived. While
   wifi-qr-generator was unarchived, Dependabot opened 10 new PRs; those were closed in a
   second short window. Lesson: keep the unarchive window as short as possible.
-- Steps 3–4 are still open.
+- **Step 3 (2026-10-22 13:37 UTC).** All 12 PRs are merged: the first workflow PR in each of
+  the 6 repos, plus the fail-open fix (Canvas-Code-Correction#206, homelab#55,
+  jakob1379.github.io#44, text2ics#17, pymdown-symbolic-snippets#4, bank-focus#15). This was
+  before Phase 1's first run (2026-10-22 19:53 UTC).
+- **Step 4 (no rebase comments needed).** The PRs that predated the workflow were handed to
+  Phase 1 instead of being rebased: bank-focus#8 and #9, and Canvas-Code-Correction#205 after
+  its fix-main. All three are merged, and the 6 repos have no open Dependabot PRs.
 
 ## Phase 1: hourly agent
 

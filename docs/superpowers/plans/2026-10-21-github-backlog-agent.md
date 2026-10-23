@@ -65,7 +65,7 @@ Runs in this session under the owner's login. Nothing is pushed until the owner 
 - Modify: `.github/dependabot.yml` in Canvas-Code-Correction (5 groups) and homelab (1 group). bank-focus has no groups, and the other 3 repos have no `dependabot.yml`. Those 4 get no change.
 - Modify: the spec in this repo, recording deviations 1–5 above.
 
-- [ ] **Step 1:** Replace the `Enable auto-merge` step's `if:` with:
+- [x] **Step 1:** Replace the `Enable auto-merge` step's `if:` with:
 
 ```yaml
         if: |
@@ -73,26 +73,26 @@ Runs in this session under the owner's login. Nothing is pushed until the owner 
           !contains(steps.metadata.outputs.updated-dependencies-json, 'version-update:semver-major')
 ```
 
-- [ ] **Step 2:** Under every `groups.<name>:` in the two `dependabot.yml` files, add `update-types: [minor, patch]`.
-- [ ] **Step 3: Verify.**
+- [x] **Step 2:** Under every `groups.<name>:` in the two `dependabot.yml` files, add `update-types: [minor, patch]`.
+- [x] **Step 3: Verify.**
   - Run `nix run nixpkgs#actionlint -- .github/workflows/dependabot-auto-merge.yml` in each clone. Expected: no output, exit 0.
   - Run `nix run nixpkgs#yq-go -- . .github/dependabot.yml`. Expected: the file parses.
-- [ ] **Step 4:** Show the owner the 6 diffs in one message and wait for approval.
-- [ ] **Step 5:** On approval, in each repo (PR body via `mattpocock-skills:pr`):
+- [x] **Step 4:** Show the owner the 6 diffs in one message and wait for approval.
+- [x] **Step 5:** On approval, in each repo (PR body via `mattpocock-skills:pr`):
   - Create branch `ci/dependabot-automerge-majors-only`.
   - Commit `ci: auto-merge all non-major dependabot updates`.
   - Push and run `gh pr create`. The body names the old filter's failure: grouped PRs and SHA bumps have `update-type: null`.
   - `link_pull_request` each PR URL.
-- [ ] **Step 6:** Edit the spec with deviations 1–5. Commit `docs: record planning deviations in backlog agent design`.
+- [x] **Step 6:** Edit the spec with deviations 1–5. Commit `docs: record planning deviations in backlog agent design`.
 
 ### Task 2: Phase 0 step 4: kick open Dependabot PRs
 
-Runs after the owner has merged the Task 1 PRs.
+Runs after the owner has merged the Task 1 PRs. Done 2026-10-23 without rebase comments: the 3 remaining PRs were worked by Phase 1 and merged (see the spec status).
 
 - [ ] **Step 1:** For each of the 6 repos, list open PRs with `author.login == "dependabot"` and show the count to the owner.
 - [ ] **Step 2:** Comment `@dependabot rebase` on each listed PR. Use the owner's login, since the PAT also works but this is a one-off.
 - [ ] **Step 3: Verify.** After 15 minutes, `gh pr list --json number,autoMergeRequest` in each repo should show every non-major PR with auto-merge enabled, or already merged. Exception: Canvas PRs stay red on `test` until fix-main. That's expected, and it's Phase 1's first job.
-- [ ] **Step 4:** Update the spec status: steps 3–4 done, and list anything that didn't enable. Commit `docs: record phase 0 completion`.
+- [x] **Step 4:** Update the spec status: steps 3–4 done, and list anything that didn't enable. Commit `docs: record phase 0 completion`.
 
 ### Task 3: Ledger and caps
 
