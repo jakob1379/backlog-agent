@@ -1,3 +1,5 @@
 backlog-agent/ledger.json
 backlog-agent/ledger.tmp
+backlog-agent/ledger.lock
+work/
 __pycache__/

@@ -121,7 +121,8 @@ Status as of 2026-10-20:
 - A T3 scheduled task, `{"type":"interval","everyMs":3600000}`. Each run starts a new thread
   in the `random_backlog-agent` T3 project, whose root is the fixed git worktree
   `/home/jsg/Documents/jsg/random_backlog-agent` on `feat/backlog-agent`, outside T3's worktree
-  lifecycle. The project's thread mode must be `local`, or every run creates a new worktree. Its
+  lifecycle. The task's workspace is "Use a specific checkout" with that path; otherwise every
+  run gets a new T3 worktree and the PROMPT.md guard stops it. Its
   gitignored `.claude/settings.local.json` holds the agent's allow rules, so every run and its
   children get them. Nothing lives in `random`'s main checkout. The dispatcher may fix its own rules,
   prompts and docs there, committing and pushing a backup of the branch (PROMPT.md step 5). The prompt is: "Read and follow
@@ -273,9 +274,16 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
   minutes later, to avoid inbox noise. GitHub rejects review requests from a PR's own author.
   Agent-opened PRs are authored by `jakob1379` through the PAT, so on those the owner is set
   as **assignee** instead, plus the `needs-review` label.
-- Each child clones into `$TMPDIR` rather than using T3 worktree isolation. T3 worktrees are
-  worktrees of *this* repo, not of the target repo.
+- Each child clones into the gitignored `work/<key>` of the runtime worktree and deletes it
+  when done, rather than using T3 worktree isolation. T3 worktrees are worktrees of *this*
+  repo, not of the target repo.
 - Durable state is a ledger file plus GitHub labels, not anything in conversation memory.
+  Runs overlap. Each task in progress has a lockfile `work/<slug>.lock` naming
+  the thread and task working on it, next to the child's working directory `work/<slug>/`.
+  `plan` creates lockfiles for what it dispatches and skips tasks that have one; `finish`
+  deletes the lockfile and directory; `plan` deletes any lockfile older than 6h, with its
+  directory. Every ledger read-modify-write holds an `flock` on `ledger.lock`, which the
+  kernel releases when a process dies.
 - The cap is 3 *concurrent* tasks, so tasks that run long can't pile up.
 - **Retries:** a task that fails (crash, timeout, flaky relock) is retried at most once. A
   second failure marks it blocked.

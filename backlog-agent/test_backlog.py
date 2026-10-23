@@ -287,7 +287,7 @@ class PlanTest(unittest.TestCase):
             )
         )
         self.assertEqual(plan(c, L, NOW)["resolved"], [])
-        self.assertEqual(sorted(L["tasks"]), ["o/r#1", "o/r:dep:pip:urllib3"])
+        self.assertLessEqual({"o/r#1", "o/r:dep:pip:urllib3"}, set(L["tasks"]))
 
 
 def run(name, conclusion, started="2026-10-21T10:00:00Z", status="COMPLETED"):
@@ -406,7 +406,11 @@ SCRIPT = Path(__file__).with_name("backlog.py")
 
 
 def cli(ledger_path, *args):
-    env = {**os.environ, "BACKLOG_LEDGER": str(ledger_path)}
+    env = {
+        **os.environ,
+        "BACKLOG_LEDGER": str(ledger_path),
+        "BACKLOG_WORK": str(Path(ledger_path).with_name("work")),
+    }
     return subprocess.run(
         [sys.executable, SCRIPT, *args],
         env=env,
@@ -417,47 +421,143 @@ def cli(ledger_path, *args):
 
 
 class CliTest(unittest.TestCase):
-    def test_start_then_finish_persists_ledger(self):
+    def test_plan_claims_then_start_and_finish_persist(self):
         with tempfile.TemporaryDirectory() as d:
-            path = Path(d, "ledger.json")
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            cpath.write_text(json.dumps(cands(repo(prs=[pr(1)]))))
+            out = json.loads(cli(path, "plan", str(cpath), "thread-1"))
+            self.assertEqual(
+                [(t["key"], t["attempt"]) for t in out["dispatch"]], [("o/r#1", 1)]
+            )
+            claimed = json.loads(cli(path, "running"))
+            self.assertEqual(
+                [(t["key"], t["task_id"], t["thread_id"]) for t in claimed],
+                [("o/r#1", "", "thread-1")],
+            )
+            lock = Path(d, "work", "o-r-1.lock")
             cli(path, "start", "o/r#1", "task-abc")
+            self.assertEqual(
+                {
+                    k: v
+                    for k, v in json.loads(lock.read_text()).items()
+                    if k != "started"
+                },
+                {"key": "o/r#1", "thread_id": "thread-1", "task_id": "task-abc"},
+            )
+            Path(d, "work", "o-r-1").mkdir()
             out = cli(path, "finish", "o/r#1", "done", "merged")
             entry = json.loads(path.read_text())["tasks"]["o/r#1"]
             self.assertEqual(out.strip(), "done")
             self.assertEqual(
-                (entry["status"], entry["task_id"], entry["note"]),
-                ("done", "task-abc", "merged"),
+                (entry["status"], entry["task_id"], entry["thread_id"], entry["note"]),
+                ("done", "task-abc", "thread-1", "merged"),
+            )
+            self.assertEqual(list(Path(d, "work").iterdir()), [])
+
+    def test_live_lock_blocks_dispatch_and_stale_lock_is_cleaned_up(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath, work = (
+                Path(d, "ledger.json"),
+                Path(d, "c.json"),
+                Path(d, "work"),
+            )
+            cpath.write_text(json.dumps(cands(repo(prs=[pr(1), pr(2)]))))
+            work.mkdir()
+            now = datetime.now(UTC).isoformat()
+            for key, slug, started in [
+                ("o/r#1", "o-r-1", now),
+                ("o/r#2", "o-r-2", "2026-01-01T00:00:00+00:00"),
+            ]:
+                lock = {"key": key, "thread_id": "x", "task_id": "", "started": started}
+                Path(work, f"{slug}.lock").write_text(json.dumps(lock))
+                Path(work, slug).mkdir()
+            out = json.loads(cli(path, "plan", str(cpath), "th"))
+            self.assertEqual([t["key"] for t in out["dispatch"]], ["o/r#2"])
+            self.assertEqual(out["stale_locks"], ["o/r#2"])
+            self.assertFalse(Path(work, "o-r-2").exists())
+            self.assertEqual(
+                json.loads(Path(work, "o-r-2.lock").read_text())["thread_id"], "th"
             )
 
     def test_plan_prints_result_and_saves_ledger(self):
         with tempfile.TemporaryDirectory() as d:
             path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
             cpath.write_text(json.dumps(cands(repo(prs=[pr(1)]))))
-            cli(path, "start", "gone/repo#9", "t")
-            cli(path, "finish", "gone/repo#9", "done", "")
-            out = json.loads(cli(path, "plan", str(cpath)))
+            L = empty()
+            start(L, "gone/repo#9", "t", NOW)
+            finish(L, "gone/repo#9", "done", "", NOW)
+            path.write_text(json.dumps(L))
+            out = json.loads(cli(path, "plan", str(cpath), "th"))
             self.assertEqual([t["key"] for t in out["dispatch"]], ["o/r#1"])
             self.assertEqual(out["resolved"], ["gone/repo#9"])
-            self.assertEqual(json.loads(path.read_text())["tasks"], {})
+            self.assertEqual(list(json.loads(path.read_text())["tasks"]), ["o/r#1"])
+
+    def test_start_rejects_a_key_that_is_not_claimed(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d, "ledger.json")
+            env = {
+                **os.environ,
+                "BACKLOG_LEDGER": str(path),
+                "BACKLOG_WORK": str(Path(path).with_name("work")),
+            }
+            r = subprocess.run(
+                [sys.executable, SCRIPT, "start", "o/r#1", "t"],
+                env=env,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(r.returncode, 0)
 
     def test_running_lists_tasks_with_overdue_flag(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d, "ledger.json")
             L = empty()
             start(L, "o/r#1", "old", datetime(2026, 1, 1, tzinfo=UTC))
-            start(L, "o/r#2", "new", datetime.now(UTC))
+            start(L, "o/r#2", "new", datetime.now(UTC), "th-2")
             path.write_text(json.dumps(L))
             out = json.loads(cli(path, "running"))
             self.assertEqual(
-                [(t["key"], t["task_id"], t["overdue"]) for t in out],
-                [("o/r#1", "old", True), ("o/r#2", "new", False)],
+                [(t["key"], t["task_id"], t["thread_id"], t["overdue"]) for t in out],
+                [("o/r#1", "old", "", True), ("o/r#2", "new", "th-2", False)],
             )
+
+    def test_overlapping_plans_dispatch_each_task_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            # Many candidates make each plan slow enough for the runs to overlap.
+            cpath.write_text(json.dumps(cands(repo(prs=[pr(n) for n in range(5000)]))))
+            env = {
+                **os.environ,
+                "BACKLOG_LEDGER": str(path),
+                "BACKLOG_WORK": str(Path(path).with_name("work")),
+            }
+            procs = [
+                subprocess.Popen(
+                    [sys.executable, SCRIPT, "plan", str(cpath), f"th{n}"],
+                    env=env,
+                    stdout=subprocess.PIPE,
+                )
+                for n in range(10)
+            ]
+            dispatched = [
+                t["key"]
+                for p in procs
+                for t in json.loads(p.communicate()[0])["dispatch"]
+            ]
+            self.assertEqual(len(dispatched), 3)
+            self.assertEqual(len(set(dispatched)), 3)
 
     def test_finish_reads_note_from_stdin(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d, "ledger.json")
-            cli(path, "start", "o/r#1", "t")
-            env = {**os.environ, "BACKLOG_LEDGER": str(path)}
+            L = empty()
+            start(L, "o/r#1", "t", NOW)
+            path.write_text(json.dumps(L))
+            env = {
+                **os.environ,
+                "BACKLOG_LEDGER": str(path),
+                "BACKLOG_WORK": str(Path(path).with_name("work")),
+            }
             note = "it's $(rm -rf /) `x`"
             subprocess.run(
                 [sys.executable, SCRIPT, "finish", "o/r#1", "done", "-"],

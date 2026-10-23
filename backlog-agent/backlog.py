@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 import argparse
+import fcntl
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -23,6 +25,9 @@ SKIP_STATUSES = {"running", "done", "blocked"}
 ADD_CI_REPOS = {"jakob1379/pacify", "jakob1379/br18", "jakob1379/brobizz-usage"}
 
 LEDGER = Path(os.environ.get("BACKLOG_LEDGER", Path(__file__).with_name("ledger.json")))
+WORK = Path(
+    os.environ.get("BACKLOG_WORK", Path(__file__).resolve().parent.parent / "work")
+)
 
 
 def load_ledger(path: Path) -> dict:
@@ -37,11 +42,14 @@ def save_ledger(path: Path, ledger: dict) -> None:
     os.replace(tmp, path)
 
 
-def start(ledger: dict, key: str, task_id: str, now: datetime) -> None:
+def start(
+    ledger: dict, key: str, task_id: str, now: datetime, thread_id: str = ""
+) -> None:
     entry = ledger["tasks"].get(key, {"attempts": 0})
     entry.update(
         status="running",
         task_id=task_id,
+        thread_id=thread_id,
         attempts=entry["attempts"] + 1,
         started=now.isoformat(),
         finished=None,
@@ -63,11 +71,48 @@ def finish(ledger: dict, key: str, status: str, note: str, now: datetime) -> str
     return status
 
 
+def assign(ledger: dict, key: str, task_id: str) -> None:
+    entry = ledger["tasks"].get(key)
+    if not entry or entry["status"] != "running" or entry["task_id"]:
+        raise SystemExit(f"{key} is not claimed and waiting for a task id")
+    entry["task_id"] = task_id
+
+
+def lock_path(work: Path, key: str) -> Path:
+    return work / (re.sub(r"[/#:]", "-", key) + ".lock")
+
+
+def write_lock(work: Path, key: str, entry: dict) -> None:
+    work.mkdir(exist_ok=True)
+    fields = ("thread_id", "task_id", "started")
+    lock = {"key": key, **{f: entry[f] for f in fields}}
+    lock_path(work, key).write_text(json.dumps(lock, indent=2) + "\n")
+
+
+def release(work: Path, key: str) -> None:
+    lock = lock_path(work, key)
+    lock.unlink(missing_ok=True)
+    shutil.rmtree(lock.with_suffix(""), ignore_errors=True)
+
+
+def sweep_locks(work: Path, now: datetime) -> tuple[set[str], list[str]]:
+    busy, stale = set(), []
+    for f in sorted(work.glob("*.lock")):
+        lock = json.loads(f.read_text())
+        if now - datetime.fromisoformat(lock["started"]) >= OVERDUE_AFTER:
+            release(work, lock["key"])
+            stale.append(lock["key"])
+        else:
+            busy.add(lock["key"])
+    return busy, stale
+
+
 def running_tasks(ledger: dict, now: datetime) -> list[dict]:
     return [
         {
             "key": key,
             "task_id": e["task_id"],
+            "thread_id": e.get("thread_id", ""),
             "attempts": e["attempts"],
             "overdue": now - datetime.fromisoformat(e["started"]) >= OVERDUE_AFTER,
         }
@@ -220,7 +265,13 @@ def present_keys(candidates: dict) -> set[str]:
     return keys
 
 
-def plan(candidates: dict, ledger: dict, now: datetime) -> dict:
+def plan(
+    candidates: dict,
+    ledger: dict,
+    now: datetime,
+    thread_id: str = "",
+    busy: frozenset = frozenset(),
+) -> dict:
     present = present_keys(candidates)
     resolved, newly_blocked = [], []
     for key, e in list(ledger["tasks"].items()):
@@ -248,6 +299,7 @@ def plan(candidates: dict, ledger: dict, now: datetime) -> dict:
         t
         for t in tasks
         if t["key"] not in held
+        and t["key"] not in busy
         and ledger["tasks"].get(t["key"], {}).get("status") not in SKIP_STATUSES
         and not (review_full and (not t["has_ci"] or t["kind"] == "add-ci"))
     ]
@@ -260,11 +312,12 @@ def plan(candidates: dict, ledger: dict, now: datetime) -> dict:
     )
     if announce_cap:
         ledger["cap_announced"] = today
+    dispatch = []
+    for t in ready[:slots]:
+        start(ledger, t["key"], "", now, thread_id)
+        dispatch.append({**t, "attempt": ledger["tasks"][t["key"]]["attempts"]})
     return {
-        "dispatch": [
-            {**t, "attempt": ledger["tasks"].get(t["key"], {}).get("attempts", 0) + 1}
-            for t in ready[:slots]
-        ],
+        "dispatch": dispatch,
         "queued": [t["key"] for t in ready[slots:]],
         "held": held,
         "running": running,
@@ -425,23 +478,42 @@ def main() -> None:
     sub.add_parser("running")
     p = sub.add_parser("plan")
     p.add_argument("candidates", type=Path)
+    p.add_argument("thread_id")
     args = ap.parse_args()
     if args.cmd == "collect":
         print(json.dumps(collect(), indent=2))
         return
+    # Concurrent runs share the ledger; flock is released even if the process dies.
+    with open(LEDGER.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        locked(args)
+
+
+def locked(args: argparse.Namespace) -> None:
     now = datetime.now(UTC)
     ledger = load_ledger(LEDGER)
     if args.cmd == "running":
         print(json.dumps(running_tasks(ledger, now), indent=2))
         return
     if args.cmd == "plan":
-        result = plan(json.loads(args.candidates.read_text()), ledger, now)
-        print(json.dumps(result, indent=2))
+        busy, stale = sweep_locks(WORK, now)
+        result = plan(
+            json.loads(args.candidates.read_text()),
+            ledger,
+            now,
+            args.thread_id,
+            frozenset(busy),
+        )
+        for t in result["dispatch"]:
+            write_lock(WORK, t["key"], ledger["tasks"][t["key"]])
+        print(json.dumps({**result, "stale_locks": stale}, indent=2))
     elif args.cmd == "start":
-        start(ledger, args.key, args.task_id, now)
+        assign(ledger, args.key, args.task_id)
+        write_lock(WORK, args.key, ledger["tasks"][args.key])
     else:
         note = sys.stdin.read().strip() if args.note == "-" else args.note
         print(finish(ledger, args.key, args.status, note, now))
+        release(WORK, args.key)
     save_ledger(LEDGER, ledger)
 
 

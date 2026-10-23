@@ -13,7 +13,10 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `github.com`, `objects.githubusercontent.com`, plus the registries the repo uses
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
    the lockfile names). Work inside the sandbox; when a host is refused, add it and rerun.
-3. Clone into a fresh directory, `CLONE="$TMPDIR/<key with / # : replaced by ->"`:
+3. Clone into a fresh directory, `CLONE="/home/jsg/Documents/jsg/random_backlog-agent/work/<key with / # : replaced by ->"`.
+   It is gitignored, and the lockfile next to it (`<same name>.lock`) says which thread owns
+   this task; never touch the lockfile. Delete the directory first if an earlier attempt left
+   it behind, then
    `git -c credential.helper= -c credential.helper='!gh auth git-credential' clone https://github.com/<repo>.git "$CLONE"`.
    Run it in the foreground with `timeout: 600000`, never in the background: your turn ending
    is the task ending, so never end it to wait on anything. Push with the same two `-c` flags. Run every later git and gh command as
@@ -115,6 +118,8 @@ requiring that check, plus `allow_auto_merge`.
 - Commits use Conventional Commits (`fix(deps): …`, `ci: …`, `fix: …`).
 
 ## Finish
+
+Delete `$CLONE` before your last line, whatever the outcome. Everything you need is pushed.
 
 When you give up, add the label `agent:blocked` to the PR (if one exists), with a single
 comment explaining why.

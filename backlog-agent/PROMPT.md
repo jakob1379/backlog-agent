@@ -10,19 +10,32 @@ from its output (`running`, `plan`), and change the ledger only through its `sta
 ## 0. Guard
 
 Check that `git -C $W branch --show-current` prints `feat/backlog-agent` and that
-`$W/backlog-agent/backlog.py` exists. If either check fails, reply with that one line and stop.
-The runtime lives on this branch, never on `main`.
+`$W/backlog-agent/backlog.py` exists, and that `pwd` prints `$W`. If any check fails, reply
+with that one line and stop. The runtime lives on this branch, never on `main`, and every run
+works in `$W` itself, never in a T3 worktree.
+
+Call `t3_thread_configuration` and keep its `threadId` as `<thread>`.
+
+Runs may overlap. Each task in progress has a lockfile, `$W/work/<slug>.lock`,
+with its `key`, `thread_id`, `task_id` and `started`, next to the child's working directory
+`work/<slug>/`. `plan` creates the lockfile for every task it puts in `dispatch`, and skips a
+task whose lockfile exists, so no two runs get the same task. Never start a task that `plan`
+did not give you, and never create or delete a lockfile by hand. `start` writes the task id into
+it, and `finish` deletes it with the directory. A lockfile older than 6h is past its time-out:
+`plan` deletes it with its directory and lists the key in `stale_locks`.
 
 ## 1. Reconcile
 
-`$B running` lists every running entry as `{key, task_id, attempts, overdue}`. For each one,
-call `task_status` with its `task_id`:
+`$B running` lists every running entry as `{key, task_id, thread_id, attempts, overdue}`. For each one,
+call `task_status` with its `task_id`. An empty `task_id` means its run is still starting it, so
+skip it unless it is `overdue`:
 
 - Terminal: take the child's last `RESULT: <status> — <note>` line. If there is no such line,
   the status is `failed`.
-- `task_status` errors: each run is a new thread, and only the thread that started a child can
-  read it. That thread reconciles the child when it finishes, so leave the entry alone.
-- `overdue` is true: call `task_cancel` and ignore any error it returns, then record `failed`,
+- `task_status` errors: each run is a new thread, and only the thread that started a child
+  (its `thread_id`) can read it. That thread reconciles the child when it finishes, so leave
+  the entry alone.
+- `overdue` is true, whoever owns it: call `task_cancel` and ignore any error it returns, then record `failed`,
   with the note `lost or hung task`.
 
 Record the outcome by passing the note on stdin, so no quoting is involved:
@@ -40,7 +53,7 @@ Done when no ledger entry is `running` with a terminal task behind it.
 ## 2. Collect and plan
 
 ```
-export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token); $B collect > $TMPDIR/candidates.json && $B plan $TMPDIR/candidates.json
+export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token); $B collect > $TMPDIR/candidates.json && $B plan $TMPDIR/candidates.json '<thread>'
 ```
 
 Run it with `allowed_domains: ["api.github.com"]`. If it fails, reply with the error's last
@@ -56,13 +69,14 @@ For each task in `dispatch`, in order:
    - `title: "backlog: <key>"`
    - `clientRequestId: "<key>#<attempt>"`
    - `task: "Read and follow /home/jsg/Documents/jsg/random_backlog-agent/backlog-agent/CHILD.md exactly. Task: <the task object as JSON>"`
-2. Once `delegate_task` returns a `taskId`, run `$B start '<key>' <taskId>`. If it fails,
-   skip the `start`, and list the key under **Failed to start** in the report.
+2. Once `delegate_task` returns a `taskId`, run `$B start '<key>' <taskId>`. If
+   `delegate_task` fails, release the claim with `$B finish '<key>' failed -` and the error as
+   the note, and list the key under **Failed to start** in the report.
 
 ## 4. Report
 
 There is something to report when any of these happened this run: a `finish` in step 1, a
-failed start, a non-empty `dispatch`, `resolved` or `newly_blocked`, `announce_cap` is
+failed start, a non-empty `dispatch`, `resolved`, `newly_blocked` or `stale_locks`, `announce_cap` is
 true, or a self-change commit (step 5). In that case
 reply with at most 10 lines, each linking to its PR or repo:
 
@@ -71,6 +85,7 @@ reply with at most 10 lines, each linking to its PR or repo:
 - **Needs you**: every `blocked` finish and every `newly_blocked` entry, with the owner action
   each one names. This includes admin steps from `add-ci` results.
 - **Failed to start**: the keys whose `delegate_task` failed, with the error.
+- **Cleaned up**: the keys in `stale_locks`.
 - **Cap**: when `announce_cap` is true, say the daily cap of 24 is reached and how many tasks
   are `queued`.
 
