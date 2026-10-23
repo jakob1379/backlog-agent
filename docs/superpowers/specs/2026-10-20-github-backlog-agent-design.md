@@ -131,7 +131,7 @@ Status as of 2026-10-23: **Phase 0 is done.**
   run gets a new T3 worktree and the PROMPT.md guard stops it. Its
   gitignored `.claude/settings.local.json` holds the agent's allow rules, so every run and its
   children get them. Nothing lives in `random`'s main checkout. The dispatcher may fix its own rules,
-  prompts and docs there, committing and pushing a backup of the branch (PROMPT.md step 5). The prompt is: "Read and follow
+  prompts and docs there, committing and pushing a backup of the branch (PROMPT.md step 6). The prompt is: "Read and follow
   `<dir>/PROMPT.md` exactly." A run can only read the children it started itself, so each
   thread reconciles its own children when they finish. Later runs only take over overdue ones.
 - Files live in a new `backlog-agent/` directory next to `daily-briefing/`: `PROMPT.md`, a
@@ -189,7 +189,7 @@ Status as of 2026-10-23: **Phase 0 is done.**
 
 ### Child agent rules (one task each)
 
-- Clone the target repo into a fresh per-task directory under `$TMPDIR`. Never work in the
+- Clone the target repo into a fresh per-task directory, `work/<key>` in the runtime worktree (see Designer's calls). Never work in the
   owner's local checkouts.
 - Commits follow Conventional Commits, e.g.
   `fix(deps): bump urllib3 to 2.5.0 (GHSA-xxxx)` or `ci: …`.
