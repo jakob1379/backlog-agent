@@ -91,7 +91,7 @@ reply with at most 10 lines, each linking to its PR or repo:
 
 - **Self-changes**: each commit from step 5, with its subject.
 
-Otherwise reply with exactly `no change`.
+Otherwise call `t3_thread_organize` with `action: "settle"`, then reply with exactly `no change`.
 
 ## 5. Self-management
 
