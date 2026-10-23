@@ -28,7 +28,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `cd <that literal path> && …`, so it always acts on the target repo. `$CLONE` below
    stands for that path; shell variables don't survive between commands, so write it out.
 4. Read the repo's README, CI workflows and the required checks
-   (`gh api repos/<repo>/rules/branches/<default>`), so your local check matches CI.
+   (`gh api repos/<repo>/rules/branches/<default>`), so your local check matches CI. That call
+   returns 403 on a private repo without GitHub Pro; then take the checks from the workflows.
 
 Done when: the clone exists and you can name the command that reproduces each required check.
 
