@@ -118,7 +118,7 @@ Runs after the owner has merged the Task 1 PRs. Done 2026-10-23 without rebase c
   - `used_today(ledger: dict, now: datetime) -> int`
   - CLI: `backlog.py start KEY TASK_ID` and `backlog.py finish KEY done|blocked|failed NOTE`. Ledger path: `Path(__file__).with_name("ledger.json")`.
 
-- [ ] **Step 1: Write the failing tests** one slice at a time, per `mattpocock-skills:tdd` (`unittest`, using `now` as a fixed aware datetime):
+- [x] **Step 1: Write the failing tests** one slice at a time, per `mattpocock-skills:tdd` (`unittest`, using `now` as a fixed aware datetime):
 
 ```python
 def test_start_counts_attempts_and_starts(self):
@@ -140,10 +140,10 @@ def test_daily_cap_uses_copenhagen_day(self):
 def test_starts_older_than_two_days_are_trimmed_on_start(self): ...
 ```
 
-- [ ] **Step 2: Run it and check that it fails.** Run `python3 -m unittest discover -s backlog-agent -v`. Expected: ImportError / NameError.
-- [ ] **Step 3:** Implement the functions above and the two CLI subcommands with `argparse`.
-- [ ] **Step 4: Run the tests again.** Expected: all pass.
-- [ ] **Step 5: Commit** `feat(backlog-agent): add ledger with daily cap`.
+- [x] **Step 2: Run it and check that it fails.** Run `python3 -m unittest discover -s backlog-agent -v`. Expected: ImportError / NameError.
+- [x] **Step 3:** Implement the functions above and the two CLI subcommands with `argparse`.
+- [x] **Step 4: Run the tests again.** Expected: all pass.
+- [x] **Step 5: Commit** `feat(backlog-agent): add ledger with daily cap`.
 
 ### Task 4: Planner: drop, hold, derive, rank, cap
 
@@ -200,7 +200,7 @@ Rules, in order:
 6. **Rank** by `(tier, severity_rank, created_at)` using the tiers in Deviation 5. A PR's severity is the max severity of the alerts whose `covered_by_pr` equals its number.
 7. **Slots.** `slots = max(0, min(MAX_RUNNING - running, DAILY_CAP - used_today))`, and `dispatch = ranked[:slots]`. `announce_cap` is true the first time in a day that `used_today >= DAILY_CAP` while tasks are waiting; set `cap_announced` to that day.
 
-- [ ] **Step 1: Write the failing tests**, building candidates with a small `repo(...)` fixture helper in the test file:
+- [x] **Step 1: Write the failing tests**, building candidates with a small `repo(...)` fixture helper in the test file:
 
 ```python
 test_alert_covered_by_pr_is_not_a_task          # covered_by_pr=7 → no "o/r:dep:pip:urllib3" in dispatch
@@ -214,10 +214,10 @@ test_resolved_and_stale_done                    # done key gone → resolved; do
 test_failed_is_retried_blocked_is_not
 ```
 
-- [ ] **Step 2: Run the tests and check that they fail.** Run `python3 -m unittest discover -s backlog-agent -v`. Expected: the new tests FAIL.
-- [ ] **Step 3:** Implement `plan()` and the `plan` subcommand.
-- [ ] **Step 4: Run the tests again.** Expected: all pass.
-- [ ] **Step 5: Commit** `feat(backlog-agent): add planner with ranking, hold and caps`.
+- [x] **Step 2: Run the tests and check that they fail.** Run `python3 -m unittest discover -s backlog-agent -v`. Expected: the new tests FAIL.
+- [x] **Step 3:** Implement `plan()` and the `plan` subcommand.
+- [x] **Step 4: Run the tests again.** Expected: all pass.
+- [x] **Step 5: Commit** `feat(backlog-agent): add planner with ranking, hold and caps`.
 
 ### Task 5: Collector
 
@@ -251,7 +251,7 @@ Approach:
 - **`covered_by_pr`.** The lowest-numbered open Dependabot PR whose title or body contains the alert's package name as a whole word, case-insensitive.
 - **`needs_review_open`.** The count of open PRs across repos labelled `needs-review`.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
 
 ```python
 test_missing_required_check_is_pending   # required ["test"], contexts without "test" → "pending"
@@ -262,9 +262,9 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
                                          # "from abc123 to def456" False; group body with one 1→2 line True
 ```
 
-- [ ] **Step 2: Run the tests and check that they fail.** Expected: FAIL.
-- [ ] **Step 3:** Implement `required_state`, `is_major`, `collect` and the CLI.
-- [ ] **Step 4: Run the tests again.** Expected: PASS.
+- [x] **Step 2: Run the tests and check that they fail.** Expected: FAIL.
+- [x] **Step 3:** Implement `required_state`, `is_major`, `collect` and the CLI.
+- [x] **Step 4: Run the tests again.** Expected: PASS.
 - [ ] **Step 5: Live smoke test** (read-only):
 
   ```
@@ -277,7 +277,7 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
   - pacify has `has_ci: false`.
   - No archived repo appears.
   - The alert total is within a few of the live count from `gh api graphql` `vulnerabilityAlerts.totalCount` summed over repos.
-- [ ] **Step 6: Commit** `feat(backlog-agent): add GitHub candidate collector`.
+- [x] **Step 6: Commit** `feat(backlog-agent): add GitHub candidate collector`.
 
 ### Task 6: CHILD.md and PROMPT.md, then a supervised first run
 
@@ -313,7 +313,7 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
   5. **Report.** Only if a finish happened, `dispatch`/`newly_blocked`/`resolved` is non-empty, or `announce_cap` is set, post at most 10 lines with links: started, merged/closed, blocked (with the suggested owner action), and admin steps. Otherwise post nothing.
   6. **Child-completion notifications.** When woken by one, do only step 1 for that task.
 
-- [ ] **Step 1:** Write both files.
+- [x] **Step 1:** Write both files.
 - [ ] **Step 2: Dry run.** In this session, run steps 1–3 of PROMPT.md and show the owner the `plan` output.
   - Expected: dispatch has 3 tasks with the top one in tier 1 or 2, and `held` contains the Canvas PRs.
   - Then delete `ledger.json`. The dry run must not consume the cap.
@@ -321,17 +321,17 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
   - With the owner's go, dispatch only the top task, then wait for its completion notification.
   - Check its PR/branch by hand against CHILD.md: correct label/auto-merge decision, conventional commit, no settings touched, `RESULT:` line present.
   - Run `finish`.
-- [ ] **Step 4:** Fix whatever the supervised run exposed in CHILD.md, then commit `feat(backlog-agent): add dispatcher and child prompts`. Suggest the owner run `/mattpocock-skills:retro` on the child's thread.
-- [ ] **Step 5:** Run `mattpocock-skills:code-review` with fixed point `main` and the spec path. Fix the confirmed findings, then commit.
+- [x] **Step 4:** Fix whatever the supervised run exposed in CHILD.md, then commit `feat(backlog-agent): add dispatcher and child prompts`. Suggest the owner run `/mattpocock-skills:retro` on the child's thread.
+- [x] **Step 5:** Run `mattpocock-skills:code-review` with fixed point `main` and the spec path. Fix the confirmed findings, then commit.
 
 ### Task 7: Schedule
 
-- [ ] **Step 1:** With the owner's approval, call `schedule_task`:
+- [x] **Step 1:** With the owner's approval, call `schedule_task`:
   - `schedule: {"type": "interval", "everyMs": 3600000}`
-  - `bindToCurrentThread: true`
+  - `bindToCurrentThread: false` (one new thread per run)
   - `title: "GitHub backlog agent"`
-  - `prompt: "Read and follow /home/jsg/.t3/worktrees/random/feat-backlog-agent/backlog-agent/PROMPT.md exactly."`
+  - `prompt: "Read and follow /home/jsg/.t3/worktrees/random/feat-backlog-agent/backlog-agent/PROMPT.md exactly."` (path since moved to `/home/jsg/Documents/jsg/random_backlog-agent/backlog-agent/PROMPT.md`)
 
   Report the returned `nextRunAt`.
 - [ ] **Step 2:** After the first scheduled run, check that it posted either nothing or a summary of 10 lines or fewer, and that `ledger.json` has the expected entries.
-- [ ] **Step 3: Push.** Push `feat/backlog-agent` to origin as a backup. Open no PR to `main`, because the runtime stays off `main`.
+- [x] **Step 3: Push.** Push `feat/backlog-agent` to origin as a backup. Open no PR to `main`, because the runtime stays off `main`.
