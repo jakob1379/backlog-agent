@@ -15,7 +15,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    the lockfile names). Work inside the sandbox; when a host is refused, add it and rerun.
 3. Clone into a fresh directory, `CLONE="$TMPDIR/<key with / # : replaced by ->"`:
    `git -c credential.helper= -c credential.helper='!gh auth git-credential' clone https://github.com/<repo>.git "$CLONE"`.
-   Push with the same two `-c` flags. Run every later git and gh command as
+   Run it in the foreground with `timeout: 600000`, never in the background: your turn ending
+   is the task ending, so never end it to wait on anything. Push with the same two `-c` flags. Run every later git and gh command as
    `cd <that literal path> && …`, so it always acts on the target repo. `$CLONE` below
    stands for that path; shell variables don't survive between commands, so write it out.
 4. Read the repo's README, CI workflows and the required checks
