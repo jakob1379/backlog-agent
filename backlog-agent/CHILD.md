@@ -94,7 +94,8 @@ strict as you found it. If the only path to green runs less of a check, the task
    override (npm `overrides`, pnpm `pnpm.overrides`, yarn `resolutions`, uv
    `override-dependencies`/`constraint-dependencies`, a Nix input bump) only when that parent
    has no fixed release. Next to the override, write a one-line comment saying why it is there
-   and when to remove it; in `package.json`, which has no comments, use a top-level `"//"` key.
+   and when to remove it; in `package.json`, which has no comments, use a top-level `"//"` key, adding to it when one
+   exists (JSON keys must be unique).
 2. Regenerate the lockfile with the repo's own tool (`uv lock`, `npm install`, `nix flake
    lock`, …), and run the required checks locally.
 3. Use branch `backlog-agent/<key slug>`. If that branch or its PR already exists from an
