@@ -104,7 +104,7 @@ result shows that a rule in `backlog.py`, `PROMPT.md`, `CHILD.md` or the spec un
   commit only when it passes. Add or update a test for the rule you changed.
 - Commit explicit paths, never `git add -A`, with a conventional commit:
   `cd $W && git add <paths> && git commit -m "<type>(backlog-agent): <subject>"`.
-- Push a backup: `cd $W && git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/jakob1379/random.git feat/backlog-agent`.
+- Push a backup: `cd $W && export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token) && git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/jakob1379/random.git feat/backlog-agent`, with `allowed_domains: ["github.com", "api.github.com"]`.
 - Never switch branches, rebase, or touch `main`. Never loosen the guardrails in `CHILD.md`
   (no `--admin`, no alert dismissal, no settings changes, sandbox stays on). Those changes
   need the owner.
