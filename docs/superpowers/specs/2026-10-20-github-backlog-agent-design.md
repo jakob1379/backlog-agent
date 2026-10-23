@@ -330,8 +330,9 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
   alert for that package.
 - **Needs-review cap:** while 5 or more open PRs carry `needs-review`, the dispatcher starts
   no task in a no-CI repo and no add-CI task. Those can only end in `needs-review`, and
-  without the cap about 141 alerts would bury the owner. The gate is checked once per `plan`,
-  so one run can still dispatch 3 such tasks: on 2026-10-24 it went from 4 open to 7.
+  without the cap about 141 alerts would bury the owner. Each such task, running or
+  dispatched, takes one of the 5 places, so one `plan` can't overshoot the cap (on
+  2026-10-24 a single yes/no gate let it go from 4 open to 7).
 - **Tiers:**
   1. critical/high alerts, plus Dependabot PRs that cover one
   2. fix-main in a repo with a critical/high alert

@@ -297,16 +297,29 @@ def plan(
         for t in tasks
         if t["kind"] == "pr" and t["tier"] != 1 and f"{t['repo']}:fix-main" in keys
     ]
-    review_full = candidates["needs_review_open"] >= NEEDS_REVIEW_CAP
-    ready = [
-        t
-        for t in tasks
-        if t["key"] not in held
-        and t["key"] not in busy
-        and ledger["tasks"].get(t["key"], {}).get("status") not in SKIP_STATUSES
-        and not (review_full and (not t["has_ci"] or t["kind"] == "add-ci"))
-    ]
-    running = sum(e["status"] == "running" for e in ledger["tasks"].values())
+    def review_only(t):
+        return not t["has_ci"] or t["kind"] == "add-ci"
+
+    running_keys = {k for k, e in ledger["tasks"].items() if e["status"] == "running"}
+    review_room = (
+        NEEDS_REVIEW_CAP
+        - candidates["needs_review_open"]
+        - sum(t["key"] in running_keys and review_only(t) for t in tasks)
+    )
+    ready = []
+    for t in tasks:
+        if (
+            t["key"] in held
+            or t["key"] in busy
+            or ledger["tasks"].get(t["key"], {}).get("status") in SKIP_STATUSES
+        ):
+            continue
+        if review_only(t):
+            if review_room <= 0:
+                continue
+            review_room -= 1
+        ready.append(t)
+    running = len(running_keys)
     used = used_today(ledger, now)
     slots = max(0, min(MAX_RUNNING - running, DAILY_CAP - used))
     today = now.astimezone(TZ).date().isoformat()

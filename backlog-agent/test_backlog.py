@@ -243,8 +243,13 @@ class PlanTest(unittest.TestCase):
             needs_review_open=5,
         )
         self.assertEqual(keys(plan(c, empty(), NOW)), ["o/ci:dep:pip:b"])
-        c["needs_review_open"] = 4
+        c["needs_review_open"] = 3
         self.assertEqual(len(keys(plan(c, empty(), NOW))), 3)
+        c["needs_review_open"] = 4
+        self.assertEqual(len(keys(plan(c, empty(), NOW))), 2)
+        L = empty()
+        start(L, "o/noci:dep:pip:a", "t1", NOW)
+        self.assertEqual(keys(plan(c, L, NOW)), ["o/ci:dep:pip:b"])
 
     def test_slots_respect_running_and_daily_cap(self):
         c = cands(repo(prs=[pr(n) for n in range(1, 6)]))
