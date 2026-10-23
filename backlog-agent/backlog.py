@@ -104,6 +104,9 @@ def sweep_locks(work: Path, now: datetime) -> tuple[set[str], list[str]]:
             stale.append(lock["key"])
         else:
             busy.add(lock["key"])
+    for d in work.glob("[!.]*"):
+        if d.is_dir() and not d.with_suffix(".lock").exists():
+            shutil.rmtree(d, ignore_errors=True)
     return busy, stale
 
 

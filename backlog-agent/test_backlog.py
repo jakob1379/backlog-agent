@@ -471,10 +471,15 @@ class CliTest(unittest.TestCase):
                 lock = {"key": key, "thread_id": "x", "task_id": "", "started": started}
                 Path(work, f"{slug}.lock").write_text(json.dumps(lock))
                 Path(work, slug).mkdir()
+            Path(work, "orphan").mkdir()
+            Path(work, ".claude").mkdir()
             out = json.loads(cli(path, "plan", str(cpath), "th"))
             self.assertEqual([t["key"] for t in out["dispatch"]], ["o/r#2"])
             self.assertEqual(out["stale_locks"], ["o/r#2"])
             self.assertFalse(Path(work, "o-r-2").exists())
+            self.assertFalse(Path(work, "orphan").exists())
+            self.assertTrue(Path(work, "o-r-1").exists())
+            self.assertTrue(Path(work, ".claude").exists())
             self.assertEqual(
                 json.loads(Path(work, "o-r-2.lock").read_text())["thread_id"], "th"
             )
