@@ -13,6 +13,10 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `github.com`, `objects.githubusercontent.com`, plus the registries the repo uses
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
    the lockfile names). Work inside the sandbox; when a host is refused, add it and rerun.
+   The caches in `~` are read-only there, so start every package-tool command with
+   `export UV_CACHE_DIR=$TMPDIR/uv-cache npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache;`.
+   `nix develop` can't reach the nix daemon from the sandbox; run the check's own commands
+   directly instead (e.g. `uv run …`), and say in the PR which ones you couldn't run.
 3. Clone into a fresh directory, `CLONE="/home/jsg/Documents/jsg/random_backlog-agent/work/<key with / # : replaced by ->"`.
    It is gitignored, and the lockfile next to it (`<same name>.lock`) says which thread owns
    this task; never touch the lockfile. Delete the directory first if an earlier attempt left
@@ -119,7 +123,9 @@ requiring that check, plus `allow_auto_merge`.
 
 ## Finish
 
-Delete `$CLONE` before your last line, whatever the outcome. Everything you need is pushed.
+Delete `$CLONE` before your last line, whatever the outcome, from outside it:
+`cd /home/jsg/Documents/jsg/random_backlog-agent && rm -rf <that literal path>`. Deleting the
+working directory itself ends in a `getcwd` error. Everything you need is pushed.
 
 When you give up, add the label `agent:blocked` to the PR (if one exists), with a single
 comment explaining why.
