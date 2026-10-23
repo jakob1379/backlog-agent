@@ -23,7 +23,8 @@ with its `key`, `thread_id`, `task_id` and `started`, next to the child's workin
 task whose lockfile exists, so no two runs get the same task. Never start a task that `plan`
 did not give you, and never create or delete a lockfile by hand. `start` writes the task id into
 it, and `finish` deletes it with the directory. A lockfile older than 6h is past its time-out:
-`plan` deletes it with its directory and lists the key in `stale_locks`.
+`plan` deletes it with its directory and lists the key in `stale_locks`. `plan` also deletes any
+`work/` directory that has no lockfile.
 
 ## 1. Reconcile
 
