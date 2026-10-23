@@ -13,8 +13,9 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `github.com`, `objects.githubusercontent.com`, plus the registries the repo uses
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
    the lockfile names). Work inside the sandbox; when a host is refused, add it and rerun.
-   The caches in `~` are read-only there, so start every package-tool command with
-   `export UV_CACHE_DIR=$TMPDIR/uv-cache npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache;`.
+   The caches in `~` are read-only there, so start every package-tool and `gh` command with
+   `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache;`
+   (`gh run view --log-failed` writes to `~/.cache/gh`, and uv installs Pythons under `~`).
    `nix develop` can't reach the nix daemon from the sandbox; run the check's own commands
    directly instead (e.g. `uv run …`), and say in the PR which ones you couldn't run.
 3. Clone into a fresh directory, `CLONE="/home/jsg/Documents/jsg/random_backlog-agent/work/<key with / # : replaced by ->"`.
