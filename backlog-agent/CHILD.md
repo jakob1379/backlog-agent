@@ -141,8 +141,13 @@ a ruleset, so the task comes back. Open nothing, and end `blocked` naming the ad
 
 Otherwise open a PR on branch `backlog-agent/add-ci` that adds one workflow,
 `.github/workflows/ci.yml`. It runs the repo's existing build or test command (`nix flake
-check`, `uv run pytest`, …) on `pull_request` and on pushes to the default branch. This PR is
-always in the review lane. In the `RESULT:` line, name the admin step it needs: a ruleset
+check`, `uv run pytest`, …) on `pull_request` and on pushes to the default branch. Before
+writing it, run that command as CI will (in a uv repo `uv run --locked …`): a stale lockfile
+on the default branch fails the new check on its first run. Pin each action to a tag that
+exists (`gh api repos/<owner>/<action>/git/ref/tags/<tag>`); `astral-sh/setup-uv` has no
+floating major tag, so pin its full release. After pushing, watch the PR's run in the
+foreground with `gh run watch <id> --exit-status` (`timeout: 600000`) and fix what fails. This
+PR is always in the review lane. In the `RESULT:` line, name the admin step it needs: a ruleset
 requiring that check, plus `allow_auto_merge`.
 
 ## Guardrails
