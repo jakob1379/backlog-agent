@@ -119,10 +119,14 @@ which may not even have the files the PR changes.
 
 0. First check the version on the default branch: its lockfile, and
    `gh api repos/<repo>/dependency-graph/sbom --jq '.sbom.packages[] | select(.name=="<pkg>") | .versionInfo'`.
+   A Dependabot PR merged after the alerts' `created_at` often fixed them before the rescan.
    If every copy is already at or above `first_patched`, the alert is stale: open no PR, and
    end `blocked`, naming the alert numbers and the dismissal reason `inaccurate` (or a
-   Dependabot rescan) for the owner. The task gives only GHSA ids; get the numbers with
-   `gh api 'repos/<repo>/dependabot/alerts?state=open' --jq '.[] | select(.dependency.package.name=="<pkg>") | "\(.number) \(.security_advisory.ghsa_id)"'`.
+   Dependabot rescan) for the owner. The task gives only GHSA ids; get the numbers, and the
+   manifest each alert is on, with
+   `gh api --paginate 'repos/<repo>/dependabot/alerts?state=open&per_page=100' --jq '.[] | select(.dependency.package.name=="<pkg>") | "\(.number) \(.security_advisory.ghsa_id) \(.dependency.manifest_path)"'`
+   (without `--paginate` the API returns only the first 30 alerts). When only some manifests
+   are stale, fix the rest and name the stale numbers in the PR body.
 1. Target `first_patched` for each alert, i.e. the smallest version that fixes it. When the
    package is transitive, upgrade the direct dependency that pulls it in. Use an ecosystem
    override (npm `overrides`, pnpm `pnpm.overrides`, yarn `resolutions`, uv
