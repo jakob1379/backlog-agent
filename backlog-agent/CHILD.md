@@ -12,7 +12,9 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
 2. Declare the hosts each networked command needs in `allowed_domains`: `api.github.com`,
    `github.com`, `objects.githubusercontent.com`, plus the registries the repo uses
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
-   the lockfile names). Work inside the sandbox; when a host is refused, add it and rerun.
+   the lockfile names). To see what a flake-input SHA bump changes, `git diff --no-index` the two
+   `github.com/<owner>/<repo>/archive/<rev>.tar.gz` tarballs, unpacked; those redirect to
+   `codeload.github.com`. Work inside the sandbox; when a host is refused, add it and rerun.
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
    `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache;`
    (`gh run view --log-failed` writes to `~/.cache/gh`, and uv installs Pythons and `uvx` tools under `~`).
