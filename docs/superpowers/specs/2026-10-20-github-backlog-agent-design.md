@@ -245,8 +245,9 @@ Status as of 2026-10-23: **Phase 0 is done.**
   goes into the summary as an admin step for the owner. Merging the CI PR doesn't give the repo
   `has_ci`; only the ruleset does, so until then the add-CI task keeps coming back, and a child
   that finds `backlog-agent/add-ci` already merged opens nothing and ends blocked with the admin
-  step. Status 2026-10-24: pacify#5, br18#2 and brobizz-usage#2 are merged; none of the three
-  has a ruleset yet, and `allow_auto_merge` is still false in all three. br18's `CI` has failed
+  step. Status 2026-10-24: pacify#5, br18#2 and brobizz-usage#2 are merged. brobizz-usage got
+  its ruleset (`sane main`, requiring `test`) and `allow_auto_merge` from the owner on 2026-10-24;
+  pacify and br18 still have neither. br18's `CI` has failed
   on all 6 `main` runs since it landed (2026-10-23, last at 2026-10-24 13:17 UTC), in `build-docs.sh`'s lychee link check
   (external link rot, per br18#10's child), so every br18 PR
   shows red until those links are fixed; with no ruleset, no fix-main task is derived for it.
