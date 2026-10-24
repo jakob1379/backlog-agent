@@ -34,6 +34,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
 4. Read the repo's README, CI workflows and the required checks
    (`gh api repos/<repo>/rules/branches/<default>`), so your local check matches CI. That call
    returns 403 on a private repo without GitHub Pro; then take the checks from the workflows.
+   Tests that compare terminal output can fail locally only because the sandbox's long
+   `$TMPDIR` paths wrap at 80 columns; rerun them with `COLUMNS=250` before calling them red.
 
 Done when: the clone exists and you can name the command that reproduces each required check.
 
