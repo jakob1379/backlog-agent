@@ -280,6 +280,28 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(L["tasks"]["o/r#2"]["status"], "blocked")
         self.assertEqual(sorted(L["tasks"]), ["o/r#2", "o/r#3"])
 
+    def test_alert_opened_after_a_finished_task_started_reopens_it(self):
+        L = empty()
+        for package, status in [("a", "done"), ("b", "blocked"), ("c", "blocked")]:
+            key = f"o/r:dep:pip:{package}"
+            start(L, key, "t", datetime(2026, 10, 20, 12, tzinfo=UTC))
+            finish(L, key, status, "stale", datetime(2026, 10, 20, 13, tzinfo=UTC))
+        later = "2026-10-21T08:00:00Z"
+        c = cands(
+            repo(
+                alerts=[
+                    alert("a"),
+                    alert("a", created_at=later),
+                    alert("b", created_at=later),
+                    alert("c"),
+                ]
+            )
+        )
+        result = plan(c, L, NOW)
+        self.assertEqual(keys(result), ["o/r:dep:pip:a", "o/r:dep:pip:b"])
+        self.assertEqual([t["attempt"] for t in result["dispatch"]], [1, 1])
+        self.assertEqual(L["tasks"]["o/r:dep:pip:c"]["status"], "blocked")
+
     def test_done_item_still_open_but_not_a_task_is_not_resolved(self):
         L = empty()
         for key in ["o/r#1", "o/r:dep:pip:urllib3"]:

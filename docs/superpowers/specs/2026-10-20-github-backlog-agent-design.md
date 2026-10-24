@@ -228,7 +228,9 @@ Status as of 2026-10-23: **Phase 0 is done.**
     blocked ledger entry also hides every later advisory for its package while the key stays
     present: pacify's pillow 13.0.0, tornado 6.5.8/6.5.9 and urllib3 2.8.0 alerts appeared
     on 2026-10-23 14:26, after those children finished at 08:56, and were never worked;
-    pacify#6 fixed them.
+    pacify#6 fixed them. Since then `plan` drops a done or blocked alert entry when any of
+    its open alerts was created after the entry's child started, so the key runs again from
+    attempt 1.
 - **Fix main (Q6):** make the default branch's required checks pass, using the same
   manifest-only versus source rule. (As of 2026-10-21, Canvas-Code-Correction's main is red
   on the required `SonarCloud Code Analysis` check, while `test` is green on main and red on

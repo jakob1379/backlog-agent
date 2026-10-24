@@ -276,6 +276,12 @@ def plan(
     busy: frozenset = frozenset(),
 ) -> dict:
     present = present_keys(candidates)
+    newest_alert = {}
+    for r in candidates["repos"]:
+        for a in r["alerts"]:
+            k = alert_key(r["repo"], a)
+            created = datetime.fromisoformat(a["created_at"])
+            newest_alert[k] = max(newest_alert.get(k, created), created)
     resolved, newly_blocked = [], []
     for key, e in list(ledger["tasks"].items()):
         if e["status"] == "running":
@@ -284,6 +290,13 @@ def plan(
             del ledger["tasks"][key]
             if e["status"] == "done":
                 resolved.append(key)
+        elif (
+            # A child only saw the alerts collected before it started.
+            e["status"] in ("done", "blocked")
+            and key in newest_alert
+            and newest_alert[key] > datetime.fromisoformat(e["started"])
+        ):
+            del ledger["tasks"][key]
         elif (
             e["status"] == "done"
             and now - datetime.fromisoformat(e["finished"]) >= STALE_DONE_AFTER
