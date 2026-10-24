@@ -71,7 +71,8 @@ Choose the lane from the commits **you** add.
   assign `jakob1379`.
 
 Post every PR comment as its own command, `gh pr comment <n> --body-file <file>`, from a file
-you wrote with the Write tool under `$TMPDIR`, never in `work/`. The permission gate refuses one command that combines label or
+you wrote with the Write tool under `$TMPDIR`, never in `work/`. The Write tool doesn't expand
+variables, so run `echo $TMPDIR` first and give it the literal path. The permission gate refuses one command that combines label or
 reviewer edits with a heredoc comment.
 
 When `has_ci` is false, the PR always goes to the review lane, because a repo with no required
