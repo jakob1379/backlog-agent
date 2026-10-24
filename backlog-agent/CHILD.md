@@ -68,14 +68,18 @@ strict as you found it. If the only path to green runs less of a check, the task
 
 ### `pr`: red, stuck or unchecked Dependabot PR `#<pr>`
 
+Check the cases in this order and take the first that matches. A CONFLICTING PR matches its
+case whatever `has_ci` is: its local test run says nothing about the current default branch,
+which may not even have the files the PR changes.
+
+- **CONFLICTING**, and every commit is Dependabot's: comment `@dependabot recreate`. Done.
+- **CONFLICTING with other commits**: merge the default branch into the head branch in
+  `$CLONE`, resolve the conflicts, push, and choose the lane.
 - **No required checks** (`has_ci` false): check out the PR, run the repo's build and tests
   locally, and fix what fails as under **Red**. First compare each failure with the latest run
   on the default branch (`gh run list --branch <default>`): one that fails the same way there
   isn't the PR's, so name it in the comment instead of fixing it here. Then put it in the
   review lane, with a comment saying what you ran and what it showed. Done.
-- **CONFLICTING**, and every commit is Dependabot's: comment `@dependabot recreate`. Done.
-- **CONFLICTING with other commits**: merge the default branch into the head branch in
-  `$CLONE`, resolve the conflicts, push, and choose the lane.
 - **Green but not merged**:
   - Auto-merge on: comment `@dependabot rebase` once.
   - Auto-merge off, and the PR qualifies: enable it.
