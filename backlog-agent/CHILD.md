@@ -14,8 +14,9 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
    the lockfile names). To see what a flake-input SHA bump changes, `git diff --no-index` the two
    `github.com/<owner>/<repo>/archive/<rev>.tar.gz` tarballs, unpacked; those redirect to
-   `codeload.github.com`. `gh run view --log-failed` downloads from `*.blob.core.windows.net`;
-   a `*` must stand for whole labels (`productionresultssa*.blob…` is rejected). Work inside
+   `codeload.github.com`. `gh run view --log-failed` downloads from
+   `results-receiver.actions.githubusercontent.com` and `*.blob.core.windows.net`; declare both.
+   A `*` must stand for whole labels (`productionresultssa*.blob…` is rejected). Work inside
    the sandbox; when a host is refused, add it and rerun.
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
    `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
