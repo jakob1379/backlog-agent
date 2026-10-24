@@ -86,8 +86,11 @@ which may not even have the files the PR changes.
 - **No required checks** (`has_ci` false): check out the PR, run the repo's build and tests
   locally, and fix what fails as under **Red**. First compare each failure with the latest run
   on the default branch (`gh run list --branch <default>`): one that fails the same way there
-  isn't the PR's, so name it in the comment instead of fixing it here. Then put it in the
-  review lane, with a comment saying what you ran and what it showed. Done.
+  isn't the PR's, so name it in the comment instead of fixing it here. `has_ci` false only
+  means no ruleset: the repo may still run workflows on the PR, so read them. When a job needs a
+  toolchain the sandbox lacks (e.g. Flutter), its green run on the PR's head commit stands in
+  for the local run; link it in the comment. Then put it in the review lane, with a comment
+  saying what you ran and what it showed. Done.
 - **Green but not merged**:
   - Auto-merge on: comment `@dependabot rebase` once.
   - Auto-merge off, and the PR qualifies: enable it.
