@@ -21,7 +21,11 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    No `nix` command (`nix develop`, `nix build`, `nix flake check`) can reach the nix daemon
    from the sandbox, and the sandbox stays on: never set `dangerouslyDisableSandbox`. Run the
    check's own commands directly instead (e.g. `uv run …`), and say in the PR which ones you
-   couldn't run, including any check that is itself a `nix` command.
+   couldn't run, including any check that is itself a `nix` command. For a nixpkgs bump that
+   can break the flake's pre-commit hooks, read each hook tool's version at both revs with
+   `gh api repos/NixOS/nixpkgs/contents/pkgs/by-name/<xx>/<pkg>/package.nix?ref=<rev>` (the
+   first `version =` can belong to a nested derivation), then run `uvx <tool>@<version>`
+   with `--python` set to the hook's Python when the newest one crashes it.
 3. Clone into a fresh directory, `CLONE="/home/jsg/Documents/jsg/random_backlog-agent/work/<key with / # : replaced by ->"`.
    It is gitignored, and the lockfile next to it (`<same name>.lock`) says which thread owns
    this task; never touch the lockfile. Delete the directory first if an earlier attempt left
