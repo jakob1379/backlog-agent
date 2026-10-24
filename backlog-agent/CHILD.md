@@ -26,9 +26,12 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    check's own commands directly instead (e.g. `uv run …`), and say in the PR which ones you
    couldn't run, including any check that is itself a `nix` command. For a nixpkgs bump that
    can break the flake's pre-commit hooks, read each hook tool's version at both revs with
-   `gh api repos/NixOS/nixpkgs/contents/pkgs/by-name/<xx>/<pkg>/package.nix?ref=<rev>` (the
-   first `version =` can belong to a nested derivation), then run `uvx <tool>@<version>`
-   with `--python` set to the hook's Python when the newest one crashes it.
+   `gh api repos/NixOS/nixpkgs/contents/pkgs/by-name/<xx>/<pkg>/package.nix?ref=<rev> -H 'Accept: application/vnd.github.raw'`
+   (raw file, no base64; the first `version =` can belong to a nested derivation), then run
+   `uvx <tool>@<version>` with `--python` set to the hook's Python when the newest one
+   crashes it. A `buildPythonApplication` check phase in a repo with no `uv.lock` runs as
+   `uv run --no-project --python <ver> --with <pkg>==<ver> … -- python -m pytest`, with the
+   versions nixpkgs pins at the new rev.
 3. Clone into a fresh directory, `CLONE="/home/jsg/Documents/jsg/random_backlog-agent/work/<key with / # : replaced by ->"`.
    It is gitignored, and the lockfile next to it (`<same name>.lock`) says which thread owns
    this task; never touch the lockfile. Delete the directory first if an earlier attempt left
