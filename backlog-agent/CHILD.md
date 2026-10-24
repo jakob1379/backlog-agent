@@ -16,8 +16,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `github.com/<owner>/<repo>/archive/<rev>.tar.gz` tarballs, unpacked; those redirect to
    `codeload.github.com`. Work inside the sandbox; when a host is refused, add it and rerun.
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
-   `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache;`
-   (`gh run view --log-failed` writes to `~/.cache/gh`, and uv installs Pythons and `uvx` tools under `~`).
+   `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
+   (`gh run view --log-failed` writes to `~/.cache/gh`, uv installs Pythons and `uvx` tools under `~`, and matplotlib writes its config there).
    No `nix` command (`nix develop`, `nix build`, `nix flake check`) can reach the nix daemon
    from the sandbox, and the sandbox stays on: never set `dangerouslyDisableSandbox`. Run the
    check's own commands directly instead (e.g. `uv run …`), and say in the PR which ones you
@@ -63,7 +63,7 @@ Choose the lane from the commits **you** add.
   assign `jakob1379`.
 
 Post every PR comment as its own command, `gh pr comment <n> --body-file <file>`, from a file
-you wrote with the Write tool. The permission gate refuses one command that combines label or
+you wrote with the Write tool under `$TMPDIR`, never in `work/`. The permission gate refuses one command that combines label or
 reviewer edits with a heredoc comment.
 
 When `has_ci` is false, the PR always goes to the review lane, because a repo with no required
