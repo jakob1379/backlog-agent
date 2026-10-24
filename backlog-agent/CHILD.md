@@ -132,7 +132,11 @@ default-branch commit. Fix it on branch `backlog-agent/<key slug>`, open a PR wi
 
 ### `add-ci`: no required checks
 
-Open a PR on branch `backlog-agent/add-ci` that adds one workflow,
+First run `cd "$CLONE" && gh pr list --state all --head backlog-agent/add-ci`. If that shows a
+merged PR, the CI is already on the default branch, but `has_ci` stays false until the owner adds
+a ruleset, so the task comes back. Open nothing, and end `blocked` naming the admin step below.
+
+Otherwise open a PR on branch `backlog-agent/add-ci` that adds one workflow,
 `.github/workflows/ci.yml`. It runs the repo's existing build or test command (`nix flake
 check`, `uv run pytest`, …) on `pull_request` and on pushes to the default branch. This PR is
 always in the review lane. In the `RESULT:` line, name the admin step it needs: a ruleset
