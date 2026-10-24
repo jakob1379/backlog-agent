@@ -14,8 +14,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
    the lockfile names). Work inside the sandbox; when a host is refused, add it and rerun.
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
-   `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache;`
-   (`gh run view --log-failed` writes to `~/.cache/gh`, and uv installs Pythons under `~`).
+   `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache;`
+   (`gh run view --log-failed` writes to `~/.cache/gh`, and uv installs Pythons and `uvx` tools under `~`).
    No `nix` command (`nix develop`, `nix build`, `nix flake check`) can reach the nix daemon
    from the sandbox, and the sandbox stays on: never set `dangerouslyDisableSandbox`. Run the
    check's own commands directly instead (e.g. `uv run …`), and say in the PR which ones you
