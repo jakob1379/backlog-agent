@@ -217,8 +217,8 @@ Status as of 2026-10-23: **Phase 0 is done.**
     dev-only, report it in the summary with a suggested dismissal reason for the owner. Mark
     it blocked in the ledger so it isn't retried every hour.
   - The alert closes on its own when the fix reaches the default branch. When the default
-    branch is already fixed and the alert is still open (6 times by 2026-10-24: pacify
-    pillow, tornado and urllib3, br18 idna, crawlee and multidict), the child opens no PR and reports it blocked
+    branch is already fixed and the alert is still open (7 times by 2026-10-24: pacify
+    pillow, tornado and urllib3, br18 idna, crawlee and multidict, brobizz-usage anyio), the child opens no PR and reports it blocked
     with `inaccurate` as the suggested reason.
 - **Fix main (Q6):** make the default branch's required checks pass, using the same
   manifest-only versus source rule. (As of 2026-10-21, Canvas-Code-Correction's main is red
