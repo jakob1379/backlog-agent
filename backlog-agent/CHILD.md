@@ -141,7 +141,8 @@ which may not even have the files the PR changes.
    and when to remove it; in `package.json`, which has no comments, use a top-level `"//"` key, adding to it when one
    exists (JSON keys must be unique).
 2. Regenerate the lockfile with the repo's own tool (`uv lock`, `npm install`, `nix flake
-   lock`, …), and run the required checks locally. Never pass npm `--legacy-peer-deps`: it
+   lock`, …), and run the required checks locally. `uv lock --upgrade-package <pkg>` takes the
+   newest release; pin the target with `--upgrade-package <pkg>==<first_patched>`. Never pass npm `--legacy-peer-deps`: it
    drops the lockfile's `peer: true` entries. Diff the lockfile's `.packages | keys` against
    HEAD to check that only your package moved.
 3. Use branch `backlog-agent/<key slug>`. If that branch or its PR already exists from an
