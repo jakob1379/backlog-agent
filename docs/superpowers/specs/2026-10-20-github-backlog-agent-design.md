@@ -228,7 +228,9 @@ Status as of 2026-10-23: **Phase 0 is done.**
     and every pacify alert closed at 13:58, two minutes into the pygments child's run, but
     br18#10 (filelock 4.2.1, merged 13:17) and pymdown-symbolic-snippets#5 (pygments 2.21.0,
     merged 13:18 by the owner) left br18 alerts #15-#17 and pymdown-symbolic-snippets alert #2
-    open at 14:58. A done or
+    open at 14:58. pymdown-symbolic-snippets #2 closed at 17:28 (4h10m), brobizz-usage's
+    certifi alert #7 at 18:04, 1h49m after brobizz-usage#4 merged, and br18 #15-#17 were
+    still open at 18:58 (5h41m). A done or
     blocked ledger entry also hides every later advisory for its package while the key stays
     present: pacify's pillow 13.0.0, tornado 6.5.8/6.5.9 and urllib3 2.8.0 alerts appeared
     on 2026-10-23 14:26, after those children finished at 08:56, and were never worked;
