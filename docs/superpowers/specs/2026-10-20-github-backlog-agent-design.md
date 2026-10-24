@@ -251,10 +251,14 @@ Status as of 2026-10-23: **Phase 0 is done.**
   force-push, admin bypass, CodeQL `code_scanning` at errors / high_or_higher) requiring
   `test` (brobizz-usage), `flutter` and `python` (pacify), or `build-docs` (br18). pacify
   already had the Dependabot auto-merge workflow; brobizz-usage#5 and
-  br18#11 add it to the other two. br18's `CI` has failed
+  br18#11 add it to the other two; both are still open. br18's `CI` has failed
   on all 6 `main` runs since it landed (2026-10-23, last at 2026-10-24 13:17 UTC), in
-  `build-docs.sh`'s lychee link check (external link rot, per br18#10's child). Now that
-  `build-docs` is required, br18's red main becomes a fix-main task that blocks its other tasks.
+  `build-docs.sh`'s lychee link check. br18#10's child called that external link rot; the
+  fix-main child read run 40097517374 and found 1,318 broken internal links and anchors in the
+  cloned site plus 415 external errors (1,733 in all), and ended blocked on 2026-10-24. The owner
+  chooses: fix the converter's links and re-crawl, or narrow what lychee checks; and for the
+  external errors, an exclude list, a separate non-required external-links job, or removing
+  the dead links. Until main is green, `plan` holds br18's non-tier-1 Dependabot-PR tasks.
 - **Gave up:** label the PR `agent:blocked`, if there is one, with a one-comment reason, and
   record blocked in the ledger. The dispatcher won't retry blocked items. Unblocking is done
   by hand: remove the label or clear the ledger entry.
