@@ -2,7 +2,7 @@
 
 `W=/home/jsg/Documents/jsg/random_backlog-agent` and `B="python3 $W/backlog-agent/backlog.py"`.
 
-`backlog.py` holds every rule: ranking, holds, the 3-running and 24-a-day caps, retries, and
+`backlog.py` holds every rule: ranking, holds, the 3-running and 100-a-day caps, retries, and
 the ledger. Your job is to run it, start the children it names one at a time, hand each one's lessons
 to the next, end with the steward, and report. Read the state only
 from its output (`running`, `plan`), and change the ledger only through its `start` and
@@ -108,7 +108,7 @@ reply with at most 10 lines, each linking to its PR or repo:
   each one names. This includes admin steps from `add-ci` results, and the steward's `OWNER:` line.
 - **Failed to start**: the keys whose `delegate_task` failed, with the error.
 - **Cleaned up**: the keys in `stale_locks`.
-- **Cap**: when `announce_cap` is true, say the daily cap of 24 is reached and how many tasks
+- **Cap**: when `announce_cap` is true, say the daily cap of 100 is reached and how many tasks
   are `queued`.
 - **Self-changes**: each commit from step 6 and the steward's `STEWARD:` line, with its subject.
 

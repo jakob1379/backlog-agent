@@ -12,7 +12,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 MAX_RUNNING = 3
-DAILY_CAP = 24
+DAILY_CAP = 100
 TZ = ZoneInfo("Europe/Copenhagen")
 MAX_ATTEMPTS = 2
 OVERDUE_AFTER = timedelta(hours=6)

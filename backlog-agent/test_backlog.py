@@ -259,7 +259,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(len(plan(c, L, NOW)["dispatch"]), 1)
 
         L = empty()
-        L["starts"] = [NOW.isoformat()] * 24
+        L["starts"] = [NOW.isoformat()] * 100
         first = plan(c, L, NOW)
         second = plan(c, L, NOW)
         self.assertEqual((first["dispatch"], first["announce_cap"]), ([], True))

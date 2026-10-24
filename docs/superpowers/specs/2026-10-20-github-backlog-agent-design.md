@@ -177,7 +177,7 @@ Status as of 2026-10-23: **Phase 0 is done.**
    4. red or stuck Dependabot PRs, oldest first
    5. majors
 6. **Dispatch** the top tasks until **3** tasks are running in total (a cap on concurrent
-   tasks, not only on new ones per hour). **Hard cap: 24 child runs per calendar day**
+   tasks, not only on new ones per hour). **Hard cap: 100 child runs per calendar day**
    (Europe/Copenhagen time). Retries count toward the cap. When the cap is reached, the
    dispatcher starts nothing new until midnight. It says so once in that day's summary. Each task gets its own child agent via
    `delegate_task`: provider `claudeAgent`, model `claude-opus-5-5`, effort `high`, one task
