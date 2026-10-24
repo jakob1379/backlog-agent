@@ -12,10 +12,10 @@
 
 ## Global Constraints
 
-- **Runtime branch and worktree.** The runtime lives on branch `feat/backlog-agent` in worktree `/home/jsg/.t3/worktrees/random/feat-backlog-agent/`, never on `main`. The schedule is bound to this thread, which is attached to that worktree. `feat/backlog-agent` is never merged into `main`, and the worktree is never removed while the schedule exists. PROMPT.md step 0 enforces this.
+- **Runtime branch and worktree.** The runtime lives on branch `feat/backlog-agent` in worktree `/home/jsg/.t3/worktrees/random/feat-backlog-agent/` (since moved to the fixed worktree `/home/jsg/Documents/jsg/random_backlog-agent`, where each hourly run starts a new thread), never on `main`. `feat/backlog-agent` is never merged into `main`, and the worktree is never removed while the schedule exists. PROMPT.md step 0 enforces this.
 - Every `gh` call in the agent runs with `export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token)` and `allowed_domains` that include `api.github.com`. Never print the token.
 - Phase 0 runs under the owner's own `gh` login (outside the sandbox), and each outward-facing step is shown to the owner and confirmed first.
-- `MAX_RUNNING = 3`, `DAILY_CAP = 24` (every start counts, retries too), `TZ = "Europe/Copenhagen"`, `MAX_ATTEMPTS = 2`.
+- `MAX_RUNNING = 3`, `DAILY_CAP = 24` (raised to 100 on 2026-10-24; every start counts, retries too), `TZ = "Europe/Copenhagen"`, `MAX_ATTEMPTS = 2`.
 - `STUCK_AFTER = 2h`, `STALE_DONE_AFTER = 48h`, `ADD_CI_REPOS = {"jakob1379/pacify", "jakob1379/br18", "jakob1379/brobizz-usage"}`.
 - Child agent: `target = {providerInstanceId: "claudeAgent", model: "claude-opus-5-5", options: {effort: "high"}}` (check the exact option id in `orchestrator_capabilities`), `mode: "async"`, `isolation: "shared"`, `runtimeMode` unset, `clientRequestId = "<key>#<attempt>"`.
 - Required checks come only from `GET repos/{o}/{r}/rules/branches/{default}` → `type == "required_status_checks"`. Passing conclusions are `SUCCESS`, `NEUTRAL` and `SKIPPED`.
