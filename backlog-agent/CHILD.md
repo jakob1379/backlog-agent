@@ -90,7 +90,8 @@ strict as you found it. If the only path to green runs less of a check, the task
    `gh api repos/<repo>/dependency-graph/sbom --jq '.sbom.packages[] | select(.name=="<pkg>") | .versionInfo'`.
    If every copy is already at or above `first_patched`, the alert is stale: open no PR, and
    end `blocked`, naming the alert numbers and the dismissal reason `inaccurate` (or a
-   Dependabot rescan) for the owner.
+   Dependabot rescan) for the owner. The task gives only GHSA ids; get the numbers with
+   `gh api 'repos/<repo>/dependabot/alerts?state=open' --jq '.[] | select(.dependency.package.name=="<pkg>") | "\(.number) \(.security_advisory.ghsa_id)"'`.
 1. Target `first_patched` for each alert, i.e. the smallest version that fixes it. When the
    package is transitive, upgrade the direct dependency that pulls it in. Use an ecosystem
    override (npm `overrides`, pnpm `pnpm.overrides`, yarn `resolutions`, uv
