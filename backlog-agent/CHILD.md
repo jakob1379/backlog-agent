@@ -16,6 +16,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `github.com/<owner>/<repo>/archive/<rev>.tar.gz` tarballs, unpacked; those redirect to
    `codeload.github.com`. `gh run view --log-failed` downloads from
    `results-receiver.actions.githubusercontent.com` and `*.blob.core.windows.net`; declare both.
+   Each of its lines starts with `job<TAB>step<TAB>timestamp `; strip that with
+   `sed 's/^[^\t]*\t[^\t]*\t[^ ]* //'` before matching on a line's start.
    A `*` must stand for whole labels (`productionresultssa*.blob…` is rejected). Work inside
    the sandbox; when a host is refused, add it and rerun.
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
