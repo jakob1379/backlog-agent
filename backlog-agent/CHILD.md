@@ -136,10 +136,9 @@ requiring that check, plus `allow_auto_merge`.
 
 ## Finish
 
-Delete `$CLONE` before your last line, whatever the outcome, from outside it, in one command:
-`cd /home/jsg/Documents/jsg/random_backlog-agent && rm -rf <that literal path>`. Any earlier
-`cd <clone> && …` leaves the session inside the clone, and a bare `rm -rf` of the session's
-working directory is refused. Everything you need is pushed.
+Leave `$CLONE` in place: the dispatcher's `finish` deletes it with the lockfile once it records
+your result. Don't try to delete it yourself (the safety check refuses `rm -rf` of a directory
+you have `cd`'d into, even from outside it) and don't mention it in your `RESULT:` line.
 
 When you give up, add the label `agent:blocked` to the PR (if one exists), with a single
 comment explaining why.
