@@ -136,9 +136,10 @@ requiring that check, plus `allow_auto_merge`.
 
 ## Finish
 
-Delete `$CLONE` before your last line, whatever the outcome, from outside it:
-`cd /home/jsg/Documents/jsg/random_backlog-agent && rm -rf <that literal path>`. Deleting the
-working directory itself ends in a `getcwd` error. Everything you need is pushed.
+Delete `$CLONE` before your last line, whatever the outcome, from outside it, in one command:
+`cd /home/jsg/Documents/jsg/random_backlog-agent && rm -rf <that literal path>`. Any earlier
+`cd <clone> && …` leaves the session inside the clone, and a bare `rm -rf` of the session's
+working directory is refused. Everything you need is pushed.
 
 When you give up, add the label `agent:blocked` to the PR (if one exists), with a single
 comment explaining why.
