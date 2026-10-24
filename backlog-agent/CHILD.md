@@ -39,7 +39,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `cd <that literal path> && …`, so it always acts on the target repo. `$CLONE` below
    stands for that path; shell variables don't survive between commands, so write it out.
    `git diff` there runs through difftastic, so grep finds nothing in it; use
-   `git --no-pager diff --no-ext-diff`.
+   `git --no-pager diff --no-ext-diff`. `gh pr checkout` has no `-q` flag; with one it only
+   prints help and leaves the clone on the default branch.
 4. Read the repo's README, CI workflows and the required checks
    (`gh api repos/<repo>/rules/branches/<default>`), so your local check matches CI. That call
    returns 403 on a private repo without GitHub Pro; then take the checks from the workflows.
@@ -68,7 +69,9 @@ Choose the lane from the commits **you** add.
   coverage or audit config, or source code. Add the label `needs-review` (create it first with
   `gh label create needs-review --color FBCA04 --force`). On a Dependabot PR, request a review
   from `jakob1379`, and assign `jakob1379` if GitHub rejects the request. On a PR you opened,
-  assign `jakob1379`.
+  assign `jakob1379`. Run `gh label create`, `gh pr edit --add-label` and
+  `gh pr edit --add-reviewer` (or `--add-assignee`) as separate commands: the permission gate
+  refuses them chained with `&&`.
 
 Post every PR comment as its own command, `gh pr comment <n> --body-file <file>`, from a file
 you wrote with the Write tool under `$TMPDIR`, never in `work/`. The Write tool doesn't expand
