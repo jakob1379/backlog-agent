@@ -14,7 +14,9 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
    the lockfile names). To see what a flake-input SHA bump changes, `git diff --no-index` the two
    `github.com/<owner>/<repo>/archive/<rev>.tar.gz` tarballs, unpacked; those redirect to
-   `codeload.github.com`. Work inside the sandbox; when a host is refused, add it and rerun.
+   `codeload.github.com`. `gh run view --log-failed` downloads from `*.blob.core.windows.net`;
+   a `*` must stand for whole labels (`productionresultssa*.blob…` is rejected). Work inside
+   the sandbox; when a host is refused, add it and rerun.
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
    `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
    (`gh run view --log-failed` writes to `~/.cache/gh`, uv installs Pythons and `uvx` tools under `~`, and matplotlib writes its config there).
@@ -35,9 +37,14 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    is the task ending, so never end it to wait on anything. Push with the same two `-c` flags. Run every later git and gh command as
    `cd <that literal path> && …`, so it always acts on the target repo. `$CLONE` below
    stands for that path; shell variables don't survive between commands, so write it out.
+   `git diff` there runs through difftastic, so grep finds nothing in it; use
+   `git --no-pager diff --no-ext-diff`.
 4. Read the repo's README, CI workflows and the required checks
    (`gh api repos/<repo>/rules/branches/<default>`), so your local check matches CI. That call
    returns 403 on a private repo without GitHub Pro; then take the checks from the workflows.
+   The token can't read `gh pr view --json statusCheckRollup` ("Resource not accessible by
+   personal access token"); read check results with `gh run list --commit <sha>` and
+   `gh run view <id> --json jobs`.
    Tests that compare terminal output can fail locally only because the sandbox's long
    `$TMPDIR` paths wrap at 80 columns; rerun them with `COLUMNS=250` before calling them red.
 
