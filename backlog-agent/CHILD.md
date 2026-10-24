@@ -62,6 +62,10 @@ Choose the lane from the commits **you** add.
   from `jakob1379`, and assign `jakob1379` if GitHub rejects the request. On a PR you opened,
   assign `jakob1379`.
 
+Post every PR comment as its own command, `gh pr comment <n> --body-file <file>`, from a file
+you wrote with the Write tool. The permission gate refuses one command that combines label or
+reviewer edits with a heredoc comment.
+
 When `has_ci` is false, the PR always goes to the review lane, because a repo with no required
 checks merges the moment auto-merge is on.
 
