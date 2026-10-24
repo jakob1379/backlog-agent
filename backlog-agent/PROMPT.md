@@ -48,7 +48,9 @@ $B finish '<key>' <status> - <<'NOTE_END'
 NOTE_END
 ```
 
-Keep the status it prints, because `failed` can come back as `blocked`.
+Keep the status it prints, because `failed` can come back as `blocked`. If the note names a
+pull request URL, call `link_pull_request` with it, so the PR shows on this run's thread and not
+only on the child's.
 
 Done when no ledger entry is `running` with a terminal task behind it.
 
