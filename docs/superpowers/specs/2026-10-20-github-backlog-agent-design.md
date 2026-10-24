@@ -217,14 +217,18 @@ Status as of 2026-10-23: **Phase 0 is done.**
     dev-only, report it in the summary with a suggested dismissal reason for the owner. Mark
     it blocked in the ledger so it isn't retried every hour.
   - The alert closes on its own when the fix reaches the default branch. When the default
-    branch is already fixed and the alert is still open (10 times by 2026-10-24: pacify
+    branch is already fixed and the alert is still open (11 times by 2026-10-24: pacify
     pillow, tornado, urllib3, certifi and pygments, br18 idna, crawlee, multidict and
-    filelock, brobizz-usage anyio; my-job-search zod was stale on 5 of 6 manifests), the
+    filelock, brobizz-usage anyio, pymdown-symbolic-snippets pygments; my-job-search zod was
+    stale on 5 of 6 manifests), the
     child opens no PR and reports it blocked with `inaccurate` as the suggested reason. On
     2026-10-24 certifi, pygments, zod and filelock were each fixed by a Dependabot PR in that
     same run's `resolved` list (pacify#7, my-job-search#5, br18#10) before Dependabot
-    rescanned. Rescans lag by about 40 minutes: pacify#6 and #7 merged at 13:18 UTC, and
-    every pacify alert closed at 13:58, two minutes into the pygments child's run. A done or
+    rescanned. Rescans lag by 40 minutes or much longer: pacify#6 and #7 merged at 13:18 UTC,
+    and every pacify alert closed at 13:58, two minutes into the pygments child's run, but
+    br18#10 (filelock 4.2.1, merged 13:17) and pymdown-symbolic-snippets#5 (pygments 2.21.0,
+    merged 13:18 by the owner) left br18 alerts #15-#17 and pymdown-symbolic-snippets alert #2
+    open at 14:58. A done or
     blocked ledger entry also hides every later advisory for its package while the key stays
     present: pacify's pillow 13.0.0, tornado 6.5.8/6.5.9 and urllib3 2.8.0 alerts appeared
     on 2026-10-23 14:26, after those children finished at 08:56, and were never worked;
