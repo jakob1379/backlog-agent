@@ -231,7 +231,8 @@ Status as of 2026-10-23: **Phase 0 is done.**
   `has_ci`; only the ruleset does, so until then the add-CI task keeps coming back, and a child
   that finds `backlog-agent/add-ci` already merged opens nothing and ends blocked with the admin
   step. Status 2026-10-24: pacify#5 and br18#2 are merged; neither repo has a ruleset yet, and
-  `allow_auto_merge` is still false in all three. brobizz-usage has no CI PR yet.
+  `allow_auto_merge` is still false in all three. brobizz-usage#2 is open in the review lane,
+  with its `test` check green.
 - **Gave up:** label the PR `agent:blocked`, if there is one, with a one-comment reason, and
   record blocked in the ledger. The dispatcher won't retry blocked items. Unblocking is done
   by hand: remove the label or clear the ledger entry.
