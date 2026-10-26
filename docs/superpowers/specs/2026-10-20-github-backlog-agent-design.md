@@ -271,7 +271,10 @@ Status as of 2026-10-23: **Phase 0 is done.**
   cloned site plus 415 external errors (1,733 in all), and ended blocked on 2026-10-24. The owner
   chooses: fix the converter's links and re-crawl, or narrow what lychee checks; and for the
   external errors, an exclude list, a separate non-required external-links job, or removing
-  the dead links. Until main is green, `plan` holds br18's non-tier-1 Dependabot-PR tasks.
+  the dead links. Status 2026-10-27: the owner's merge commit 76c74ec ("merge: code review
+  fixes for spec #14") turned `build-docs` green on `main` (run 40399358398, 2026-10-26 20:51
+  UTC), and the ledger has no br18 fix-main entry left, so `plan` no longer holds br18's
+  Dependabot-PR tasks.
 - **Gave up:** label the PR `agent:blocked`, if there is one, with a one-comment reason, and
   record blocked in the ledger. The dispatcher won't retry blocked items. Unblocking is done
   by hand: remove the label or clear the ledger entry.
