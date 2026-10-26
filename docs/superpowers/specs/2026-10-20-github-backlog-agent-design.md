@@ -57,8 +57,10 @@ handles what auto-merge can't (Phase 1).
   admin. Inactive but non-archived repos are in scope.
 - Out of scope: archived repos (keepsake only), and forks (all have alerts disabled and no
   Dependabot PRs).
-- Repos with no CI, meaning no required checks in a ruleset: the agent leaves their Dependabot
-  PRs alone. The exception is Q16: pacify, br18 and brobizz-usage get a "minimal CI" task.
+- Repos with no CI, meaning no required checks in a ruleset: the agent never auto-merges
+  there. Since 2026-10-21 it still works each of their Dependabot PRs once, testing it
+  locally and putting it in the review lane, paced by the needs-review cap (see Planning
+  changes). Q16: pacify, br18 and brobizz-usage also got a "minimal CI" task.
 
 ## Definitions
 
