@@ -243,9 +243,11 @@ Status as of 2026-10-23: **Phase 0 is done.**
   all 13 Dependabot PRs.) Status 2026-10-25: its fix-main child opened Canvas-Code-Correction#207,
   merged 2026-10-23 08:31 UTC, but `SonarCloud Code Analysis` still fails on every `main` commit
   since, last on ab037f1 (#205), with "Quality Gate failed: 2 Security Hotspots" on new code;
-  `test` is green there. `plan` marked the key blocked 48h after the child finished. The owner
-  reviews the 2 hotspots in SonarCloud (an agent can't mark them safe) or changes the code, then
-  clears the ledger entry if another fix-main run is needed.
+  `test` is green there. `plan` marked the key blocked 48h after the child finished. Status
+  2026-10-26: the owner's fix/sonar-security-hotspots PR, Canvas-Code-Correction#208, merged at
+  13:02 UTC, and both required checks have been green on every `main` commit since; the fix-main
+  ledger entry is gone. Phase 1 then merged #209, #211 and #215 through the auto-merge lane, and
+  the repo has no open Dependabot PRs.
 - **Add minimal CI (Q16):** only pacify, br18 and brobizz-usage. Open a PR adding one workflow
   that runs the repo's existing build/test command (e.g. `nix flake check`, `uv run pytest`).
   Label it `needs-review`. The ruleset and `allow_auto_merge` setup needs admin rights, so it
