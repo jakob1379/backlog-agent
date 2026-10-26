@@ -97,7 +97,9 @@ strict as you found it. If the only path to green runs less of a check, the task
 
 Check the cases in this order and take the first that matches. A CONFLICTING PR matches its
 case whatever `has_ci` is: its local test run says nothing about the current default branch,
-which may not even have the files the PR changes.
+which may not even have the files the PR changes. Read the state with
+`gh pr view <pr> --json mergeable,mergeStateStatus`; `UNKNOWN` means GitHub is still computing
+it, so query again a few seconds later.
 
 - **CONFLICTING**, and every commit is Dependabot's: comment `@dependabot recreate`. Done.
 - **CONFLICTING with other commits**: merge the default branch into the head branch in
