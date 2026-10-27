@@ -1,5 +1,7 @@
 # GitHub Backlog Agent Implementation Plan
 
+Status 2026-10-27: complete. Task 5 step 5, Task 6 steps 2–3 and Task 7 step 2 are ticked as superseded by the hourly runs since 2026-10-22, not done as written. Task 2 steps 1–3 were skipped on purpose.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Finish Phase 0 (auto-merge workflow fix in 6 repos, kick old PRs), then ship an hourly T3 dispatcher that sends one Opus child agent per red/stuck Dependabot PR, uncovered alert, red main or missing CI.
@@ -265,7 +267,7 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
 - [x] **Step 2: Run the tests and check that they fail.** Expected: FAIL.
 - [x] **Step 3:** Implement `required_state`, `is_major`, `collect` and the CLI.
 - [x] **Step 4: Run the tests again.** Expected: PASS.
-- [ ] **Step 5: Live smoke test** (read-only):
+- [x] **Step 5: Live smoke test** (read-only):
 
   ```
   export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token)
@@ -314,10 +316,10 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
   6. **Child-completion notifications.** When woken by one, do only step 1 for that task.
 
 - [x] **Step 1:** Write both files.
-- [ ] **Step 2: Dry run.** In this session, run steps 1–3 of PROMPT.md and show the owner the `plan` output.
+- [x] **Step 2: Dry run.** In this session, run steps 1–3 of PROMPT.md and show the owner the `plan` output.
   - Expected: dispatch has 3 tasks with the top one in tier 1 or 2, and `held` contains the Canvas PRs.
   - Then delete `ledger.json`. The dry run must not consume the cap.
-- [ ] **Step 3: One supervised child.**
+- [x] **Step 3: One supervised child.**
   - With the owner's go, dispatch only the top task, then wait for its completion notification.
   - Check its PR/branch by hand against CHILD.md: correct label/auto-merge decision, conventional commit, no settings touched, `RESULT:` line present.
   - Run `finish`.
@@ -333,5 +335,5 @@ test_is_major                            # "from 1.9.2 to 2.0.0" True; "from 4.1
   - `prompt: "Read and follow /home/jsg/.t3/worktrees/random/feat-backlog-agent/backlog-agent/PROMPT.md exactly."` (path since moved to `/home/jsg/Documents/jsg/random_backlog-agent/backlog-agent/PROMPT.md`)
 
   Report the returned `nextRunAt`.
-- [ ] **Step 2:** After the first scheduled run, check that it posted either nothing or a summary of 10 lines or fewer, and that `ledger.json` has the expected entries.
+- [x] **Step 2:** After the first scheduled run, check that it posted either nothing or a summary of 10 lines or fewer, and that `ledger.json` has the expected entries.
 - [x] **Step 3: Push.** Push `feat/backlog-agent` to origin as a backup. Open no PR to `main`, because the runtime stays off `main`.

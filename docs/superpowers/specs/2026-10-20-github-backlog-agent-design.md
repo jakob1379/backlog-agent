@@ -124,6 +124,14 @@ Status as of 2026-10-23: **Phase 0 is done.**
 
 ## Phase 1: hourly agent
 
+Status as of 2026-10-27: **Phase 1's goal is met.** Across the 43 in-scope repos there are 0
+open Dependabot PRs, 0 open Dependabot alerts (down from 33 and 141), 0 open `needs-review`
+PRs and an empty ledger. Every repo with CI has a green or pending default branch. The hourly
+agent keeps running to handle new Dependabot PRs and alerts. The 7 open PRs left are the
+owner's or contributors' own (Canvas-Code-Correction#152–154, nix-config#115 and #123,
+homelab#38, name-ranking#4), so they belong to Phase 2. One owner decision is still open:
+whether nix checks may run outside the sandbox (see Network below).
+
 ### Runtime
 
 - A T3 scheduled task, `{"type":"interval","everyMs":3600000}`. Each run starts a new thread
