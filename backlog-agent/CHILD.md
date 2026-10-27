@@ -32,7 +32,11 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    couldn't run, including any check that is itself a `nix` command. For a nixpkgs bump that
    can break the flake's pre-commit hooks, read each hook tool's version at both revs with
    `gh api repos/NixOS/nixpkgs/contents/pkgs/by-name/<xx>/<pkg>/package.nix?ref=<rev> -H 'Accept: application/vnd.github.raw'`
-   (raw file, no base64; the first `version =` can belong to a nested derivation), then run
+   (raw file, no base64; the first `version =` can belong to a nested derivation). Python
+   tools (`yamlfix`, `bandit`) live at `pkgs/development/python-modules/<pkg>/default.nix`,
+   and shellcheck at `pkgs/development/haskell-modules/hackage-packages.nix`: 16 MB, so
+   without the raw header its content comes back empty; take the first `version =` after
+   `^  ShellCheck = `. Then run
    `uvx <tool>@<version>` with `--python` set to the hook's Python when the newest one
    crashes it. A `buildPythonApplication` check phase in a repo with no `uv.lock` runs as
    `uv run --no-project --python <ver> --with <pkg>==<ver> … -- python -m pytest`, with the
