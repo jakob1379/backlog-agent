@@ -129,8 +129,8 @@ open Dependabot PRs, 0 open Dependabot alerts (down from 33 and 141), 0 open `ne
 PRs and an empty ledger. Every repo with CI has a green or pending default branch. The hourly
 agent keeps running to handle new Dependabot PRs and alerts. The 7 open PRs left are the
 owner's or contributors' own (Canvas-Code-Correction#152–154, nix-config#115 and #123,
-homelab#38, name-ranking#4), so they belong to Phase 2. One owner decision is still open:
-whether nix checks may run outside the sandbox (see Network below).
+homelab#38, name-ranking#4), so they belong to Phase 2. On 2026-10-28 the owner decided that
+nix checks may run outside the sandbox (see Network below).
 
 ### Runtime
 
@@ -373,11 +373,11 @@ don't. Linear isn't authenticated yet (neither the claude.ai Linear connector no
 - **Network:** children run in auto mode and declare the registry hosts per command
   (`allowed_domains`): pypi.org, files.pythonhosted.org, registry.npmjs.org,
   cache.nixos.org, github.com, api.github.com, objects.githubusercontent.com, plus whatever
-  the repo's lockfile names. The sandbox is never disabled. On 2026-10-24 three children
-  (t3code-flake#19, rich-card#29 and #35) broke this rule: the sandbox can't reach the nix
-  daemon, so they ran `nix flake check`/`nix build` with the sandbox disabled, and the
-  permission gate approved it. CHILD.md now says so explicitly. Whether nix checks may run
-  outside the sandbox is the owner's decision.
+  the repo's lockfile names. The sandbox can't reach the nix daemon: on 2026-10-24 three
+  children (t3code-flake#19, rich-card#29 and #35) ran `nix flake check`/`nix build` with the
+  sandbox disabled before any rule allowed it. On 2026-10-28 the owner allowed it for this
+  agent: `nix` commands that build or check the repo may run outside the sandbox, from the
+  child's `work/<slug>/` checkout. Every other command stays in the sandbox.
 
 ## Planning changes (2026-10-21)
 

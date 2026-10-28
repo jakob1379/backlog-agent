@@ -26,10 +26,12 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
    `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
    (`gh run view --log-failed` writes to `~/.cache/gh`, uv installs Pythons and `uvx` tools under `~`, and matplotlib writes its config there).
-   No `nix` command (`nix develop`, `nix build`, `nix flake check`) can reach the nix daemon
-   from the sandbox, and the sandbox stays on: never set `dangerouslyDisableSandbox`. Run the
-   check's own commands directly instead (e.g. `uv run …`), and say in the PR which ones you
-   couldn't run, including any check that is itself a `nix` command. For a nixpkgs bump that
+   No `nix` command (`nix develop`, `nix build`, `nix flake check`, `nix fmt`) can reach the
+   nix daemon from the sandbox. Only for those, set `dangerouslyDisableSandbox: true` (owner,
+   2026-10-28): run them from your `work/<slug>/` checkout to build or check the repo, with
+   `nix develop -c` wrapping only the repo's own check commands (never `gh`, `git push` or
+   `curl`). Outside the sandbox `$TMPDIR` is a different directory, so pass literal paths.
+   Every other command stays in the sandbox. For a nixpkgs bump that
    can break the flake's pre-commit hooks, read each hook tool's version at both revs with
    `gh api repos/NixOS/nixpkgs/contents/pkgs/by-name/<xx>/<pkg>/package.nix?ref=<rev> -H 'Accept: application/vnd.github.raw'`
    (raw file, no base64; the first `version =` can belong to a nested derivation). Python

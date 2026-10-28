@@ -127,7 +127,7 @@ of its rules is wrong. The steward follows these rules too:
   `cd $W && git add <paths> && git commit -m "<type>(backlog-agent): <subject>"`.
 - Push a backup: `cd $W && export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token) && git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/jakob1379/random.git feat/backlog-agent`, with `allowed_domains: ["github.com", "api.github.com"]`.
 - Never switch branches, rebase, or touch `main`. Never loosen the guardrails in `CHILD.md`
-  (no `--admin`, no alert dismissal, no settings changes, sandbox stays on). Those changes
+  (no `--admin`, no alert dismissal, no settings changes, sandbox stays on except for `nix` checks). Those changes
   need the owner.
 
 ## Wake-ups
