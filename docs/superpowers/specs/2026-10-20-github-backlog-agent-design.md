@@ -108,7 +108,8 @@ Each step is shown to the owner and confirmed before it runs.
      `gh pr merge --auto --squash` merges at once, and the auto mode classifier can refuse that
      as "Merge Without Review". It refused text2ics#18 (opentelemetry-api, grouped uv) while it
      allowed text2ics#19 in the same run. Until the owner adds a permission rule for that
-     command, these PRs end blocked and wait for a manual merge.
+     command, these PRs end blocked and wait for a manual merge; the owner merged text2ics#18
+     at 07:25 UTC.
    - The owner reviews and merges these 6 PRs.
 4. **Kick PRs that predate the workflow:** comment `@dependabot rebase` on those PRs (e.g.
    bank-focus), so the workflow runs on them.
