@@ -103,7 +103,12 @@ Each step is shown to the owner and confirmed before it runs.
      `update-type: null`, and the JSON has no `semver-major` string, so pymdown-symbolic-snippets#2
      (pymdown-extensions 10 → 11) auto-merged. The condition is now: `update-type` is
      `semver-patch` or `semver-minor`, or `package-ecosystem` is `nix` (SHA inputs with no version).
-     Grouped uv updates with a null `update-type` are left to the backlog agent.
+     Grouped uv updates with a null `update-type` are left to the backlog agent. Status
+     2026-10-29: by the time the agent reaches such a PR its checks have finished, so its
+     `gh pr merge --auto --squash` merges at once, and the auto mode classifier can refuse that
+     as "Merge Without Review". It refused text2ics#18 (opentelemetry-api, grouped uv) while it
+     allowed text2ics#19 in the same run. Until the owner adds a permission rule for that
+     command, these PRs end blocked and wait for a manual merge.
    - The owner reviews and merges these 6 PRs.
 4. **Kick PRs that predate the workflow:** comment `@dependabot rebase` on those PRs (e.g.
    bank-focus), so the workflow runs on them.
