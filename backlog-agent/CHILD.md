@@ -91,7 +91,10 @@ Choose the lane from the commits **you** add.
   from `jakob1379`, and assign `jakob1379` if GitHub rejects the request. On a PR you opened,
   assign `jakob1379`. Run `gh label create`, `gh pr edit --add-label` and
   `gh pr edit --add-reviewer` (or `--add-assignee`) as separate commands: the permission gate
-  refuses them chained with `&&`.
+  refuses them chained with `&&`. Then read `gh pr view <n> --json autoMergeRequest`: a repo's
+  Dependabot auto-merge workflow skips your own pushes (text2ics checks `github.actor`), but it
+  may have turned auto-merge on at Dependabot's earlier push, and that would merge the PR
+  unreviewed once green. If it isn't null, run `gh pr merge <n> --disable-auto`.
 
 Post every PR comment as its own command, `gh pr comment <n> --body-file <file>`, from a file
 you wrote with the Write tool under `$TMPDIR`, never in `work/`. The Write tool doesn't expand
