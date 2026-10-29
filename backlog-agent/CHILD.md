@@ -54,7 +54,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    stands for that path; shell variables don't survive between commands, so write it out.
    `git diff` there runs through difftastic, so grep finds nothing in it; use
    `git --no-pager diff --no-ext-diff`. `gh pr checkout` has no `-q` flag; with one it only
-   prints help and leaves the clone on the default branch.
+   prints help and leaves the clone on the default branch. Without one it prints nothing useful
+   either, so check with `git log -1` that you are on the PR's head commit.
 4. Read the repo's README, CI workflows and the required checks
    (`gh api repos/<repo>/rules/branches/<default>`), so your local check matches CI. That call
    returns 403 on a private repo without GitHub Pro; then take the checks from the workflows.
