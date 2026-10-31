@@ -130,7 +130,9 @@ it, so query again a few seconds later.
   the default branch. In a uv repo, give the default branch its own environment
   (`UV_PROJECT_ENVIRONMENT=$TMPDIR/venv-main uv run --locked …`) so the PR's `.venv` isn't
   rebuilt; prefix `uvx uv@<ver>` to run under the uv a nixpkgs bump brings. `has_ci` false only
-  means no ruleset: the repo may still run workflows on the PR, so read them. When a job needs a
+  means no ruleset: the repo may still run workflows on the PR, so read them. A workflow that
+  runs only on tag pushes never runs on a PR, so `gh run list --commit` shows nothing; run its
+  test job's commands locally (opigen#22). When a job needs a
   toolchain the sandbox lacks (e.g. Flutter), its green run on the PR's head commit stands in
   for the local run; link it in the comment. Then put it in the review lane, with a comment
   saying what you ran and what it showed. Done.
