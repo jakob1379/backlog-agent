@@ -26,6 +26,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
    `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
    (`gh run view --log-failed` writes to `~/.cache/gh`, uv installs Pythons and `uvx` tools under `~`, and matplotlib writes its config there).
+   `$TMPDIR` is shared with every earlier task and keeps their files (`$TMPDIR/main` and
+   `$TMPDIR/venv-main` already exist), so put your slug in every name you create there.
    No `nix` command (`nix develop`, `nix build`, `nix flake check`, `nix fmt`) can reach the
    nix daemon from the sandbox. Only for those, set `dangerouslyDisableSandbox: true` (owner,
    2026-10-28): run them from your `work/<slug>/` checkout to build or check the repo, with
@@ -128,7 +130,7 @@ it, so query again a few seconds later.
   first failing step, so a step already red on the default branch (e.g. a typecheck) hides
   every step after it: run those later steps (e.g. the tests) locally on both the PR head and
   the default branch. In a uv repo, give the default branch its own environment
-  (`UV_PROJECT_ENVIRONMENT=$TMPDIR/venv-main uv run --locked …`) so the PR's `.venv` isn't
+  (`UV_PROJECT_ENVIRONMENT=$TMPDIR/<slug>-venv-main uv run --locked …`) so the PR's `.venv` isn't
   rebuilt; prefix `uvx uv@<ver>` to run under the uv a nixpkgs bump brings. `has_ci` false only
   means no ruleset: the repo may still run workflows on the PR, so read them. A workflow that
   runs only on tag pushes never runs on a PR, so `gh run list --commit` shows nothing; run its
