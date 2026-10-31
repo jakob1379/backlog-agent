@@ -116,7 +116,9 @@ Before that reply, show the run as one HTML page: stat tiles for the `dispatch` 
 status, the `newly_blocked` count and `used_today` of 100, then a table of this run's keys with
 status and attempt. Use only numbers from `plan` and the `finish` lines. Use the theme variables
 (`--chart-1`…`--chart-6`, `--success`, `--warning`, `--destructive`) with a ✓/!/✕ icon or label next
-to every status colour, and give the page no background or outer card. Call `html_preview`, then
+to every status colour, and give the page no background or outer card. Give each tile its own
+`--chart-N` as a 3px top border, a 7% `color-mix` tint with 16px padding and the number mixed toward
+that colour, and show each status in the table as a pill tinted with its status colour. Call `html_preview`, then
 `html_render` with its `contentHeight` and the title `Backlog run`. If `html_preview` fails (this
 host's browser lacks libraries), render with height 300 and add one line saying it was not
 previewed. The text lines carry the links and owner actions; don't repeat the tile numbers.
