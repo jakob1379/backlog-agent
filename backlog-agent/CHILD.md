@@ -26,6 +26,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
    `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
    (`gh run view --log-failed` writes to `~/.cache/gh`, uv installs Pythons and `uvx` tools under `~`, and matplotlib writes its config there).
+   `bun` is installed (`~/.nix-profile/bin/bun`) and runs in the sandbox with
+   `registry.npmjs.org` declared, so a bun repo needs no `nix develop`.
    `$TMPDIR` is shared with every earlier task and keeps their files (`$TMPDIR/main` and
    `$TMPDIR/venv-main` already exist), so put your slug in every name you create there.
    No `nix` command (`nix develop`, `nix build`, `nix flake check`, `nix fmt`) can reach the
