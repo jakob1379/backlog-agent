@@ -108,6 +108,12 @@ reviewer edits with a heredoc comment.
 
 When `has_ci` is false, the PR always goes to the review lane, because a repo with no required
 checks merges the moment auto-merge is on.
+Its workflows may still run on the PR: run their steps locally, and before you finish, watch
+each run on your final head commit (`gh run list --commit <sha>`, then
+`gh run watch <id> --exit-status` in the foreground, `timeout: 600000`). Fix a red job as you
+would a red required check, unless it fails the same way on the default branch; then name it
+in a PR comment. ai-job-search#34 was handed to review with CI still running, and four
+`bun run typecheck` jobs then went red.
 
 Make each check pass by fixing what it reports. Every check, step and test stays at least as
 strict as you found it. If the only path to green runs less of a check, the task is blocked.
@@ -172,7 +178,7 @@ it, so query again a few seconds later.
    and when to remove it; in `package.json`, which has no comments, use a top-level `"//"` key, adding to it when one
    exists (JSON keys must be unique).
 2. Regenerate the lockfile with the repo's own tool (`uv lock`, `npm install`, `nix flake
-   lock`, …), and run the required checks locally. `uv lock --upgrade-package <pkg>` takes the
+   lock`, …), and run the required checks locally (with `has_ci` false, the PR's workflow steps). `uv lock --upgrade-package <pkg>` takes the
    newest release; pin the target with `--upgrade-package <pkg>==<first_patched>`. Never pass npm `--legacy-peer-deps`: it
    drops the lockfile's `peer: true` entries. Diff the lockfile's `.packages | keys` against
    HEAD to check that only your package moved.
