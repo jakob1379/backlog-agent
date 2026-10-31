@@ -137,6 +137,12 @@ agent keeps running to handle new Dependabot PRs and alerts. The 7 open PRs left
 owner's or contributors' own (Canvas-Code-Correction#152–154, nix-config#115 and #123,
 homelab#38, name-ranking#4), so they belong to Phase 2. On 2026-10-28 the owner decided that
 nix checks may run outside the sandbox (see Network below).
+Status 2026-10-31 23:10 UTC: the ledger's one entry, ai-job-search's 4 high zod alerts
+(GHSA-mrhx-c7xc-m3w5, #1-#4), ended done with ai-job-search#34 in the review lane (zod
+^3.23.0 to ^4.6.6 in 4 CLIs, test assertions updated), the only open `needs-review` PR. The
+repo has no ruleset and no lockfile. On the PR's head b2b378a, `CI` run 41251209577 has
+`Dependency review` and all 4 touched CLIs' `bun run typecheck` red (TS2339/TS2749 on
+`Response`, `URL` and `Headers`); `CI` last ran on `master` on 2026-09-21, green.
 
 ### Runtime
 
