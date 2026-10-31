@@ -112,6 +112,15 @@ reply with at most 10 lines, each linking to its PR or repo:
   are `queued`.
 - **Self-changes**: each commit from step 6 and the steward's `STEWARD:` line, with its subject.
 
+Before that reply, show the run as one HTML page: stat tiles for the `dispatch` count, each finish
+status, the `newly_blocked` count and `used_today` of 100, then a table of this run's keys with
+status and attempt. Use only numbers from `plan` and the `finish` lines. Use the theme variables
+(`--chart-1`…`--chart-6`, `--success`, `--warning`, `--destructive`) with a ✓/!/✕ icon or label next
+to every status colour, and give the page no background or outer card. Call `html_preview`, then
+`html_render` with its `contentHeight` and the title `Backlog run`. If `html_preview` fails (this
+host's browser lacks libraries), render with height 300 and add one line saying it was not
+previewed. The text lines carry the links and owner actions; don't repeat the tile numbers.
+
 Otherwise call `t3_thread_organize` with `action: "settle"`, then reply with exactly `no change`.
 
 ## 6. Self-management
