@@ -15,7 +15,7 @@ Check that `git -C $W branch --show-current` prints `feat/backlog-agent` and tha
 with that one line and stop. The runtime lives on this branch, never on `main`, and every run
 works in `$W` itself, never in a T3 worktree.
 
-Call `t3_thread_configuration` and keep its `threadId` as `<thread>`.
+Call `t3_thread_configure` with no arguments and keep its `threadId` as `<thread>`.
 
 Runs may overlap. Each task in progress has a lockfile, `$W/work/<slug>.lock`,
 with its `key`, `thread_id`, `task_id` and `started`, next to the child's working directory
