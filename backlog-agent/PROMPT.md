@@ -112,16 +112,30 @@ reply with at most 10 lines, each linking to its PR or repo:
   are `queued`.
 - **Self-changes**: each commit from step 6 and the steward's `STEWARD:` line, with its subject.
 
-Before that reply, show the run as one HTML page: stat tiles for the `dispatch` count, each finish
-status, the `newly_blocked` count and `used_today` of 100, then a table of this run's keys with
-status and attempt. Use only numbers from `plan` and the `finish` lines. Use the theme variables
-(`--chart-1`…`--chart-6`, `--success`, `--warning`, `--destructive`) with a ✓/!/✕ icon or label next
-to every status colour, and give the page no background or outer card. Give each tile its own
-`--chart-N` as a 3px top border, a 7% `color-mix` tint with 16px padding and the number mixed toward
-that colour, and show each status in the table as a pill tinted with its status colour. Call `html_preview`, then
-`html_render` with its `contentHeight` and the title `Backlog run`. If `html_preview` fails (this
-host's browser lacks libraries), render with height 300 and add one line saying it was not
-previewed. The text lines carry the links and owner actions; don't repeat the tile numbers.
+Before that reply, show the run as one HTML page. The tiles summarise the text lines below, one
+tile per section that has something in it, each with its count and a one-line hint (for example
+`#34: red CI, review`):
+
+- **Needs you**, always first: the distinct PRs or repos in the **Needs you** line, counted once
+  each. Colour it `--warning` with a `!`, a 16% tint and a 1px outline at 45% of that colour; at 0,
+  dim it to 55% opacity.
+- **Started**: the `dispatch` count.
+- One tile per finish status that occurred (`done` with ✓ in `--success`, `blocked` with ! in
+  `--warning`, `failed` with ✕ in `--destructive`), the hint naming what it produced.
+- **Self-changes**: the step 6 and steward commits.
+- **Used today**: `used_today` plus the `dispatch` count, of 100, with the `queued` count as the hint.
+
+Then a table of this run's keys with status, attempt and a **Needs you** column holding the owner
+action as a `--warning` pill, or empty. Take the numbers from `plan`, the `finish` lines and the
+steward's result. Use the theme variables (`--chart-1`…`--chart-6`, `--success`, `--warning`,
+`--destructive`) with a ✓/!/✕ icon or label next to every status colour, and give the page no
+background or outer card. Status tiles take their status colour and the rest each take their own
+`--chart-N`. Every tile gets that colour as a 3px top border, a 7% `color-mix` tint (16% for a
+non-zero **Needs you**) with 16px padding and the number mixed toward that colour. Show each status in
+the table as a pill tinted with its status colour. Call `html_preview`, then `html_render` with its
+`contentHeight` and the title `Backlog run`. If `html_preview` fails (this host's browser lacks
+libraries), render with height 340 and add one line saying it was not previewed. The text lines
+carry the details behind each tile: the links and owner actions. Don't repeat the tile numbers.
 
 Otherwise call `t3_thread_organize` with `action: "settle"`, then reply with exactly `no change`.
 
