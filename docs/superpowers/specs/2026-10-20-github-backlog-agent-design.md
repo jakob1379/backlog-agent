@@ -148,6 +148,13 @@ which fixed alerts #1-#4 and resolved the ledger entry. `CI` run 41288589324 on 
 commit f5e3824 is red: all 4 `CLI checks` jobs. bank-focus#16 (`dependabot/fetch-metadata` 2
 to 3 in its auto-merge workflow) merged through the auto-merge lane as a green Dependabot
 major. There are 0 open `needs-review` PRs and the ledger has no blocked entries.
+Status 2026-11-01 15:50 UTC: postmodern-python#60 (`actions/setup-python` 7.0.0 to 7.1.0 in
+`test-template.yml`) merged through the auto-merge lane at 15:42 UTC. Its own `Dependabot
+auto-merge` workflow had enabled auto-merge at 09:25:31, and `github-actions` disabled it at
+09:25:48, 3 s after the required `pytest` passed, so the PR sat green and unmerged until the
+agent's `gh pr merge --auto --squash`. The likely cause is that the workflow's `GITHUB_TOKEN`
+can't merge a change to a workflow file; this is unconfirmed. 0 open `needs-review` PRs, no
+blocked entries.
 
 ### Runtime
 
