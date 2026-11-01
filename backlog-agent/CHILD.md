@@ -76,6 +76,8 @@ Done when: the clone exists and you can name the command that reproduces each re
 ## Lanes
 
 Choose the lane from the commits **you** add.
+Dependabot's commits aren't yours, so a GitHub Actions bump that edits a workflow
+qualifies like any other Dependabot PR when you add nothing to it (bank-focus#16).
 
 - **Auto-merge lane** needs all of these:
   - the task's `has_ci` is true
