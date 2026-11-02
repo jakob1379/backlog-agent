@@ -155,6 +155,17 @@ auto-merge` workflow had enabled auto-merge at 09:25:31, and `github-actions` di
 agent's `gh pr merge --auto --squash`. The likely cause is that the workflow's `GITHUB_TOKEN`
 can't merge a change to a workflow file; this is unconfirmed. 0 open `needs-review` PRs, no
 blocked entries.
+Status 2026-11-02 06:30 UTC: waytorandr is not one of the Phase 0 repos, and its `Dependabot
+auto-merge` workflow still has the old condition (`update-type` semver-patch or semver-minor
+only), so every Nix and Actions SHA bump there waits for the agent; #121-#124 (nixpkgs,
+rust-overlay, crane, git-hooks) are queued. Its ruleset requires `check`. waytorandr#118
+(flake-utils SHA) merged through the auto-merge lane at 06:13 UTC. #119 (`Swatinem/rust-cache`
+SHA) and #120 (`actions/download-artifact` 8.0.1 to 8.0.2, `ci.yml`) are green, but the
+classifier refused `gh pr merge --auto --squash` on both, so they are blocked with
+`agent:blocked` until the owner merges them. #120 repeats postmodern-python#60: the workflow
+enabled auto-merge at 23:26:18, `check` passed at 23:32:35, and `github-actions` disabled it
+at 23:33:08. Both PRs edit a workflow file, which supports the `GITHUB_TOKEN` explanation;
+it is still unconfirmed. 0 open `needs-review` PRs, 2 blocked entries.
 
 ### Runtime
 
