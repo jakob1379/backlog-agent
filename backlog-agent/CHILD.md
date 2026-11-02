@@ -54,6 +54,8 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    this task; never touch the lockfile. Delete the directory first if an earlier attempt left
    it behind, then
    `git -c credential.helper= -c credential.helper='!gh auth git-credential' clone https://github.com/<repo>.git "$CLONE"`.
+   If it fails with `TLS connect error … unexpected eof`, rerun the same command: the sandbox
+   proxy drops some connections, and a plain retry worked (waytorandr#119).
    Run it in the foreground with `timeout: 600000`, never in the background: your turn ending
    is the task ending, so never end it to wait on anything. Push with the same two `-c` flags. Run every later git and gh command as
    `cd <that literal path> && …`, so it always acts on the target repo. `$CLONE` below
