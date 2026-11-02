@@ -94,8 +94,10 @@ qualifies like any other Dependabot PR when you add nothing to it (bank-focus#16
   If all hold, run `cd "$CLONE" && gh pr merge <n> --auto --squash`. With no check still
   pending it merges at once, so `autoMergeRequest` reads null and the state `MERGED`: that is
   success. The auto mode classifier sometimes refuses that immediate merge as "Merge Without
-  Review" (text2ics#19 went through, #18 was refused in the same run). Don't retry it in
-  another form; end `blocked`, asking the owner to merge the PR or allow that command.
+  Review" (text2ics#19 went through, #18 was refused in the same run; waytorandr#118 went
+  through, #119 and #120 were refused). A refusal earlier in the run says nothing about your
+  PR, so always run the command once. Don't retry it in another form; end `blocked`, asking
+  the owner to merge the PR or allow that command.
 - **Review lane**: everything else, including any edit to a workflow, a script, test, lint,
   coverage or audit config, or source code. Add the label `needs-review` (create it first with
   `gh label create needs-review --color FBCA04 --force`). On a Dependabot PR, request a review
