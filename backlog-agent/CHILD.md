@@ -13,7 +13,9 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `github.com`, `objects.githubusercontent.com`, plus the registries the repo uses
    (`pypi.org`, `files.pythonhosted.org`, `registry.npmjs.org`, `cache.nixos.org`, or what
    the lockfile names); `uv audit` queries `api.osv.dev`. To see what a flake-input SHA bump
-   changes, `git diff --no-index` the two unpacked
+   changes, run `gh api repos/<owner>/<repo>/compare/<old>...<new> --jq '.files[]|.filename,.patch'`
+   (waytorandr#118). It lists at most 300 files and leaves out large patches, so for a big
+   input like nixpkgs `git diff --no-index` the two unpacked
    `github.com/<owner>/<repo>/archive/<rev>.tar.gz` tarballs as whole directories (add
    `-U0 | grep '^@@'` to list hunks); those redirect to `codeload.github.com`. Check the
    input's own system list (`defaultSystems`, `forAllSystems`) against the repo's `systems`:
