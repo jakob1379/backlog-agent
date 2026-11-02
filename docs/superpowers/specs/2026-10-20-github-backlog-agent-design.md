@@ -166,6 +166,10 @@ classifier refused `gh pr merge --auto --squash` on both, so they are blocked wi
 enabled auto-merge at 23:26:18, `check` passed at 23:32:35, and `github-actions` disabled it
 at 23:33:08. Both PRs edit a workflow file, which supports the `GITHUB_TOKEN` explanation;
 it is still unconfirmed. 0 open `needs-review` PRs, 2 blocked entries.
+Status 2026-11-02 07:10 UTC: the owner merged waytorandr#119 and #120 at 06:32 UTC and
+#121-#124 at 06:33 UTC. The ledger is empty: no blocked entries, and 0 open `needs-review`
+PRs. waytorandr's `Dependabot auto-merge` workflow still has the old patch-or-minor
+condition, so its next Nix and Actions SHA bumps will wait for the agent again.
 
 ### Runtime
 
