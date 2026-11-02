@@ -168,6 +168,10 @@ it, so query again a few seconds later.
   put the PR in the review lane, turn auto-merge off first (see **Review lane**). Push, then choose the
   lane from the PR's full diff. Pushing your own commit means Dependabot stops rebasing this PR,
   so it is yours from now on.
+  On a grouped uv bump, compare every package's version in `uv.lock` with the default branch:
+  the resolver can downgrade one package to fit another's bump (Canvas-Code-Correction#219:
+  prefect 3.9.1.dev4 to 3.8.8, to fit fastapi 0.150.0 to 0.162.0). `uv lock --upgrade-package
+  <pkg>` doesn't undo that; raise the package's floor in `pyproject.toml` and rerun `uv lock`.
 
 ### `alert`: every alert in `alerts`, for one package
 
