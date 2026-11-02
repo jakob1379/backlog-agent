@@ -74,6 +74,10 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `gh api repos/<repo>/commits/<sha>/check-runs`.
    Tests that compare terminal output can fail locally only because the sandbox's long
    `$TMPDIR` paths wrap at 80 columns; rerun them with `COLUMNS=250` before calling them red.
+   Tests that write under a hard-coded `/tmp` fail in the sandbox on every branch, e.g.
+   Canvas-Code-Correction's workspace-default tests in `tests/unit/test_config.py`
+   (`/tmp/ccc/workspaces`) and `test_runner.py::test_execute_in_workspace`; they don't count
+   against the PR.
 
 Done when: the clone exists and you can name the command that reproduces each required check.
 
