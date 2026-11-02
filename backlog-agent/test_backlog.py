@@ -316,6 +316,28 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plan(c, L, NOW)["resolved"], [])
         self.assertLessEqual({"o/r#1", "o/r:dep:pip:urllib3"}, set(L["tasks"]))
 
+    def test_phase1_counts_what_is_left(self):
+        L = empty()
+        start(L, "o/a#9", "t", NOW)
+        finish(L, "o/a#9", "blocked", "", NOW)
+        c = cands(
+            repo("o/a", main="red", prs=[pr(9), pr(10)], alerts=[alert(covered_by_pr=9)]),
+            repo("o/b", main="pending"),
+            repo("o/c", has_ci=False, main=None),
+            needs_review_open=1,
+        )
+        self.assertEqual(
+            plan(c, L, NOW)["phase1"],
+            {
+                "dependabot_prs": 2,
+                "alerts": 1,
+                "needs_review": 1,
+                "blocked": 1,
+                "red_mains": 1,
+                "pending_mains": 1,
+            },
+        )
+
 
 def run(name, conclusion, started="2026-10-21T10:00:00Z", status="COMPLETED"):
     return {

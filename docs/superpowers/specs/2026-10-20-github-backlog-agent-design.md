@@ -339,8 +339,8 @@ on the merge commit c068652 is green. 0 open `needs-review` PRs, no blocked entr
 
 Linear becomes the place where the owner's human backlog is prioritized. Only items that need
 a human go there: `needs-review` PRs, blocked items, admin steps, and GitHub issues. Bot PRs
-don't. Linear isn't authenticated yet (neither the claude.ai Linear connector nor
-`linear-server`).
+don't. Status 2026-11-02: the claude.ai Linear connector is authenticated (workspace
+Jgalabs); `linear-server` still isn't, and isn't needed. Phase 2 has no design yet.
 
 ## Decided by the owner
 

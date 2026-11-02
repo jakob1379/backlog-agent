@@ -354,6 +354,14 @@ def plan(
         "announce_cap": announce_cap,
         "resolved": resolved,
         "newly_blocked": newly_blocked,
+        "phase1": {
+            "dependabot_prs": sum(len(r["prs"]) for r in candidates["repos"]),
+            "alerts": sum(len(r["alerts"]) for r in candidates["repos"]),
+            "needs_review": candidates["needs_review_open"],
+            "blocked": sum(e["status"] == "blocked" for e in ledger["tasks"].values()),
+            "red_mains": sum(r["main"] == "red" for r in candidates["repos"]),
+            "pending_mains": sum(r["main"] == "pending" for r in candidates["repos"]),
+        },
     }
 
 

@@ -112,7 +112,19 @@ reply with at most 10 lines, each linking to its PR or repo:
   are `queued`.
 - **Self-changes**: each commit from step 6 and the steward's `STEWARD:` line, with its subject.
 
-Before that reply, show the run as one HTML page. The tiles summarise the text lines below, one
+Before that reply, show the run as one HTML page. It opens with the phase strip: three segments
+for the phases in `docs/superpowers/specs/2026-10-20-github-backlog-agent-design.md`. Phase 0 is
+`--success` with ✓ and its done date. Phase 1, the current phase, is wider, with `● now`, a 16% tint
+and a 1px outline at 45% of `--chart-2`. Phase 2 is dimmed to 55% and coloured `--chart-5`. Under the
+strip comes a `--chart-2` box, **Left before Phase 2: <unmet> of 6**, with a progress bar of the met
+checks and the 6 checks, each with ✓ in `--success` when met or ! in `--warning` when not. Take five
+of them from `plan`'s `phase1`: 0 `dependabot_prs`, 0 `alerts`, 0 `needs_review`, 0 `blocked` and
+0 `red_mains`, the last with the `pending_mains` count in muted text. They are counted at `collect`
+time, before this run's children. The sixth is **Linear connected**: met when Linear's `whoami`
+tool returns a workspace, and named in that check. When all 6 are met and Phase 2 is still marked
+"later" in the spec, the box says `Phase 2 unblocked, not specced yet` instead of a count.
+
+The tiles summarise the text lines below, one
 tile per section that has something in it, each with its count and a one-line hint (for example
 `#34: red CI, review`):
 
