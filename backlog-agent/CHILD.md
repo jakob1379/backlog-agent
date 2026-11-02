@@ -104,10 +104,12 @@ qualifies like any other Dependabot PR when you add nothing to it (bank-focus#16
   from `jakob1379`, and assign `jakob1379` if GitHub rejects the request. On a PR you opened,
   assign `jakob1379`. Run `gh label create`, `gh pr edit --add-label` and
   `gh pr edit --add-reviewer` (or `--add-assignee`) as separate commands: the permission gate
-  refuses them chained with `&&`. Then read `gh pr view <n> --json autoMergeRequest`: a repo's
-  Dependabot auto-merge workflow skips your own pushes (text2ics checks `github.actor`), but it
-  may have turned auto-merge on at Dependabot's earlier push, and that would merge the PR
-  unreviewed once green. If it isn't null, run `gh pr merge <n> --disable-auto`.
+  refuses them chained with `&&`. Before you push a commit that puts a Dependabot PR here, read
+  `gh pr view <n> --json autoMergeRequest`: a repo's Dependabot auto-merge workflow skips your
+  own pushes (text2ics checks `github.actor`), but it may have turned auto-merge on at
+  Dependabot's earlier push, and that merges the PR unreviewed as soon as your push turns the
+  checks green (Canvas-Code-Correction#219 merged 84 s after the child's push). If it isn't
+  null, run `gh pr merge <n> --disable-auto` first, then push.
 
 Post every PR comment as its own command, `gh pr comment <n> --body-file <file>`, from a file
 you wrote with the Write tool under `$TMPDIR`, never in `work/`. The Write tool doesn't expand
@@ -162,7 +164,8 @@ it, so query again a few seconds later.
   Done.
 - **Red**: follow `mattpocock-skills:diagnosing-bugs`. The feedback loop is the failing
   required check, reproduced locally from its Actions log (`gh run view <id> --log-failed`).
-  Commit the fix onto the PR's head branch (`cd "$CLONE" && gh pr checkout <pr>`) and push. Then choose the
+  Commit the fix onto the PR's head branch (`cd "$CLONE" && gh pr checkout <pr>`). If it will
+  put the PR in the review lane, turn auto-merge off first (see **Review lane**). Push, then choose the
   lane from the PR's full diff. Pushing your own commit means Dependabot stops rebasing this PR,
   so it is yours from now on.
 
