@@ -160,7 +160,9 @@ it, so query again a few seconds later.
   toolchain the sandbox lacks (e.g. Flutter), its green run on the PR's head commit stands in
   for the local run; link it in the comment. Then put it in the review lane, with a comment
   saying what you ran and what it showed. Done.
-- **Green but not merged**:
+- **Green but not merged**: read `gh pr view <pr> --json autoMergeRequest`. A green
+  Dependabot auto-merge workflow run doesn't mean auto-merge is on: its `Enable auto-merge`
+  step is skipped for a null `update-type`, as on grouped uv bumps (jakob1379.github.io#46).
   - Auto-merge on: comment `@dependabot rebase` once.
   - Auto-merge off, and the PR qualifies: enable it.
   - Auto-merge off, and the PR doesn't qualify: put it in the review lane.
