@@ -346,6 +346,10 @@ Linear becomes the place where the owner's human backlog is prioritized. Only it
 a human go there: `needs-review` PRs, blocked items, admin steps, and GitHub issues. Bot PRs
 don't. Status 2026-11-02: the claude.ai Linear connector is authenticated (workspace
 Jgalabs); `linear-server` still isn't, and isn't needed. Phase 2 has no design yet.
+Status 2026-11-03 07:50 UTC: all 6 checks before Phase 2 on the run board are met for the
+first time. At `collect` there were 0 Dependabot PRs, 0 alerts, 0 `needs-review` PRs, 0 blocked
+entries and 0 red mains (2 pending), and Linear's `whoami` returns workspace Jgalabs. Phase 2
+is unblocked but has no design, so it waits on the owner.
 
 ## Decided by the owner
 
