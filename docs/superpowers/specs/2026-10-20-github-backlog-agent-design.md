@@ -182,6 +182,13 @@ Status 2026-11-03 06:45 UTC: jakob1379.github.io#46 (dnspython 2.8.0 to 2.9.0 in
 was green but skipped `Enable auto-merge`, as Phase 0 step 3 expects for grouped uv updates, so
 the PR sat green until the agent's `gh pr merge --auto --squash` merged it at 06:40 UTC at
 e25fdb8. 0 open `needs-review` PRs, no blocked entries.
+Status 2026-11-04 05:00 UTC: nix-config's high zod alert #1 (GHSA-mrhx-c7xc-m3w5, `< 4.6.6`,
+on `dotfiles/vicinae/nix-find/package-lock.json`) ended done with nix-config#145 in the review
+lane, head 14374a3. zod is transitive through `@vicinae/api` `^4.0.17`, so the PR changes only
+the lockfile: zod 4.5.4 to 4.6.6, and `@types/react` 19.0.10 to the 19.1.17 that `package.json`
+pins, a drift on `main` that `npm ci` rejects as out of sync. The repo has no ruleset, and its one workflow,
+`nix-cache.yml`, ran nothing on the PR's head. 1 open `needs-review` PR, no blocked entries, so
+the Phase 2 checks are no longer all met.
 
 ### Runtime
 
