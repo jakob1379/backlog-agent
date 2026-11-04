@@ -189,6 +189,11 @@ the lockfile: zod 4.5.4 to 4.6.6, and `@types/react` 19.0.10 to the 19.1.17 that
 pins, a drift on `main` that `npm ci` rejects as out of sync. The repo has no ruleset, and its one workflow,
 `nix-cache.yml`, ran nothing on the PR's head. 1 open `needs-review` PR, no blocked entries, so
 the Phase 2 checks are no longer all met.
+Status 2026-11-04 06:00 UTC: the owner merged nix-config#145 at 14374a3 at 05:08:55 UTC
+(merge commit d8ce323), which fixed alert #1 and resolved the ledger entry. `Nix Cache` is red
+on d8ce323, as on every `main` push since at least 2026-10-29 (f0d4f4f); no rule on `main`
+requires a check, so it isn't counted as a red main. 0 open `needs-review` PRs, no blocked
+entries, and Linear's `whoami` returns workspace Jgalabs, so all 6 Phase 2 checks are met again.
 
 ### Runtime
 
