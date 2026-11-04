@@ -194,7 +194,10 @@ it, so query again a few seconds later.
    (without `--paginate` the API returns only the first 30 alerts). When only some manifests
    are stale, fix the rest and name the stale numbers in the PR body.
 1. Target `first_patched` for each alert, i.e. the smallest version that fixes it. When the
-   package is transitive, upgrade the direct dependency that pulls it in. Use an ecosystem
+   package is transitive and its parent's range already admits `first_patched`, bump only the
+   lockfile; for npm: `npm install <pkg>@<ver> --package-lock-only`, `git checkout package.json`,
+   then `npm install --package-lock-only` (nix-config#145). Otherwise upgrade the direct
+   dependency that pulls it in. Use an ecosystem
    override (npm `overrides`, pnpm `pnpm.overrides`, yarn `resolutions`, uv
    `override-dependencies`/`constraint-dependencies`, a Nix input bump) only when that parent
    has no fixed release. Next to the override, write a one-line comment saying why it is there
