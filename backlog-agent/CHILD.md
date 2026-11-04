@@ -37,7 +37,9 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    2026-10-28): run them from your `work/<slug>/` checkout to build or check the repo, with
    `nix develop -c` wrapping only the repo's own check commands (never `gh`, `git push` or
    `curl`). Outside the sandbox `$TMPDIR` is a different directory, so pass literal paths.
-   Every other command stays in the sandbox. For a nixpkgs bump that
+   Every other command stays in the sandbox. To build one of nix-config's vicinae extensions
+   without the whole home config, `nix build --impure --expr 'builtins.head (builtins.filter (e: (e.name or "") == "<name>") (builtins.getFlake "git+file://<clone>").homeConfigurations."<cfg>".config.programs.vicinae.extensions)'`;
+   they build with `importNpmLock`, so a lockfile change needs no hash update. For a nixpkgs bump that
    can break the flake's pre-commit hooks, read each hook tool's version at both revs with
    `gh api repos/NixOS/nixpkgs/contents/pkgs/by-name/<xx>/<pkg>/package.nix?ref=<rev> -H 'Accept: application/vnd.github.raw'`
    (raw file, no base64; the first `version =` can belong to a nested derivation). Python
