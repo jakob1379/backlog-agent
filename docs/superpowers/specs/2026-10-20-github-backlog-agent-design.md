@@ -194,6 +194,14 @@ Status 2026-11-04 06:00 UTC: the owner merged nix-config#145 at 14374a3 at 05:08
 on d8ce323, as on every `main` push since at least 2026-10-29 (f0d4f4f); no rule on `main`
 requires a check, so it isn't counted as a red main. 0 open `needs-review` PRs, no blocked
 entries, and Linear's `whoami` returns workspace Jgalabs, so all 6 Phase 2 checks are met again.
+Status 2026-11-07 15:00 UTC: opigen's two Dependabot flake-input bumps ended done in the
+review lane: #23 (git-hooks `1ba1dbf` to `204b697`, head ed84604) and #24 (nixpkgs `31ecbac`
+to `1d06008`, head e825cc2), both `flake.lock` only, labelled `needs-review` with a review
+requested from the owner, and no commits added. opigen has no ruleset, and its one workflow,
+`release-container.yml`, runs only on tag pushes, so the children ran its `test` job locally:
+`nix flake check` and the `nix build` of the `opigen-backup` and `ruff` checks, green on both;
+#24 also built the `publish` job's `.#dockerImage`, green. 2 open `needs-review` PRs, no blocked
+entries, so the Phase 2 checks are no longer all met.
 
 ### Runtime
 
