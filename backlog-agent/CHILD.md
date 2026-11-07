@@ -158,7 +158,9 @@ it, so query again a few seconds later.
   rebuilt; prefix `uvx uv@<ver>` to run under the uv a nixpkgs bump brings. `has_ci` false only
   means no ruleset: the repo may still run workflows on the PR, so read them. A workflow that
   runs only on tag pushes never runs on a PR, so `gh run list --commit` shows nothing; run its
-  test job's commands locally (opigen#22). When a job needs a
+  test job's commands locally (opigen#22). When the bump feeds what a later job builds (e.g. a
+  nixpkgs bump and opigen's `publish` job's `nix build .#dockerImage`), build that too
+  (opigen#24); a dev-only input such as git-hooks doesn't need it (opigen#23). When a job needs a
   toolchain the sandbox lacks (e.g. Flutter), its green run on the PR's head commit stands in
   for the local run; link it in the comment. Then put it in the review lane, with a comment
   saying what you ran and what it showed. Done.
