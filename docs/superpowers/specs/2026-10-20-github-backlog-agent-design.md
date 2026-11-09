@@ -202,6 +202,11 @@ requested from the owner, and no commits added. opigen has no ruleset, and its o
 `nix flake check` and the `nix build` of the `opigen-backup` and `ruff` checks, green on both;
 #24 also built the `publish` job's `.#dockerImage`, green. 2 open `needs-review` PRs, no blocked
 entries, so the Phase 2 checks are no longer all met.
+Status 2026-11-09 05:45 UTC: the owner merged opigen#23 at ed84604 at 05:30:43 UTC (merge
+commit 2481974) and #24 at e825cc2 at 05:30:56 UTC (merge commit a73b08b), which resolved both
+ledger entries. At `collect` there were 0 Dependabot PRs, 0 alerts, 0 `needs-review` PRs, 0
+blocked entries and 0 red mains (3 pending), and Linear's `whoami` returns workspace Jgalabs,
+so all 6 Phase 2 checks are met again.
 
 ### Runtime
 
