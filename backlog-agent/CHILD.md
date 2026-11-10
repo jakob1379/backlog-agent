@@ -152,10 +152,11 @@ it, so query again a few seconds later.
   on the default branch (`gh run list --branch <default>`): one that fails the same way there
   isn't the PR's, so name it in the comment instead of fixing it here. That run can be older
   than the default branch's head: a merge by `app/github-actions` (a Dependabot auto-merge
-  workflow) starts no push workflows, so rich-card's `CI` last ran on `main` at #43 and its
-  later merges ran only CodeQL. When the run's `headSha` isn't the head, run the check on the
-  default branch locally, from a `git worktree add` of the clone (rich-card#49 ran
-  `nix flake check` in one under `/tmp/claude-1000/`). A job stops at its
+  workflow) starts no push workflows, so rich-card's `CI` ran on `main` at #43 and not again
+  until the owner merged #51; its Dependabot merges in between ran only CodeQL. When the
+  run's `headSha` isn't the head, run the check on the default branch locally, from a
+  `git worktree add` of the clone (rich-card#49 ran `nix flake check` in one under
+  `/tmp/claude-1000/`). A job stops at its
   first failing step, so a step already red on the default branch (e.g. a typecheck) hides
   every step after it: run those later steps (e.g. the tests) locally on both the PR head and
   the default branch. In a uv repo, give the default branch its own environment
