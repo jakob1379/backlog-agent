@@ -207,6 +207,15 @@ commit 2481974) and #24 at e825cc2 at 05:30:56 UTC (merge commit a73b08b), which
 ledger entries. At `collect` there were 0 Dependabot PRs, 0 alerts, 0 `needs-review` PRs, 0
 blocked entries and 0 red mains (3 pending), and Linear's `whoami` returns workspace Jgalabs,
 so all 6 Phase 2 checks are met again.
+Status 2026-11-10 07:15 UTC: rich-card#49 (typer 0.27.3 to 0.28.0, `uv.lock` only, head
+1b11b50) ended done in the review lane: labelled `needs-review`, a review requested from the
+owner, no commits added. rich-card has no ruleset, so `has_ci` is false, but its `CI` workflow
+runs on PRs: `test` is green and `nix` is red, as on `main`, where the child reports the
+toml-sort-fix pre-commit hook wanting to reformat `pyproject.toml`'s inline `authors` table.
+`CI` last ran on `main` at #43 (7179177, 2026-10-27, `nix` red); #50 was merged by
+`app/github-actions`, which starts no push workflows. The PR's `auto-merge` job is red because
+the repo's `allow_auto_merge` is off. 1 open `needs-review` PR, no blocked entries, so the
+Phase 2 checks are not all met.
 
 ### Runtime
 
