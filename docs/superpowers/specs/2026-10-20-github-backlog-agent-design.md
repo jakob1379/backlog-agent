@@ -216,6 +216,13 @@ toml-sort-fix pre-commit hook wanting to reformat `pyproject.toml`'s inline `aut
 `app/github-actions`, which starts no push workflows. The PR's `auto-merge` job is red because
 the repo's `allow_auto_merge` is off. 1 open `needs-review` PR, no blocked entries, so the
 Phase 2 checks are not all met.
+Status 2026-11-10 10:40 UTC: the owner fixed rich-card's `main` with #51 (toml-sort spacing in
+`pyproject.toml`, merge commit f076c1c at 10:30:53 UTC; its push `CI` run is green), then
+commented `@dependabot rebase` on #49. On the rebased head bbc4716 the `Dependabot auto-merge`
+job's `gh pr merge --auto --squash` merged #49 directly (merge commit 190d1d3 at 10:32:45 UTC,
+by `app/github-actions`), before that head's `CI` run ended green at 10:33:13 UTC.
+`allow_auto_merge` is still off. That resolved the ledger entry. 0 open `needs-review` PRs, no
+blocked entries and 0 red mains (3 pending) at `plan`.
 
 ### Runtime
 
