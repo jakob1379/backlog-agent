@@ -69,10 +69,10 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
 4. Read the repo's README, CI workflows and the required checks
    (`gh api repos/<repo>/rules/branches/<default>`), so your local check matches CI. That call
    returns 403 on a private repo without GitHub Pro; then take the checks from the workflows.
-   The token can't read `gh pr view --json statusCheckRollup` ("Resource not accessible by
-   personal access token"); read check results with `gh run list --commit <sha>` and
-   `gh run view <id> --json jobs`. A required check from an app, not Actions (e.g.
-   `SonarCloud Code Analysis`), never shows there; read it with
+   Read a PR's check results with `gh pr view <n> --json statusCheckRollup` (it works with the
+   token since rich-card#49, and lists app checks such as CodeRabbit too), and a commit's with
+   `gh run list --commit <sha>` and `gh run view <id> --json jobs`. A required check from an app,
+   not Actions (e.g. `SonarCloud Code Analysis`), never shows in `gh run list`; read it with
    `gh api repos/<repo>/commits/<sha>/check-runs`.
    Tests that compare terminal output can fail locally only because the sandbox's long
    `$TMPDIR` paths wrap at 80 columns; rerun them with `COLUMNS=250` before calling them red.
