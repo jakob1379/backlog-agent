@@ -228,8 +228,14 @@ it, so query again a few seconds later.
 
 ### `fix-main`: the default branch is red
 
-Follow `mattpocock-skills:diagnosing-bugs` on the failing required check of the latest
-default-branch commit. Fix it on branch `backlog-agent/<key slug>`, open a PR with a
+First read the required checks on the latest default-branch commit. An earlier task in this
+run may have just merged a fix, so its run can still be going: watch it with
+`gh run watch <id> --exit-status --interval 20 >/dev/null` in the foreground
+(`timeout: 600000`). If every required check is green, open nothing and end `done`. A red check
+that isn't required (Canvas-Code-Correction's `Docker image CI`, which has no Docker Hub secret)
+doesn't make the branch red.
+
+Otherwise follow `mattpocock-skills:diagnosing-bugs` on the failing required check. Fix it on branch `backlog-agent/<key slug>`, open a PR with a
 `mattpocock-skills:pr` body, and choose the lane.
 
 ### `add-ci`: no required checks
