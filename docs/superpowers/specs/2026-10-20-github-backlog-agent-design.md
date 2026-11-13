@@ -233,6 +233,13 @@ for the dependency graph's rescan. `test` is red on adb3e00, but not because of 
 locks 1.45.1. The PR's `test` passed at 14:59 UTC, before that advisory existed. `Docker image
 CI` is red there too, with `Password required` at `docker/login-action`, as on every `main` push
 since 2026-10-26; it isn't required. 0 open `needs-review` PRs and no blocked entries.
+Status 2026-11-13 18:50 UTC: the alert child opened Canvas-Code-Correction#226
+(opentelemetry-api 1.45.1 to 1.45.2, head 30df3ce) in the auto-merge lane, and it merged at
+18:42:08 UTC (merge commit f5bf8b4). Alerts #120, #121 and #122 are fixed, so the repo has no
+open alerts. `test` and `SonarCloud Code Analysis` are green on f5bf8b4, so the fix-main child
+in the same run found `main` green and opened nothing; `Docker image CI` is still red there.
+#225 (soupsieve 4.0 to 4.1) was held this run: its `test` ran red before #226, and auto-merge
+is on. 0 open `needs-review` PRs, no blocked entries.
 
 ### Runtime
 
