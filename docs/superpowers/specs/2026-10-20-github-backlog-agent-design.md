@@ -223,6 +223,16 @@ job's `gh pr merge --auto --squash` merged #49 directly (merge commit 190d1d3 at
 by `app/github-actions`), before that head's `CI` run ended green at 10:33:13 UTC.
 `allow_auto_merge` is still off. That resolved the ledger entry. 0 open `needs-review` PRs, no
 blocked entries and 0 red mains (3 pending) at `plan`.
+Status 2026-11-13 17:45 UTC: Canvas-Code-Correction#224 (soupsieve 2.9 to 4.0, a Dependabot
+major, `uv.lock` only, head a1da525) ended done in the auto-merge lane: `test` and `SonarCloud
+Code Analysis` were green on the head, and it merged at 17:38:54 UTC (merge commit adb3e00).
+That fixes soupsieve alerts #120 and #121 on `main`; both were still open at 17:45 UTC, waiting
+for the dependency graph's rescan. `test` is red on adb3e00, but not because of the bump:
+`uv audit` now reports GHSA-mf5v-w3w3-f6cg (medium, opentelemetry-api `<= 1.45.1`, fixed in
+1.45.2, transitive), alert #122, created at 17:40:02 UTC. The previous `main`, 11d09e5, also
+locks 1.45.1. The PR's `test` passed at 14:59 UTC, before that advisory existed. `Docker image
+CI` is red there too, with `Password required` at `docker/login-action`, as on every `main` push
+since 2026-10-26; it isn't required. 0 open `needs-review` PRs and no blocked entries.
 
 ### Runtime
 
