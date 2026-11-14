@@ -262,6 +262,13 @@ child finished (cfb8b58), and this run marked Canvas-Code-Correction#225 blocked
 Dependabot hasn't rebased it since the 07:19:20 UTC comment. Owner action: rebase it onto `main`
 (f5bf8b4, green `test`). `main`'s only red run is `Docker image CI`, which isn't required.
 0 open `needs-review` PRs, 1 blocked entry.
+Status 2026-11-14 19:00 UTC: opigen now has CI. The owner added `ci.yml` (#25, 6bdd445, on PRs
+and pushes to `main`) and the active `sane main` ruleset on 2026-11-09, which requires `Test
+pipeline`, so `has_ci` is true. opigen#26 (nixpkgs `1d06008` to `f4a03c0`, `flake.lock` only,
+head e253d0c) ended done in the auto-merge lane: `Test pipeline` was green on the head, and the
+child's `gh pr merge --auto --squash` merged it at once at 18:59:19 UTC (merge commit 65a6114);
+the classifier didn't refuse it. `CI` was still running on 65a6114 at 19:00 UTC.
+Canvas-Code-Correction#225 is still open at bcd868b. 0 open `needs-review` PRs, 1 blocked entry.
 
 ### Runtime
 
