@@ -74,6 +74,9 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    `gh run list --commit <sha>` and `gh run view <id> --json jobs`. A required check from an app,
    not Actions (e.g. `SonarCloud Code Analysis`), never shows in `gh run list`; read it with
    `gh api repos/<repo>/commits/<sha>/check-runs`.
+   `gh run view <id> --json jobs --jq '.jobs[].steps[]|select(.conclusion!="success")|.name'`
+   names the failing step. `--log-failed` can bury the error in teardown output; on
+   Canvas-Code-Correction's `Test`, `grep -iE 'GHSA|vulnerab|exit code'` finds it.
    Tests that compare terminal output can fail locally only because the sandbox's long
    `$TMPDIR` paths wrap at 80 columns; rerun them with `COLUMNS=250` before calling them red.
    Tests that write under a hard-coded `/tmp` fail in the sandbox on every branch, e.g.
