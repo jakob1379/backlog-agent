@@ -189,7 +189,8 @@ it, so query again a few seconds later.
   Done.
 - **Red only because the default branch was**, and every commit is Dependabot's: the failing
   check failed the same way on the default branch then, and is green on its head now. Comment
-  `@dependabot rebase` once; don't push a fix. Done (Canvas-Code-Correction#225).
+  `@dependabot rebase` once; don't push a fix. Done. Dependabot can ignore it: on
+  Canvas-Code-Correction#225 it neither reacted nor rebased within two hours.
 - **Red**: follow `mattpocock-skills:diagnosing-bugs`. The feedback loop is the failing
   required check, reproduced locally from its Actions log (`gh run view <id> --log-failed`).
   Commit the fix onto the PR's head branch (`cd "$CLONE" && gh pr checkout <pr>`). If it will
