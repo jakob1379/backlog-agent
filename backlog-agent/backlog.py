@@ -19,6 +19,7 @@ OVERDUE_AFTER = timedelta(hours=6)
 STALE_DONE_AFTER = timedelta(hours=48)
 STALE_NOTE = "still open 48h after agent finished"
 STUCK_AFTER = timedelta(hours=2)
+RED_NOTE = "still red 2h after agent finished"
 SKIP_LABELS = {"needs-review", "agent:blocked"}
 NEEDS_REVIEW_CAP = 5
 SKIP_STATUSES = {"running", "done", "blocked"}
@@ -282,6 +283,12 @@ def plan(
             k = alert_key(r["repo"], a)
             created = datetime.fromisoformat(a["created_at"])
             newest_alert[k] = max(newest_alert.get(k, created), created)
+    red_prs = {
+        f"{r['repo']}#{p['number']}"
+        for r in candidates["repos"]
+        for p in r["prs"]
+        if p["checks"] == "red" and not SKIP_LABELS & set(p["labels"])
+    }
     resolved, newly_blocked = [], []
     for key, e in list(ledger["tasks"].items()):
         if e["status"] == "running":
@@ -303,6 +310,13 @@ def plan(
         ):
             e.update(status="blocked", note=STALE_NOTE)
             newly_blocked.append({"key": key, "note": STALE_NOTE})
+        elif (
+            e["status"] == "done"
+            and key in red_prs
+            and now - datetime.fromisoformat(e["finished"]) >= STUCK_AFTER
+        ):
+            e.update(status="blocked", note=RED_NOTE)
+            newly_blocked.append({"key": key, "note": RED_NOTE})
     tasks = candidate_tasks(candidates, now)
     keys = {t["key"] for t in tasks}
     held = [

@@ -280,6 +280,21 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(L["tasks"]["o/r#2"]["status"], "blocked")
         self.assertEqual(sorted(L["tasks"]), ["o/r#2", "o/r#3"])
 
+    def test_done_pr_still_red_2h_after_finish_is_blocked(self):
+        L = empty()
+        for key in ["o/r#1", "o/r#2", "o/r#3"]:
+            start(L, key, "t", NOW)
+            finish(L, key, "done", "", datetime(2026, 10, 21, 9, tzinfo=UTC))
+        finish(L, "o/r#3", "done", "", datetime(2026, 10, 21, 11, tzinfo=UTC))
+        c = cands(repo(prs=[pr(1), pr(2, checks="green"), pr(3)]))
+        result = plan(c, L, NOW)
+        self.assertEqual(
+            result["newly_blocked"],
+            [{"key": "o/r#1", "note": "still red 2h after agent finished"}],
+        )
+        self.assertEqual(L["tasks"]["o/r#2"]["status"], "done")
+        self.assertEqual(L["tasks"]["o/r#3"]["status"], "done")
+
     def test_alert_opened_after_a_finished_task_started_reopens_it(self):
         L = empty()
         for package, status in [("a", "done"), ("b", "blocked"), ("c", "blocked")]:
