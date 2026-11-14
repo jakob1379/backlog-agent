@@ -251,6 +251,11 @@ lane: `test`, the one required check, was green on the head, and it merged at 08
 graph's rescan, and `Zensical test and deploy` was still running on ac54860. Canvas-Code-Correction#225
 is still at bcd868b, not rebased an hour after the `@dependabot rebase` comment. 0 open
 `needs-review` PRs, no blocked entries.
+Status 2026-11-14 09:20 UTC: alert #28 is fixed (08:24:17 UTC), so `plan` resolved its key, and
+`test` and `deploy` are green on ac54860. Canvas-Code-Correction#225 is still at bcd868b with
+`test` red, two hours after the `@dependabot rebase` comment, and Dependabot never reacted to
+it. Its ledger entry is done, so `plan` doesn't dispatch it again; it waits for the owner. 0 open
+`needs-review` PRs, no blocked entries.
 
 ### Runtime
 
