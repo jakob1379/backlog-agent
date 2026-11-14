@@ -83,6 +83,9 @@ the `RESULT:` line. Background: `/home/jsg/Documents/jsg/random_backlog-agent/do
    Canvas-Code-Correction's workspace-default tests in `tests/unit/test_config.py`
    (`/tmp/ccc/workspaces`) and `test_runner.py::test_execute_in_workspace`; they don't count
    against the PR.
+   jakob1379.github.io's Playwright suite can't run locally: under `nix develop` the browser
+   fails to launch with `GLIBC_2.43 not found` (alsa-lib's libasound). Take the PR's CI `test`
+   run on the head as that check (#47).
    Run Python checks under the version the workflow sets up: the sandbox's uv picks the newest
    (3.14), but Canvas-Code-Correction's `Test` pins 3.13. Use `uv run --python <ver>` with
    `UV_PROJECT_ENVIRONMENT=$TMPDIR/<slug>-venv`.
