@@ -256,6 +256,12 @@ Status 2026-11-14 09:20 UTC: alert #28 is fixed (08:24:17 UTC), so `plan` resolv
 `test` red, two hours after the `@dependabot rebase` comment, and Dependabot never reacted to
 it. Its ledger entry is done, so `plan` doesn't dispatch it again; it waits for the owner. 0 open
 `needs-review` PRs, no blocked entries.
+Status 2026-11-14 10:20 UTC: `plan` now blocks a done PR key whose PR is still red 2h after its
+child finished (cfb8b58), and this run marked Canvas-Code-Correction#225 blocked with "still red
+2h after agent finished". It is still at bcd868b with `test` red, mergeable, auto-merge on, and
+Dependabot hasn't rebased it since the 07:19:20 UTC comment. Owner action: rebase it onto `main`
+(f5bf8b4, green `test`). `main`'s only red run is `Docker image CI`, which isn't required.
+0 open `needs-review` PRs, 1 blocked entry.
 
 ### Runtime
 
