@@ -240,6 +240,10 @@ open alerts. `test` and `SonarCloud Code Analysis` are green on f5bf8b4, so the 
 in the same run found `main` green and opened nothing; `Docker image CI` is still red there.
 #225 (soupsieve 4.0 to 4.1) was held this run: its `test` ran red before #226, and auto-merge
 is on. 0 open `needs-review` PRs, no blocked entries.
+Status 2026-11-14 07:20 UTC: the #225 child found its red `test` was the opentelemetry advisory
+fixed by #226, not the bump, and commented `@dependabot rebase` at 07:19:20 UTC; auto-merge was
+already on. At 07:20 UTC Dependabot had not rebased yet: the head is still bcd868b, with `test`
+red, and the PR is open. 0 open `needs-review` PRs, no blocked entries.
 
 ### Runtime
 
