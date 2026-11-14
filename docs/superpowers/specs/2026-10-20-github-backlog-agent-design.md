@@ -244,6 +244,13 @@ Status 2026-11-14 07:20 UTC: the #225 child found its red `test` was the opentel
 fixed by #226, not the bump, and commented `@dependabot rebase` at 07:19:20 UTC; auto-merge was
 already on. At 07:20 UTC Dependabot had not rebased yet: the head is still bcd868b, with `test`
 red, and the PR is open. 0 open `needs-review` PRs, no blocked entries.
+Status 2026-11-14 08:25 UTC: jakob1379.github.io#47 (dnspython 2.9.0 to 2.9.2, `uv.lock` only,
+head 4c41b02) for high alert #28 (GHSA-vvf4-9x63-8xvv, `< 2.9.2`) ended done in the auto-merge
+lane: `test`, the one required check, was green on the head, and it merged at 08:23:12 UTC
+(merge commit ac54860). Alert #28 was still open at 08:24 UTC, waiting for the dependency
+graph's rescan, and `Zensical test and deploy` was still running on ac54860. Canvas-Code-Correction#225
+is still at bcd868b, not rebased an hour after the `@dependabot rebase` comment. 0 open
+`needs-review` PRs, no blocked entries.
 
 ### Runtime
 
