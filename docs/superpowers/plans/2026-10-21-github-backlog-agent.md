@@ -189,6 +189,7 @@ Rules, in order:
 2. **Ledger cleanup.**
    - Any non-running ledger key that is not among the current candidate keys is removed and listed in `resolved` when its status was `done`.
    - A `done` key still present `STALE_DONE_AFTER` after `finished` becomes `blocked` with the note "still open 48h after agent finished", and goes into `newly_blocked`.
+   - A `done` PR key whose PR is still red, and not labelled `needs-review` or `agent:blocked`, `STUCK_AFTER` after `finished` becomes `blocked` with the note "still red 2h after agent finished", and goes into `newly_blocked`.
 3. **Drop.**
    - Keys whose ledger status is running, done or blocked. A `failed` key is retried.
    - PRs labelled `needs-review` or `agent:blocked`.
@@ -213,6 +214,7 @@ test_no_ci_repo_prs_dropped_but_alerts_kept
 test_needs_review_cap_drops_no_ci_and_add_ci    # needs_review_open=5
 test_slots_respect_running_and_daily_cap        # 2 running → 1 dispatched; 24 starts today → 0 and announce_cap True once, False on 2nd call
 test_resolved_and_stale_done                    # done key gone → resolved; done key present, finished 49h ago → newly_blocked
+test_done_pr_still_red_2h_after_finish_is_blocked
 test_failed_is_retried_blocked_is_not
 ```
 
