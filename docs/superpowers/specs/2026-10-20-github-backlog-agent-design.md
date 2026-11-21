@@ -2,6 +2,10 @@
 
 Date: 2026-10-20. Owner: jakob1379.
 
+**Superseded on 2026-11-21 by `2026-11-21-backlog-agent-design.md`.** The phases are gone, and
+backlog triage now runs beside dependency work. This file stays as the record of dependency
+work's rules and history, and those rules still apply.
+
 ## Why
 
 The owner's GitHub backlog is mostly Dependabot noise and security alerts:
