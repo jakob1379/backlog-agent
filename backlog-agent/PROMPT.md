@@ -69,7 +69,9 @@ export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token); $B collect > $TMPDIR/ca
 Run it with `allowed_domains: ["api.github.com", "api.linear.app"]`. If it fails, reply with the
 error's last line and stop. `collect` reads the GitHub repos and, when
 `~/.config/backlog-agent/linear-token` exists, the board. Without that token there is no board
-yet: `plan` decides no card moves and starts no `triage` or `build` task.
+yet: `plan` decides no card moves and starts no `triage` or `build` task. If `collect` prints a
+`board not read` line, the token exists but Linear failed: put that line under **Needs you** and
+go on; this run makes no card moves.
 
 Then apply the card moves `plan` decided, in order, before starting any child:
 

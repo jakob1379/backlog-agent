@@ -27,8 +27,10 @@ Every ticket codes against these shapes, so the parallel tickets agree without t
   [{author, created_at, by_agent: bool}]}` for open issues. `by_agent` is true when the
   comment body starts with `<!-- backlog-agent -->`, because the agent comments with the
   owner's token and so has the owner's login.
-- `repos[].other_prs[]`: `{number, title, author, draft, created_at, linked_issues: [int]}`
-  for open PRs not authored by Dependabot.
+- `repos[].other_prs[]`: `{number, title, author, draft, created_at, linked_issues: [int],
+  linked_refs: ["owner/repo#n"], labels: [str]}` for open PRs not authored by Dependabot.
+  `linked_refs` holds issues in the owner's other repos that the PR closes or mentions, so a
+  multi-repo build keeps its card In Review until every PR is gone.
 - `board`: `{statuses: [str], cards: [card]}` where `card` is `{id, identifier, title, status,
   labels: [str], link: {repo, number, type: "issue"|"pr"} | null, created_at, history:
   [{from, to, actor: "owner"|"agent"|"other", at}]}`. `history` is oldest first.
