@@ -277,6 +277,16 @@ Status 2026-11-15 07:30 UTC: `Test pipeline` is green on opigen's merge commit 6
 `plan` resolved the opigen#26 key. Canvas-Code-Correction#225 is unchanged since 2026-11-14
 07:19 UTC: bcd868b, `test` red, mergeable, auto-merge on, and still blocked on the owner's
 rebase. It is the only open Dependabot PR. 0 open `needs-review` PRs, 1 blocked entry.
+Status 2026-11-21 17:05 UTC: the owner updated Canvas-Code-Correction#225's branch (0cb6dfc,
+16:32:25 UTC on 2026-11-15), and its Dependabot auto-merge merged it at 16:33:30 UTC (merge
+commit 4e50171), which resolved the blocked entry. opigen#27 (nixpkgs `f4a03c0` to `0490633`,
+`flake.lock` only, head 7f738b5) ended done in the auto-merge lane: `Test pipeline` was green
+on the head, and the child's `gh pr merge --auto --squash` merged it at once at 17:00:10 UTC
+(merge commit f4d3820); the classifier didn't refuse it. `CI` is green on f4d3820. 0 open
+`needs-review` PRs, no blocked entries.
+Status 2026-11-21 18:00 UTC: `plan` resolved the opigen#27 key, and the ledger has no tasks.
+There are 0 open Dependabot PRs across the owner's repos, 0 open `needs-review` PRs, no blocked
+entries, and 0 red mains (3 pending) at `plan`.
 
 ### Runtime
 
@@ -445,6 +455,9 @@ Status 2026-11-03 07:50 UTC: all 6 checks before Phase 2 on the run board are me
 first time. At `collect` there were 0 Dependabot PRs, 0 alerts, 0 `needs-review` PRs, 0 blocked
 entries and 0 red mains (2 pending), and Linear's `whoami` returns workspace Jgalabs. Phase 2
 is unblocked but has no design, so it waits on the owner.
+Status 2026-11-21: Phase 2 is specced as backlog triage in `2026-11-21-backlog-agent-design.md`,
+which drops the phases, and broken into tickets in
+`../plans/2026-11-21-backlog-triage-tickets.md`. None of it is built yet.
 
 ## Decided by the owner
 
