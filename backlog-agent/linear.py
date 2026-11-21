@@ -238,7 +238,8 @@ def apply(card_ops: list[dict]) -> list[dict]:
                     "labelIds": [label_id(ctx, n) for n in op["labels"]],
                 },
             )["issueCreate"]["issue"]
-            graphql(LINK_URL, issueId=issue["id"], url=github_url(op["link"]))
+            if op["link"]:
+                graphql(LINK_URL, issueId=issue["id"], url=github_url(op["link"]))
             applied.append({**op, "card": issue["identifier"]})
             continue
         update = {"stateId": ctx["states"][op["to"]]}

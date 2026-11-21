@@ -712,6 +712,135 @@ class TriagePlanTest(unittest.TestCase):
         )
 
 
+def other_pr(number, draft=False, linked_issues=()):
+    return {
+        "number": number,
+        "title": f"PR {number}",
+        "author": OWNER,
+        "draft": draft,
+        "created_at": "2026-10-01T00:00:00Z",
+        "linked_issues": list(linked_issues),
+    }
+
+
+def owner_card(id, title, status, labels, link=None):
+    return {
+        **card(0, status, labels=labels),
+        "id": id,
+        "title": title,
+        "link": link,
+    }
+
+
+def close(id):
+    return {"op": "close", "card": id, "to": "Done"}
+
+
+class OwnerCardsPlanTest(unittest.TestCase):
+    def test_pull_request_cards_open_and_close(self):
+        def pr_card(n, status="In Review", repo="o/r"):
+            link = {"repo": repo, "number": n, "type": "pr"}
+            return owner_card(f"pr-{n}", f"PR {n}", status, ["kind: pr"], link)
+
+        c = snap(
+            backlog_repo(
+                issue(9),
+                other_prs=[
+                    other_pr(1),
+                    other_pr(2, draft=True),
+                    other_pr(3, linked_issues=[9]),
+                    other_pr(4),
+                ],
+            ),
+            cards=[
+                card(9, "Needs approval"),
+                pr_card(4),
+                pr_card(5),
+                pr_card(6, "Done"),
+                pr_card(7, repo="o/fork"),
+            ],
+        )
+        self.assertEqual(
+            plan(c, empty(), NOW)["card_ops"],
+            [
+                {
+                    "op": "create",
+                    "link": {"repo": "o/r", "number": 1, "type": "pr"},
+                    "title": "PR 1",
+                    "status": "In Review",
+                    "labels": ["kind: pr", "repo: r"],
+                },
+                {
+                    "op": "create",
+                    "link": {"repo": "o/r", "number": 2, "type": "pr"},
+                    "title": "PR 2",
+                    "status": "In Review",
+                    "labels": ["kind: pr", "repo: r", "draft"],
+                },
+                close("pr-5"),
+            ],
+        )
+
+    def test_dependency_work_that_needs_the_owner_gets_a_card_until_resolved(self):
+        L = empty()
+        for key, status, note in [
+            ("o/r:dep:pip:urllib3", "blocked", "no patched version\nmore"),
+            ("o/r#1", "done", "review lane"),
+            ("o/r#2", "done", "auto-merge lane"),
+            ("o/r#3", "blocked", "conflicts"),
+            ("o/r:fix-main", "blocked", "flaky"),
+        ]:
+            start(L, key, "t", NOW)
+            finish(L, key, status, note, NOW)
+        dependency = ["kind: dependency", "repo: r"]
+        c = snap(
+            backlog_repo(
+                prs=[
+                    pr(1, labels=["needs-review"]),
+                    pr(2, checks="green"),
+                    pr(3, labels=["agent:blocked"]),
+                ],
+                other_prs=[],
+            ),
+            cards=[
+                owner_card("d-3", "o/r#3 — conflicts", "In Review", dependency),
+                owner_card("d-4", "o/r#4 — gone", "Needs info", dependency),
+                owner_card("d-5", "o/r:fix-main — flaky", "Needs info", dependency),
+                owner_card("d-6", "o/r#6 — done", "Done", dependency),
+            ],
+        )
+        c["repos"][0]["alerts"] = [alert()]
+        c["repos"][0]["main"] = "red"
+        self.assertEqual(
+            plan(c, L, NOW)["card_ops"],
+            [
+                close("d-4"),
+                {
+                    "op": "create",
+                    "link": None,
+                    "title": "o/r:dep:pip:urllib3 — no patched version",
+                    "status": "Needs info",
+                    "labels": dependency,
+                },
+                {
+                    "op": "create",
+                    "link": {"repo": "o/r", "number": 1, "type": "pr"},
+                    "title": "o/r#1 — review lane",
+                    "status": "In Review",
+                    "labels": dependency,
+                },
+                mv(3, "Needs info") | {"card": "d-3"},
+            ],
+        )
+
+    def test_without_a_board_no_cards_are_made(self):
+        L = empty()
+        start(L, "o/r#1", "t", NOW)
+        finish(L, "o/r#1", "blocked", "stuck", NOW)
+        c = cands({**repo(prs=[pr(1)]), "other_prs": [other_pr(2)], "issues": []})
+        self.assertEqual(plan(c, L, NOW)["card_ops"], [])
+
+
 def run(name, conclusion, started="2026-10-21T10:00:00Z", status="COMPLETED"):
     return {
         "__typename": "CheckRun",

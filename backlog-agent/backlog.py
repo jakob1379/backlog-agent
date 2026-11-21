@@ -25,6 +25,7 @@ STUCK_AFTER = timedelta(hours=2)
 STALE_QUEUE_AFTER = timedelta(hours=24)
 STALE_REVIEW_AFTER = timedelta(days=7)
 QUEUE_STATUSES = {"Needs triage", "Approved"}
+CLOSED_STATUSES = {"Done", "Canceled", "Duplicate"}
 RED_NOTE = "still red 2h after agent finished"
 SKIP_LABELS = {"needs-review", "agent:blocked"}
 NEEDS_REVIEW_CAP = 5
@@ -509,6 +510,91 @@ def backlog_work(
     return [task for *_, task in ranked], ops, status
 
 
+def create(link: dict | None, title: str, status: str, labels: list) -> dict:
+    return {
+        "op": "create",
+        "link": link,
+        "title": title,
+        "status": status,
+        "labels": labels,
+    }
+
+
+def repo_label(name: str) -> str:
+    return f"repo: {name.split('/', 1)[1]}"
+
+
+def owner_cards(candidates: dict, ledger: dict, present: set[str]) -> list[dict]:
+    if "board" not in candidates:
+        return []
+    repos = {r["repo"]: r for r in candidates["repos"]}
+    cards = candidates["board"]["cards"]
+    ops = []
+    carded = {
+        (c["link"]["repo"], c["link"]["number"])
+        for c in cards
+        if c["link"] and c["link"]["type"] == "pr"
+    }
+    open_prs = {
+        (name, p["number"])
+        for name, r in repos.items()
+        for p in r["prs"] + r.get("other_prs", [])
+    }
+    for name, r in repos.items():
+        for p in r.get("other_prs", []):
+            if p["linked_issues"] or (name, p["number"]) in carded:
+                continue
+            labels = ["kind: pr", repo_label(name)]
+            if p["draft"]:
+                labels.append("draft")
+            link = {"repo": name, "number": p["number"], "type": "pr"}
+            ops.append(create(link, p["title"], "In Review", labels))
+    dependency = {}
+    for c in cards:
+        if c["status"] in CLOSED_STATUSES:
+            continue
+        link = c["link"]
+        if (
+            "kind: pr" in c["labels"]
+            and link
+            and link["repo"] in repos
+            and (link["repo"], link["number"]) not in open_prs
+        ):
+            ops.append({"op": "close", "card": c["id"], "to": "Done"})
+        key = c["title"].split(" ", 1)[0]
+        if "kind: dependency" in c["labels"] and re.split("[#:]", key)[0] in repos:
+            if key in present:
+                dependency[key] = c
+            else:
+                ops.append({"op": "close", "card": c["id"], "to": "Done"})
+    review = {
+        f"{name}#{p['number']}"
+        for name, r in repos.items()
+        for p in r["prs"]
+        if "needs-review" in p["labels"]
+    }
+    for key, e in ledger["tasks"].items():
+        if key.rsplit(":", 1)[-1] in BACKLOG_TIERS:
+            continue
+        if e["status"] in ("done", "blocked") and key in review:
+            to = "In Review"
+        elif e["status"] == "blocked":
+            to = "Needs info"
+        else:
+            continue
+        c = dependency.get(key)
+        if c:
+            if c["status"] != to:
+                ops.append(move(c["id"], to))
+            continue
+        name, _, number = key.partition("#")
+        link = {"repo": name, "number": int(number), "type": "pr"} if number else None
+        title = " — ".join([key, *e["note"].splitlines()[:1]])
+        labels = ["kind: dependency", repo_label(re.split("[#:]", key)[0])]
+        ops.append(create(link, title, to, labels))
+    return ops
+
+
 def plan(
     candidates: dict,
     ledger: dict,
@@ -588,6 +674,7 @@ def plan(
             review_room -= 1
         ready.append(t)
     backlog_tasks, card_ops, card_status = backlog_work(candidates, ledger, now)
+    card_ops += owner_cards(candidates, ledger, present)
     ready += [t for t in backlog_tasks if t["key"] not in busy]
     running = len(running_keys)
     used = used_today(ledger, now)
