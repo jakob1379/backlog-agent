@@ -12,14 +12,19 @@ GitHub with `export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token);` and decla
 
 Compare what the files say with what is true:
 
-- `$W/docs/superpowers/specs/2026-10-20-github-backlog-agent-design.md`: status lines and
-  decisions against GitHub and the ledger (`$W/backlog-agent/ledger.json`, read only).
-- `$W/docs/superpowers/plans/2026-10-21-github-backlog-agent.md`: checkboxes against what has
+- `$W/docs/superpowers/specs/2026-11-21-backlog-agent-design.md`: decisions against GitHub,
+  the ledger (`$W/backlog-agent/ledger.json`, read only) and the `plan` output's `card_ops` and
+  `health`. The 2026-10-20 spec and its plan are the record of how dependency work was built in
+  phases; there are no phases now, so don't add phase status to them.
+- `$W/backlog-agent/GLOSSARY.md` and `$W/docs/adr/`: terms and decisions against what the
+  prompts and `backlog.py` do.
+- `$W/docs/superpowers/plans/2026-11-21-backlog-triage-tickets.md`: tickets against what has
   shipped (`git -C $W log --oneline`).
 - `PROMPT.md`, `CHILD.md` and this file against the `HANDOFF:` blocks: a refused command, a
   step that keeps failing, or a rule two children read differently means the file is wrong.
 - Open owner actions: `blocked` entries in the ledger, and
-  `gh search prs --owner jakob1379 --state open --label needs-review`.
+  `gh search prs --owner jakob1379 --state open --label needs-review`. You never read or write
+  the tracker (Linear); the board's owner actions reach the owner as cards.
 
 ## 2. Fix
 

@@ -919,7 +919,10 @@ def main() -> None:
     p.add_argument("thread_id")
     args = ap.parse_args()
     if args.cmd == "collect":
-        print(json.dumps(collect(), indent=2))
+        snapshot = collect()
+        if linear.TOKEN.exists():
+            snapshot["board"] = linear.board()
+        print(json.dumps(snapshot, indent=2))
         return
     if args.cmd == "board":
         print(json.dumps(linear.board(), indent=2))
