@@ -82,8 +82,17 @@ def start(
     ledger["starts"].append(now.isoformat())
 
 
+def backlog_kind(key: str) -> str | None:
+    m = re.fullmatch(r".+#\d+:(triage|build)", key)
+    return m and m[1]
+
+
 def finish(ledger: dict, key: str, status: str, note: str, now: datetime) -> str:
     entry = ledger["tasks"][key]
+    if status not in (
+        {*OUTCOMES, "blocked"} if backlog_kind(key) else {"done", "blocked"}
+    ):
+        status = "failed"
     if status == "failed" and entry["attempts"] >= MAX_ATTEMPTS:
         status = "blocked"
     entry.update(status=status, note=note, finished=now.isoformat())
@@ -363,6 +372,10 @@ def owner_replied(issue: dict, history: list, owner: str) -> bool:
     )
 
 
+def issue_links(name: str, p: dict) -> list[str]:
+    return [f"{name}#{n}" for n in p["linked_issues"]] + p.get("linked_refs", [])
+
+
 def label_rank(issue: dict, card: dict) -> int:
     labels = {lb.lower() for lb in issue["labels"] + card["labels"]}
     return 0 if "security" in labels else 1 if "bug" in labels else 2
@@ -379,24 +392,29 @@ def backlog_work(
         for i in r.get("issues", [])
     }
     linked = {
-        f"{r['repo']}#{n}"
+        ref
         for r in candidates["repos"]
         for p in r.get("other_prs", [])
-        for n in p["linked_issues"]
+        for ref in issue_links(r["repo"], p)
     }
     origins = {k: v for k, v in ledger.get("origins", {}).items() if k in issues}
     ledger["origins"] = origins
-    status, ops, ranked, cards = {}, [], [], []
+    ops, ranked, chosen = [], [], {}
     for c in candidates.get("board", {}).get("cards", []):
         link = c["link"] or {}
         if link.get("type") != "issue" or link["repo"] not in scope:
             continue
         ref = f"{link['repo']}#{link['number']}"
         if ref in issues:
-            cards.append((ref, c))
-            status[c["id"]] = c["status"]
+            if ref not in chosen or (
+                chosen[ref]["status"] in CLOSED_STATUSES
+                and c["status"] not in CLOSED_STATUSES
+            ):
+                chosen[ref] = c
         elif c["status"] == "In Review" and ref not in linked:
             ops.append({"op": "close", "card": c["id"], "to": "Done"})
+    cards = list(chosen.items())
+    status = {c["id"]: c["status"] for c in chosen.values()}
 
     def queue(kind, ref, card, origin):
         issue = issues[ref]
@@ -423,6 +441,13 @@ def backlog_work(
 
     for ref, c in cards:
         issue, history = issues[ref], c["history"]
+        missing = [
+            lb
+            for lb in ("kind: backlog", repo_label(c["link"]["repo"]))
+            if lb not in c["labels"]
+        ]
+        if missing and c["status"] not in CLOSED_STATUSES:
+            ops.append(move(c["id"], c["status"], add=missing))
         trusted = issue["author"] == owner or any(
             h["actor"] == "owner" and h["to"] == "Needs triage" for h in history
         )
@@ -443,7 +468,9 @@ def backlog_work(
                     origins.get(ref, "topup") if kind == "triage" else "owner",
                 )
                 continue
-            del ledger["tasks"][k]
+            if c["status"] != "In Progress":
+                del ledger["tasks"][k]
+                continue
             outcome = e["status"]
             if (
                 outcome == "fix-pending"
@@ -451,7 +478,7 @@ def backlog_work(
                 and origins.get(ref) != "owner"
             ):
                 outcome = "needs-approval"
-            op = outcome_op(c, outcome) if c["status"] == "In Progress" else None
+            op = outcome_op(c, outcome)
             if op:
                 ops.append(op)
                 status[c["id"]] = op["to"]
@@ -487,9 +514,7 @@ def backlog_work(
 
     counts = Counter(status.values())
     going = any(
-        e["status"] == "running"
-        for k, e in ledger["tasks"].items()
-        if k.rsplit(":", 1)[-1] in BACKLOG_TIERS
+        e["status"] == "running" and backlog_kind(k) for k, e in ledger["tasks"].items()
     )
     if not (
         going or counts["Needs approval"] or counts["Approved"] or counts["In Progress"]
@@ -520,6 +545,9 @@ def create(link: dict | None, title: str, status: str, labels: list) -> dict:
     }
 
 
+PR_URL = r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)"
+
+
 def repo_label(name: str) -> str:
     return f"repo: {name.split('/', 1)[1]}"
 
@@ -540,9 +568,19 @@ def owner_cards(candidates: dict, ledger: dict, present: set[str]) -> list[dict]
         for name, r in repos.items()
         for p in r["prs"] + r.get("other_prs", [])
     }
+    agent_prs = {
+        (m[1], int(m[2])): key
+        for key, e in ledger["tasks"].items()
+        if not backlog_kind(key) and e["status"] in ("done", "blocked")
+        for m in re.finditer(PR_URL, e["note"])
+    }
     for name, r in repos.items():
         for p in r.get("other_prs", []):
-            if p["linked_issues"] or (name, p["number"]) in carded:
+            if (
+                any(ref.split("#")[0] in repos for ref in issue_links(name, p))
+                or (name, p["number"]) in carded
+                or (name, p["number"]) in agent_prs
+            ):
                 continue
             labels = ["kind: pr", repo_label(name)]
             if p["draft"]:
@@ -572,9 +610,14 @@ def owner_cards(candidates: dict, ledger: dict, present: set[str]) -> list[dict]
         for name, r in repos.items()
         for p in r["prs"]
         if "needs-review" in p["labels"]
+    } | {
+        agent_prs[(name, p["number"])]
+        for name, r in repos.items()
+        for p in r.get("other_prs", [])
+        if "needs-review" in p.get("labels", []) and (name, p["number"]) in agent_prs
     }
     for key, e in ledger["tasks"].items():
-        if key.rsplit(":", 1)[-1] in BACKLOG_TIERS:
+        if backlog_kind(key):
             continue
         if e["status"] in ("done", "blocked") and key in review:
             to = "In Review"
@@ -706,6 +749,7 @@ def plan(
 
 
 AGENT_MARKER = "<!-- backlog-agent -->"
+ISSUE_REF = r"(?:https://github\.com/)?([\w.-]+/[\w.-]+)(?:#|/issues/)(\d+)\b"
 OPT_IN_TOPIC = "backlog-agent"
 
 QUERY = """query($endCursor: String) { viewer { login
@@ -808,17 +852,31 @@ def issue_record(i: dict) -> dict:
 
 
 def other_pr_record(name: str, p: dict) -> dict:
+    closes = [
+        f"{i['repository']['nameWithOwner']}#{i['number']}"
+        for i in p["closingIssuesReferences"]["nodes"]
+    ]
+    mentions = [f"{m[1]}#{m[2]}" for m in re.finditer(ISSUE_REF, p["body"])]
     return {
         "number": p["number"],
         "title": p["title"],
         "author": login(p),
         "draft": p["isDraft"],
         "created_at": p["createdAt"],
+        "labels": [lb["name"] for lb in p["labels"]["nodes"]],
         "linked_issues": [
-            i["number"]
-            for i in p["closingIssuesReferences"]["nodes"]
-            if i["repository"]["nameWithOwner"] == name
+            int(ref.rpartition("#")[2])
+            for ref in closes
+            if ref.rpartition("#")[0] == name
         ],
+        "linked_refs": sorted(
+            {
+                ref
+                for ref in closes + mentions
+                if ref.split("/")[0] == name.split("/")[0]
+                and ref.rpartition("#")[0] != name
+            }
+        ),
     }
 
 
@@ -838,12 +896,13 @@ def collect() -> dict:
         name, branch = node["nameWithOwner"], node["defaultBranchRef"]
         required = required_checks(name, branch["name"]) if branch else []
         all_prs = node["pullRequests"]["nodes"]
-        needs_review_open += sum(
-            "needs-review" in {lb["name"] for lb in p["labels"]["nodes"]}
-            for p in all_prs
-        )
         prs = [p for p in all_prs if login(p) == "dependabot"]
-        others = [p for p in all_prs if login(p) != "dependabot"]
+        others = [other_pr_record(name, p) for p in all_prs if login(p) != "dependabot"]
+        needs_review_open += sum(
+            "needs-review" in {lb["name"] for lb in p["labels"]["nodes"]} for p in prs
+        ) + sum(
+            "needs-review" in o["labels"] and not issue_links(name, o) for o in others
+        )
 
         repos.append(
             {
@@ -872,7 +931,7 @@ def collect() -> dict:
                     alert_record(a, prs) for a in node["vulnerabilityAlerts"]["nodes"]
                 ],
                 "issues": [issue_record(i) for i in node["issues"]["nodes"]],
-                "other_prs": [other_pr_record(name, p) for p in others],
+                "other_prs": others,
             }
         )
     return {
@@ -921,7 +980,12 @@ def main() -> None:
     if args.cmd == "collect":
         snapshot = collect()
         if linear.TOKEN.exists():
-            snapshot["board"] = linear.board()
+            try:
+                snapshot["board"] = linear.board()
+            except (RuntimeError, SystemExit) as e:
+                print(
+                    f"board not read, so no card moves this run: {e}", file=sys.stderr
+                )
         print(json.dumps(snapshot, indent=2))
         return
     if args.cmd == "board":

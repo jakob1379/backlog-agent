@@ -426,7 +426,7 @@ def card(number, status="Backlog", history=(), labels=(), repo="o/r", type="issu
         "identifier": f"JGA-{number}",
         "title": f"Issue {number}",
         "status": status,
-        "labels": list(labels),
+        "labels": ["kind: backlog", f"repo: {repo.split('/')[1]}", *labels],
         "link": {"repo": repo, "number": number, "type": type},
         "created_at": "2026-09-01T00:00:00Z",
         "history": list(history),
@@ -711,21 +711,88 @@ class TriagePlanTest(unittest.TestCase):
             [{"op": "close", "card": "card-1", "to": "Done"}],
         )
 
+    def test_an_outcome_move_is_repeated_until_the_card_leaves_in_progress(self):
+        L = empty()
+        plan(snap(backlog_repo(issue(5)), cards=[asked(5)]), L, NOW)
+        finish(L, "o/r#5:triage", "needs-approval", "plan posted", NOW)
+        c = snap(backlog_repo(issue(5)), cards=[working(asked(5))])
+        for _ in range(2):
+            self.assertEqual(plan(c, L, NOW)["card_ops"], [mv(5, "Needs approval")])
+        c = snap(backlog_repo(issue(5)), cards=[card(5, "Needs approval")])
+        self.assertEqual(plan(c, L, NOW)["card_ops"], [])
+        self.assertNotIn("o/r#5:triage", L["tasks"])
 
-def other_pr(number, draft=False, linked_issues=()):
+    def test_a_closed_duplicate_card_does_not_hide_the_issues_live_card(self):
+        dup = {**card(5, "Duplicate"), "id": "dup-5"}
+        for status, expected in [
+            ("needs-approval", ([], [mv(5, "Needs approval")])),
+            ("failed", ([("o/r#5:triage", 2)], [])),
+        ]:
+            with self.subTest(status):
+                L = empty()
+                plan(snap(backlog_repo(issue(5)), cards=[asked(5)]), L, NOW)
+                finish(L, "o/r#5:triage", status, "x", NOW)
+                c = snap(backlog_repo(issue(5)), cards=[dup, working(asked(5))])
+                result = plan(c, L, NOW)
+                self.assertEqual(
+                    (
+                        [(t["key"], t["attempt"]) for t in result["dispatch"]],
+                        result["card_ops"],
+                    ),
+                    expected,
+                )
+
+    def test_backlog_cards_get_their_kind_and_repo_labels(self):
+        bare = {**asked(5), "labels": []}
+        half = {**card(6, "Needs approval"), "labels": ["kind: backlog"]}
+        done = {**card(7, "Done"), "labels": []}
+        c = snap(backlog_repo(issue(5), issue(6), issue(7)), cards=[bare, half, done])
+        self.assertEqual(
+            plan(c, empty(), NOW)["card_ops"],
+            [
+                mv(5, "Needs triage", add=["kind: backlog", "repo: r"]),
+                mv(6, "Needs approval", add=["repo: r"]),
+                mv(5, "In Progress"),
+            ],
+        )
+
+    def test_a_multi_repo_build_stays_in_review_until_every_pr_merged(self):
+        def snapshot(*y_prs):
+            return snap(
+                backlog_repo(name="o/x"),
+                backlog_repo(name="o/y", other_prs=y_prs),
+                cards=[card(5, "In Review", repo="o/x")],
+            )
+
+        self.assertEqual(
+            plan(snapshot(other_pr(9, linked_refs=["o/x#5"])), empty(), NOW)[
+                "card_ops"
+            ],
+            [],
+        )
+        self.assertEqual(
+            plan(snapshot(), empty(), NOW)["card_ops"],
+            [{"op": "close", "card": "card-5", "to": "Done"}],
+        )
+
+
+def other_pr(number, draft=False, linked_issues=(), linked_refs=(), labels=()):
     return {
         "number": number,
         "title": f"PR {number}",
         "author": OWNER,
         "draft": draft,
         "created_at": "2026-10-01T00:00:00Z",
+        "labels": list(labels),
         "linked_issues": list(linked_issues),
+        "linked_refs": list(linked_refs),
     }
 
 
 def owner_card(id, title, status, labels, link=None):
     return {
-        **card(0, status, labels=labels),
+        **card(0, status),
+        "labels": list(labels),
         "id": id,
         "title": title,
         "link": link,
@@ -830,6 +897,51 @@ class OwnerCardsPlanTest(unittest.TestCase):
                     "labels": dependency,
                 },
                 mv(3, "Needs info") | {"card": "d-3"},
+            ],
+        )
+
+    def test_a_dependency_pr_in_the_review_lane_gets_a_dependency_card(self):
+        L = empty()
+        start(L, "o/r:dep:pip:urllib3", "t", NOW)
+        finish(L, "o/r:dep:pip:urllib3", "done", "https://github.com/o/r/pull/7", NOW)
+        c = snap(
+            backlog_repo(other_prs=[other_pr(7, labels=["needs-review"])]),
+        )
+        c["repos"][0]["alerts"] = [alert()]
+        self.assertEqual(
+            plan(c, L, NOW)["card_ops"],
+            [
+                {
+                    "op": "create",
+                    "link": None,
+                    "title": "o/r:dep:pip:urllib3 — https://github.com/o/r/pull/7",
+                    "status": "In Review",
+                    "labels": ["kind: dependency", "repo: r"],
+                }
+            ],
+        )
+
+    def test_an_alert_on_a_package_named_like_a_backlog_kind_is_dependency_work(self):
+        L = empty()
+        start(L, "o/r:dep:pip:build", "t", NOW)
+        c = snap(backlog_repo(issue(1)), cards=[card(1)])
+        c["repos"][0]["alerts"] = [alert("build")]
+        self.assertEqual(picked(plan(c, L, NOW)), [(1, "triage", "topup")])
+        L = empty()
+        start(L, "o/r:dep:pip:build", "t", NOW)
+        finish(L, "o/r:dep:pip:build", "blocked", "no patched version", NOW)
+        c = snap(backlog_repo())
+        c["repos"][0]["alerts"] = [alert("build")]
+        self.assertEqual(
+            plan(c, L, NOW)["card_ops"],
+            [
+                {
+                    "op": "create",
+                    "link": None,
+                    "title": "o/r:dep:pip:build — no patched version",
+                    "status": "Needs info",
+                    "labels": ["kind: dependency", "repo: r"],
+                }
             ],
         )
 
@@ -1034,6 +1146,24 @@ class CliTest(unittest.TestCase):
                 )
                 out = json.loads(cli(path, "plan", str(cpath), "th"))
                 self.assertEqual((out["dispatch"], out["card_ops"]), ([], [op]))
+
+    def test_a_dependency_status_on_a_backlog_task_counts_as_a_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            cpath.write_text(json.dumps(snap(backlog_repo(issue(5)), cards=[asked(5)])))
+            cli(path, "plan", str(cpath), "th")
+            cli(path, "start", "o/r#5:triage", "task-1")
+            self.assertEqual(
+                cli(path, "finish", "o/r#5:triage", "done", "x").strip(), "failed"
+            )
+            cpath.write_text(
+                json.dumps(snap(backlog_repo(issue(5)), cards=[working(asked(5))]))
+            )
+            out = json.loads(cli(path, "plan", str(cpath), "th"))
+            self.assertEqual(
+                [(t["key"], t["attempt"]) for t in out["dispatch"]],
+                [("o/r#5:triage", 2)],
+            )
 
     def test_live_lock_blocks_dispatch_and_stale_lock_is_cleaned_up(self):
         with tempfile.TemporaryDirectory() as d:
