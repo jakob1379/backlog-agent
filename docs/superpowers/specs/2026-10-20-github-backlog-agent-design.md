@@ -284,6 +284,9 @@ commit 4e50171), which resolved the blocked entry. opigen#27 (nixpkgs `f4a03c0` 
 on the head, and the child's `gh pr merge --auto --squash` merged it at once at 17:00:10 UTC
 (merge commit f4d3820); the classifier didn't refuse it. `CI` is green on f4d3820. 0 open
 `needs-review` PRs, no blocked entries.
+Status 2026-11-21 18:00 UTC: `plan` resolved the opigen#27 key, and the ledger has no tasks.
+There are 0 open Dependabot PRs across the owner's repos, 0 open `needs-review` PRs, no blocked
+entries, and 0 red mains (3 pending) at `plan`.
 
 ### Runtime
 
