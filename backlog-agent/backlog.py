@@ -312,9 +312,7 @@ def health(candidates: dict, ledger: dict, tasks: list[dict], now: datetime) -> 
         "topup_waiting": sum(
             c["status"] == "Needs approval"
             and c["link"] is not None
-            and ledger["tasks"]
-            .get(f"{c['link']['repo']}#{c['link']['number']}:triage", {})
-            .get("origin")
+            and ledger.get("origins", {}).get(f"{c['link']['repo']}#{c['link']['number']}")
             == "topup"
             for c in cards
         ),

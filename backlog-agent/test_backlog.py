@@ -377,25 +377,16 @@ class PlanTest(unittest.TestCase):
 
     def test_health_counts_topup_cards_waiting_for_approval(self):
         L = empty()
-        start(L, "o/r#1:triage", "t", NOW)
-        L["tasks"]["o/r#1:triage"]["origin"] = "topup"
-        start(L, "o/r#2:triage", "t", NOW)
-        L["tasks"]["o/r#2:triage"]["origin"] = "owner"
-
-        def card(n):
-            return {
-                "id": str(n),
-                "identifier": str(n),
-                "title": "",
-                "status": "Needs approval",
-                "labels": [],
-                "link": {"repo": "o/r", "number": n, "type": "issue"},
-                "created_at": NOW.isoformat(),
-                "history": [],
-            }
-
-        c = cands(repo())
-        c["board"] = {"statuses": [], "cards": [card(1), card(2)]}
+        c = snap(backlog_repo(issue(1), issue(2)), cards=[card(1), asked(2)])
+        self.assertEqual(
+            picked(plan(c, L, NOW)), [(2, "triage", "owner"), (1, "triage", "topup")]
+        )
+        for key in ["o/r#1:triage", "o/r#2:triage"]:
+            finish(L, key, "needs-approval", "plan posted", NOW)
+        c = snap(
+            backlog_repo(issue(1), issue(2)),
+            cards=[card(1, "Needs approval"), {**asked(2), "status": "Needs approval"}],
+        )
         self.assertEqual(plan(c, L, NOW)["health"]["topup_waiting"], 1)
 
     def test_health_without_board_is_zero(self):
