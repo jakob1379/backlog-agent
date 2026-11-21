@@ -153,6 +153,10 @@ health checks that say whether work is moving.
   linked to a backlog issue. A draft gets `draft` too. It also creates a card, with
   `kind: dependency`, for dependency work that ended blocked (Needs info) or in the review lane
   (In Review). It closes these cards once GitHub shows the item resolved.
+  A dependency card's title starts with its ledger key, which is how `plan` finds it again,
+  because an alert, a red default branch or missing CI has no GitHub URL to link. Only a
+  Dependabot pull request's card is linked. A dependency card the owner closed by hand comes
+  back while the work still needs the owner.
 - **Linear access.** One module talks to Linear, through the GraphQL API and the agent's own
   OAuth app token, stored next to the GitHub token. `collect` reads the board: cards, statuses,
   labels, each card's linked issue or pull request, and its status history with who made each
