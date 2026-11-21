@@ -234,6 +234,9 @@ def apply(card_ops: list[dict]) -> list[dict]:
                 input={
                     "teamId": ctx["team"],
                     "title": op["title"],
+                    "description": f"Imported from {github_url(op['link'])}"
+                    if op["link"]
+                    else "",
                     "stateId": ctx["states"][op["status"]],
                     "labelIds": [label_id(ctx, n) for n in op["labels"]],
                 },
