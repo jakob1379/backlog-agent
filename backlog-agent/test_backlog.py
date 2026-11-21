@@ -4,7 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from backlog import (
@@ -331,26 +331,77 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plan(c, L, NOW)["resolved"], [])
         self.assertLessEqual({"o/r#1", "o/r:dep:pip:urllib3"}, set(L["tasks"]))
 
-    def test_phase1_counts_what_is_left(self):
+    def test_health_counts_dependency_and_main_state(self):
         L = empty()
         start(L, "o/a#9", "t", NOW)
         finish(L, "o/a#9", "blocked", "", NOW)
         c = cands(
             repo("o/a", main="red", prs=[pr(9), pr(10)], alerts=[alert(covered_by_pr=9)]),
             repo("o/b", main="pending"),
-            repo("o/c", has_ci=False, main=None),
-            needs_review_open=1,
         )
+        h = plan(c, L, NOW)["health"]
+        self.assertEqual(h["unhandled_dependency"], 1)
+        self.assertEqual(h["red_mains"], 1)
+        self.assertEqual(h["pending_mains"], 1)
+
+    def test_health_stale_queue_and_review_use_time_in_status(self):
+        def card(i, status, hours, moved=True):
+            at = (NOW - timedelta(hours=hours)).isoformat()
+            return {
+                "id": i,
+                "identifier": i,
+                "title": i,
+                "status": status,
+                "labels": [],
+                "link": None,
+                "created_at": (NOW - timedelta(days=30)).isoformat(),
+                "history": [{"from": "Backlog", "to": status, "actor": "owner", "at": at}]
+                if moved
+                else [],
+            }
+
+        c = cands(repo())
+        c["board"] = {
+            "statuses": [],
+            "cards": [
+                card("a", "Needs triage", 25),
+                card("b", "Approved", 23),
+                card("c", "Needs triage", 1, moved=False),
+                card("d", "In Review", 24 * 7 + 1),
+                card("e", "In Review", 24 * 6),
+            ],
+        }
+        h = plan(c, empty(), NOW)["health"]
+        self.assertEqual(h["stale_queue"], 2)
+        self.assertEqual(h["stale_review"], 1)
+
+    def test_health_counts_topup_cards_waiting_for_approval(self):
+        L = empty()
+        start(L, "o/r#1:triage", "t", NOW)
+        L["tasks"]["o/r#1:triage"]["origin"] = "topup"
+        start(L, "o/r#2:triage", "t", NOW)
+        L["tasks"]["o/r#2:triage"]["origin"] = "owner"
+
+        def card(n):
+            return {
+                "id": str(n),
+                "identifier": str(n),
+                "title": "",
+                "status": "Needs approval",
+                "labels": [],
+                "link": {"repo": "o/r", "number": n, "type": "issue"},
+                "created_at": NOW.isoformat(),
+                "history": [],
+            }
+
+        c = cands(repo())
+        c["board"] = {"statuses": [], "cards": [card(1), card(2)]}
+        self.assertEqual(plan(c, L, NOW)["health"]["topup_waiting"], 1)
+
+    def test_health_without_board_is_zero(self):
+        h = plan(cands(repo()), empty(), NOW)["health"]
         self.assertEqual(
-            plan(c, L, NOW)["phase1"],
-            {
-                "dependabot_prs": 2,
-                "alerts": 1,
-                "needs_review": 1,
-                "blocked": 1,
-                "red_mains": 1,
-                "pending_mains": 1,
-            },
+            (h["stale_queue"], h["topup_waiting"], h["stale_review"]), (0, 0, 0)
         )
 
 

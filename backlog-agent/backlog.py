@@ -19,6 +19,9 @@ OVERDUE_AFTER = timedelta(hours=6)
 STALE_DONE_AFTER = timedelta(hours=48)
 STALE_NOTE = "still open 48h after agent finished"
 STUCK_AFTER = timedelta(hours=2)
+STALE_QUEUE_AFTER = timedelta(hours=24)
+STALE_REVIEW_AFTER = timedelta(days=7)
+QUEUE_STATUSES = {"Needs triage", "Approved"}
 RED_NOTE = "still red 2h after agent finished"
 SKIP_LABELS = {"needs-review", "agent:blocked"}
 NEEDS_REVIEW_CAP = 5
@@ -269,6 +272,45 @@ def present_keys(candidates: dict) -> set[str]:
     return keys
 
 
+def in_status_for(card: dict, now: datetime) -> timedelta:
+    since = next(
+        (h["at"] for h in reversed(card["history"]) if h["to"] == card["status"]),
+        card["created_at"],
+    )
+    return now - datetime.fromisoformat(since)
+
+
+def health(candidates: dict, ledger: dict, tasks: list[dict], now: datetime) -> dict:
+    cards = candidates.get("board", {}).get("cards", [])
+    return {
+        "unhandled_dependency": sum(
+            t["kind"] in ("pr", "alert")
+            and ledger["tasks"].get(t["key"], {}).get("status") not in SKIP_STATUSES
+            for t in tasks
+        ),
+        "stale_queue": sum(
+            c["status"] in QUEUE_STATUSES
+            and in_status_for(c, now) > STALE_QUEUE_AFTER
+            for c in cards
+        ),
+        "topup_waiting": sum(
+            c["status"] == "Needs approval"
+            and c["link"] is not None
+            and ledger["tasks"]
+            .get(f"{c['link']['repo']}#{c['link']['number']}:triage", {})
+            .get("origin")
+            == "topup"
+            for c in cards
+        ),
+        "stale_review": sum(
+            c["status"] == "In Review" and in_status_for(c, now) > STALE_REVIEW_AFTER
+            for c in cards
+        ),
+        "red_mains": sum(r["main"] == "red" for r in candidates["repos"]),
+        "pending_mains": sum(r["main"] == "pending" for r in candidates["repos"]),
+    }
+
+
 def plan(
     candidates: dict,
     ledger: dict,
@@ -368,14 +410,7 @@ def plan(
         "announce_cap": announce_cap,
         "resolved": resolved,
         "newly_blocked": newly_blocked,
-        "phase1": {
-            "dependabot_prs": sum(len(r["prs"]) for r in candidates["repos"]),
-            "alerts": sum(len(r["alerts"]) for r in candidates["repos"]),
-            "needs_review": candidates["needs_review_open"],
-            "blocked": sum(e["status"] == "blocked" for e in ledger["tasks"].values()),
-            "red_mains": sum(r["main"] == "red" for r in candidates["repos"]),
-            "pending_mains": sum(r["main"] == "pending" for r in candidates["repos"]),
-        },
+        "health": health(candidates, ledger, tasks, now),
     }
 
 
