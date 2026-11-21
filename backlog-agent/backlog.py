@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -29,6 +30,17 @@ SKIP_LABELS = {"needs-review", "agent:blocked"}
 NEEDS_REVIEW_CAP = 5
 SKIP_STATUSES = {"running", "done", "blocked"}
 ADD_CI_REPOS = {"jakob1379/pacify", "jakob1379/br18", "jakob1379/brobizz-usage"}
+BACKLOG_TIERS = {"build": 8, "triage": 9}
+TOPUP_LIMIT = 3
+NEW_ISSUE_AGE = timedelta(hours=24)
+REASONS = ("needs-repro", "unable-to-fix", "failed")
+OUTCOMES = {
+    "fix-pending": "In Review",
+    "needs-approval": "Needs approval",
+    "needs-repro": "Needs info",
+    "unable-to-fix": "Needs info",
+    "not-actionable": "Canceled",
+}
 
 LEDGER = Path(os.environ.get("BACKLOG_LEDGER", Path(__file__).with_name("ledger.json")))
 WORK = Path(
@@ -271,6 +283,8 @@ def present_keys(candidates: dict) -> set[str]:
             keys.add(f"{name}:fix-main")
         if not r["has_ci"]:
             keys.add(f"{name}:add-ci")
+        for i in r.get("issues", []):
+            keys |= {f"{name}#{i['number']}:{kind}" for kind in BACKLOG_TIERS}
     return keys
 
 
@@ -311,6 +325,190 @@ def health(candidates: dict, ledger: dict, tasks: list[dict], now: datetime) -> 
         "red_mains": sum(r["main"] == "red" for r in candidates["repos"]),
         "pending_mains": sum(r["main"] == "pending" for r in candidates["repos"]),
     }
+
+
+def move(card_id: str, to: str, add: list = (), remove: list = ()) -> dict:
+    return {
+        "op": "move",
+        "card": card_id,
+        "to": to,
+        "add_labels": list(add),
+        "remove_labels": list(remove),
+    }
+
+
+def outcome_op(card: dict, outcome: str) -> dict | None:
+    to = "Needs info" if outcome == "blocked" else OUTCOMES.get(outcome)
+    if to == "Canceled":
+        return {"op": "close", "card": card["id"], "to": to}
+    if to:
+        reason = "failed" if outcome == "blocked" else outcome
+        add = [reason] if reason in REASONS else []
+        stale = [lb for lb in card["labels"] if lb in REASONS and lb != reason]
+        return move(card["id"], to, add, stale)
+    return None
+
+
+def owner_replied(issue: dict, history: list, owner: str) -> bool:
+    marks = [
+        datetime.fromisoformat(m["created_at"])
+        for m in issue["comments"]
+        if m["by_agent"]
+    ] + [datetime.fromisoformat(h["at"]) for h in history[-1:]]
+    since = max(marks, default=None)
+    return since is not None and any(
+        m["author"] == owner
+        and not m["by_agent"]
+        and datetime.fromisoformat(m["created_at"]) > since
+        for m in issue["comments"]
+    )
+
+
+def label_rank(issue: dict, card: dict) -> int:
+    labels = {lb.lower() for lb in issue["labels"] + card["labels"]}
+    return 0 if "security" in labels else 1 if "bug" in labels else 2
+
+
+def backlog_work(
+    candidates: dict, ledger: dict, now: datetime
+) -> tuple[list[dict], list[dict], dict]:
+    owner = candidates.get("owner")
+    scope = {r["repo"] for r in candidates["repos"]}
+    issues = {
+        f"{r['repo']}#{i['number']}": i
+        for r in candidates["repos"]
+        for i in r.get("issues", [])
+    }
+    linked = {
+        f"{r['repo']}#{n}"
+        for r in candidates["repos"]
+        for p in r.get("other_prs", [])
+        for n in p["linked_issues"]
+    }
+    origins = {k: v for k, v in ledger.get("origins", {}).items() if k in issues}
+    ledger["origins"] = origins
+    status, ops, ranked, cards = {}, [], [], []
+    for c in candidates.get("board", {}).get("cards", []):
+        link = c["link"] or {}
+        if link.get("type") != "issue" or link["repo"] not in scope:
+            continue
+        ref = f"{link['repo']}#{link['number']}"
+        if ref in issues:
+            cards.append((ref, c))
+            status[c["id"]] = c["status"]
+        elif c["status"] == "In Review" and ref not in linked:
+            ops.append({"op": "close", "card": c["id"], "to": "Done"})
+
+    def queue(kind, ref, card, origin):
+        issue = issues[ref]
+        if kind == "triage":
+            origins[ref] = origin
+        task = {
+            "key": f"{ref}:{kind}",
+            "kind": kind,
+            "repo": card["link"]["repo"],
+            "issue": issue["number"],
+            "card": card["id"],
+            "origin": origin,
+            "tier": BACKLOG_TIERS[kind],
+        }
+        ranked.append(
+            (task["tier"], label_rank(issue, card), issue["created_at"], task)
+        )
+
+    def to_triage(ref, card, origin):
+        stale = [lb for lb in card["labels"] if lb in REASONS]
+        ops.append(move(card["id"], "Needs triage", remove=stale))
+        status[card["id"]] = "Needs triage"
+        queue("triage", ref, card, origin)
+
+    for ref, c in cards:
+        issue, history = issues[ref], c["history"]
+        trusted = issue["author"] == owner or any(
+            h["actor"] == "owner" and h["to"] == "Needs triage" for h in history
+        )
+        entries = {
+            k: ledger["tasks"][k]
+            for k in (f"{ref}:{kind}" for kind in BACKLOG_TIERS)
+            if k in ledger["tasks"]
+        }
+        if any(e["status"] == "running" for e in entries.values()):
+            continue
+        for k, e in entries.items():
+            kind = k.rsplit(":", 1)[1]
+            if c["status"] == "In Progress" and e["status"] == "failed":
+                queue(
+                    kind,
+                    ref,
+                    c,
+                    origins.get(ref, "topup") if kind == "triage" else "owner",
+                )
+                continue
+            del ledger["tasks"][k]
+            outcome = e["status"]
+            if (
+                outcome == "fix-pending"
+                and kind == "triage"
+                and origins.get(ref) != "owner"
+            ):
+                outcome = "needs-approval"
+            op = outcome_op(c, outcome) if c["status"] == "In Progress" else None
+            if op:
+                ops.append(op)
+                status[c["id"]] = op["to"]
+        if c["status"] == "Approved" and history:
+            if history[-1]["actor"] != "owner":
+                ops.append(move(c["id"], "Needs approval"))
+                status[c["id"]] = "Needs approval"
+            elif history[-1]["from"] == "Needs approval":
+                queue("build", ref, c, "owner")
+        elif c["status"] == "Needs triage" and trusted:
+            last = next(
+                (h for h in reversed(history) if h["to"] == "Needs triage"), None
+            )
+            origin = (
+                "owner"
+                if last and last["actor"] == "owner"
+                else origins.get(ref, "topup")
+            )
+            queue("triage", ref, c, origin)
+        elif (
+            c["status"] == "Needs info"
+            and trusted
+            and owner_replied(issue, history, owner)
+        ):
+            to_triage(ref, c, origins.get(ref, "topup"))
+        elif (
+            c["status"] == "Backlog"
+            and not history
+            and issue["author"] == owner
+            and now - datetime.fromisoformat(issue["created_at"]) < NEW_ISSUE_AGE
+        ):
+            to_triage(ref, c, "owner")
+
+    counts = Counter(status.values())
+    going = any(
+        e["status"] == "running"
+        for k, e in ledger["tasks"].items()
+        if k.rsplit(":", 1)[-1] in BACKLOG_TIERS
+    )
+    if not (
+        going or counts["Needs approval"] or counts["Approved"] or counts["In Progress"]
+    ):
+        pool = sorted(
+            (
+                (label_rank(issues[ref], c), issues[ref]["created_at"], ref, c)
+                for ref, c in cards
+                if status[c["id"]] == "Backlog"
+                and issues[ref]["author"] == owner
+                and not any(m["by_agent"] for m in issues[ref]["comments"])
+            ),
+            key=lambda x: x[:3],
+        )
+        for _, _, ref, c in pool[: max(0, TOPUP_LIMIT - counts["Needs triage"])]:
+            to_triage(ref, c, "topup")
+    ranked.sort(key=lambda x: x[:3])
+    return [task for *_, task in ranked], ops, status
 
 
 def plan(
@@ -368,6 +566,7 @@ def plan(
         for t in tasks
         if t["kind"] == "pr" and t["tier"] != 1 and f"{t['repo']}:fix-main" in keys
     ]
+
     def review_only(t):
         return not t["has_ci"] or t["kind"] == "add-ci"
 
@@ -390,6 +589,8 @@ def plan(
                 continue
             review_room -= 1
         ready.append(t)
+    backlog_tasks, card_ops, card_status = backlog_work(candidates, ledger, now)
+    ready += [t for t in backlog_tasks if t["key"] not in busy]
     running = len(running_keys)
     used = used_today(ledger, now)
     slots = max(0, min(MAX_RUNNING - running, DAILY_CAP - used))
@@ -403,8 +604,11 @@ def plan(
     for t in ready[:slots]:
         start(ledger, t["key"], "", now, thread_id)
         dispatch.append({**t, "attempt": ledger["tasks"][t["key"]]["attempts"]})
+        if t["kind"] in BACKLOG_TIERS and card_status[t["card"]] != "In Progress":
+            card_ops.append(move(t["card"], "In Progress"))
     return {
         "dispatch": dispatch,
+        "card_ops": card_ops,
         "queued": [t["key"] for t in ready[slots:]],
         "held": held,
         "running": running,
@@ -617,7 +821,7 @@ def main() -> None:
     p.add_argument("task_id")
     p = sub.add_parser("finish")
     p.add_argument("key")
-    p.add_argument("status", choices=["done", "blocked", "failed"])
+    p.add_argument("status", choices=["done", "blocked", "failed", *OUTCOMES])
     p.add_argument("note")
     sub.add_parser("collect")
     sub.add_parser("board")
