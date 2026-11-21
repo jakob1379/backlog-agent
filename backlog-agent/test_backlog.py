@@ -690,6 +690,19 @@ class CliTest(unittest.TestCase):
                 json.loads(path.read_text())["tasks"]["o/r#1"]["note"], note
             )
 
+    def test_apply_with_no_card_ops_needs_no_tracker(self):
+        with tempfile.TemporaryDirectory() as d:
+            ppath = Path(d, "plan.json")
+            ppath.write_text(json.dumps({"dispatch": [], "card_ops": []}))
+            out = subprocess.run(
+                [sys.executable, SCRIPT, "apply", str(ppath)],
+                env={**os.environ, "HOME": d},
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+            self.assertEqual(json.loads(out), [])
+
 
 if __name__ == "__main__":
     unittest.main()

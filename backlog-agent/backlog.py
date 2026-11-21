@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import linear
+
 MAX_RUNNING = 3
 DAILY_CAP = 100
 TZ = ZoneInfo("Europe/Copenhagen")
@@ -618,6 +620,10 @@ def main() -> None:
     p.add_argument("status", choices=["done", "blocked", "failed"])
     p.add_argument("note")
     sub.add_parser("collect")
+    sub.add_parser("board")
+    p = sub.add_parser("apply")
+    p.add_argument("plan", type=Path)
+    sub.add_parser("setup")
     sub.add_parser("running")
     p = sub.add_parser("plan")
     p.add_argument("candidates", type=Path)
@@ -625,6 +631,16 @@ def main() -> None:
     args = ap.parse_args()
     if args.cmd == "collect":
         print(json.dumps(collect(), indent=2))
+        return
+    if args.cmd == "board":
+        print(json.dumps(linear.board(), indent=2))
+        return
+    if args.cmd == "apply":
+        ops = json.loads(args.plan.read_text())["card_ops"]
+        print(json.dumps(linear.apply(ops), indent=2))
+        return
+    if args.cmd == "setup":
+        linear.setup()
         return
     # Concurrent runs share the ledger; flock is released even if the process dies.
     with open(LEDGER.with_suffix(".lock"), "w") as lock:
