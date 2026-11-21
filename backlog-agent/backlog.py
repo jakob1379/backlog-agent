@@ -379,16 +379,25 @@ def plan(
     }
 
 
-QUERY = """query($endCursor: String) { viewer {
-  repositories(first: 20, after: $endCursor, ownerAffiliations: OWNER, isArchived: false, isFork: false) {
+AGENT_MARKER = "<!-- backlog-agent -->"
+OPT_IN_TOPIC = "backlog-agent"
+
+QUERY = """query($endCursor: String) { viewer { login
+  repositories(first: 10, after: $endCursor, ownerAffiliations: OWNER, isArchived: false) {
     pageInfo { hasNextPage endCursor }
     nodes {
-      nameWithOwner
+      nameWithOwner isFork owner { login }
+      repositoryTopics(first: 20) { nodes { topic { name } } }
       defaultBranchRef { name target { oid } }
       pullRequests(states: OPEN, first: 50) { nodes {
-        number title body createdAt mergeable headRefOid author { login }
+        number title body createdAt isDraft mergeable headRefOid author { login }
         labels(first: 20) { nodes { name } }
+        closingIssuesReferences(first: 10) { nodes { number repository { nameWithOwner } } }
         autoMergeRequest { enabledAt } } }
+      issues(states: OPEN, first: 100) { nodes {
+        number title createdAt author { login }
+        labels(first: 20) { nodes { name } }
+        comments(last: 50) { nodes { author { login } createdAt body } } } }
       vulnerabilityAlerts(states: OPEN, first: 100) { nodes {
         createdAt
         securityAdvisory { ghsaId }
@@ -450,13 +459,56 @@ def sha_state(repo: str, sha: str, required: list[str]) -> str | None:
     return required_state(commit_contexts(repo, sha), required) if required else None
 
 
+def login(node: dict) -> str:
+    return (node["author"] or {}).get("login", "ghost")
+
+
+def issue_record(i: dict) -> dict:
+    return {
+        "number": i["number"],
+        "title": i["title"],
+        "author": login(i),
+        "created_at": i["createdAt"],
+        "labels": [lb["name"] for lb in i["labels"]["nodes"]],
+        "comments": [
+            {
+                "author": login(c),
+                "created_at": c["createdAt"],
+                "by_agent": c["body"].startswith(AGENT_MARKER),
+            }
+            for c in i["comments"]["nodes"]
+        ],
+    }
+
+
+def other_pr_record(name: str, p: dict) -> dict:
+    return {
+        "number": p["number"],
+        "title": p["title"],
+        "author": login(p),
+        "draft": p["isDraft"],
+        "created_at": p["createdAt"],
+        "linked_issues": [
+            i["number"]
+            for i in p["closingIssuesReferences"]["nodes"]
+            if i["repository"]["nameWithOwner"] == name
+        ],
+    }
+
+
 def collect() -> dict:
     # shortcut: first 50 PRs / 100 alerts per repo, paginate those if a repo ever exceeds them
     pages = gh("api", "graphql", "--paginate", "--slurp", "-f", f"query={QUERY}")
+    owner = pages[0]["data"]["viewer"]["login"]
     repos, needs_review_open = [], 0
     for node in (
         n for page in pages for n in page["data"]["viewer"]["repositories"]["nodes"]
     ):
+        topics = {t["topic"]["name"] for t in node["repositoryTopics"]["nodes"]}
+        if node["owner"]["login"] != owner or (
+            node["isFork"] and OPT_IN_TOPIC not in topics
+        ):
+            continue
         name, branch = node["nameWithOwner"], node["defaultBranchRef"]
         required = required_checks(name, branch["name"]) if branch else []
         all_prs = node["pullRequests"]["nodes"]
@@ -464,11 +516,13 @@ def collect() -> dict:
             "needs-review" in {lb["name"] for lb in p["labels"]["nodes"]}
             for p in all_prs
         )
-        prs = [p for p in all_prs if (p["author"] or {}).get("login") == "dependabot"]
+        prs = [p for p in all_prs if login(p) == "dependabot"]
+        others = [p for p in all_prs if login(p) != "dependabot"]
 
         repos.append(
             {
                 "repo": name,
+                "fork": node["isFork"],
                 "has_ci": bool(required),
                 "main": sha_state(name, branch["target"]["oid"], required)
                 if branch
@@ -491,11 +545,14 @@ def collect() -> dict:
                 "alerts": [
                     alert_record(a, prs) for a in node["vulnerabilityAlerts"]["nodes"]
                 ],
+                "issues": [issue_record(i) for i in node["issues"]["nodes"]],
+                "other_prs": [other_pr_record(name, p) for p in others],
             }
         )
     return {
         "generated": datetime.now(UTC).isoformat(),
         "needs_review_open": needs_review_open,
+        "owner": owner,
         "repos": repos,
     }
 
