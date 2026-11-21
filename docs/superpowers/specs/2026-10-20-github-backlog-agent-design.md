@@ -452,6 +452,9 @@ Status 2026-11-03 07:50 UTC: all 6 checks before Phase 2 on the run board are me
 first time. At `collect` there were 0 Dependabot PRs, 0 alerts, 0 `needs-review` PRs, 0 blocked
 entries and 0 red mains (2 pending), and Linear's `whoami` returns workspace Jgalabs. Phase 2
 is unblocked but has no design, so it waits on the owner.
+Status 2026-11-21: Phase 2 is specced as backlog triage in `2026-11-21-backlog-agent-design.md`,
+which drops the phases, and broken into tickets in
+`../plans/2026-11-21-backlog-triage-tickets.md`. None of it is built yet.
 
 ## Decided by the owner
 

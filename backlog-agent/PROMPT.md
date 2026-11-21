@@ -122,7 +122,7 @@ of them from `plan`'s `phase1`: 0 `dependabot_prs`, 0 `alerts`, 0 `needs_review`
 0 `red_mains`, the last with the `pending_mains` count in muted text. They are counted at `collect`
 time, before this run's children. The sixth is **Linear connected**: met when Linear's `whoami`
 tool returns a workspace, and named in that check. When all 6 are met and Phase 2 is still marked
-"later" in the spec, the box says `Phase 2 unblocked, not specced yet` instead of a count.
+"later" in the spec, the box says `Phase 2 unblocked, specced, not built yet` instead of a count.
 
 The tiles summarise the text lines below, one
 tile per section that has something in it, each with its count and a one-line hint (for example
