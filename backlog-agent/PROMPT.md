@@ -1,6 +1,6 @@
 # Hourly GitHub backlog dispatcher
 
-`W=/home/jsg/Documents/jsg/random_backlog-agent` and `B="python3 $W/backlog-agent/backlog.py"`.
+`W=/home/jsg/Documents/jsg/backlog-agent` and `B="python3 $W/backlog-agent/backlog.py"`.
 
 `backlog.py` holds every rule: ranking, holds, the 3-running and 100-a-day caps, retries, the
 ledger, and the triage state machine that decides how cards move on the owner's board. Your job is
@@ -13,10 +13,10 @@ it (`docs/adr/0002-agent-has-its-own-linear-identity.md`).
 
 ## 0. Guard
 
-Check that `git -C $W branch --show-current` prints `feat/backlog-agent` and that
+Check that `git -C $W branch --show-current` prints `main` and that
 `$W/backlog-agent/backlog.py` exists, and that `pwd` prints `$W`. If any check fails, reply
-with that one line and stop. The runtime lives on this branch, never on `main`, and every run
-works in `$W` itself, never in a T3 worktree.
+with that one line and stop. The runtime lives on `main` of its own repo, and every run works in
+`$W` itself, never in a T3 worktree.
 
 Call `t3_thread_configure` with no arguments and keep its `threadId` as `<thread>`.
 
@@ -99,7 +99,7 @@ To start a task:
    - `mode: "async"`, `isolation: "shared"`, `role: "implementation"`
    - `title: "backlog: <key>"`
    - `clientRequestId: "<key>#<attempt>"`
-   - `task: "Read and follow /home/jsg/Documents/jsg/random_backlog-agent/backlog-agent/CHILD.md exactly. Task: <the task object as JSON>"`,
+   - `task: "Read and follow /home/jsg/Documents/jsg/backlog-agent/backlog-agent/CHILD.md exactly. Task: <the task object as JSON>"`,
      followed by `Handoff from earlier agents in this run:` and every `HANDOFF:` block collected
      so far this run, when there is one.
 2. Once `delegate_task` returns a `taskId`, run `$B start '<key>' <taskId>`. If
@@ -113,7 +113,7 @@ When `dispatch` is empty, go straight to step 4.
 When there is something to report (step 5), start the steward once the queue is done, with
 `delegate_task`: the same `target`, `mode` and `isolation`, `role: "general"`,
 `title: "backlog: steward"`, `clientRequestId: "steward#<thread>"`, and
-`task: "Read and follow /home/jsg/Documents/jsg/random_backlog-agent/backlog-agent/STEWARD.md exactly. Run summary:"`
+`task: "Read and follow /home/jsg/Documents/jsg/backlog-agent/backlog-agent/STEWARD.md exactly. Run summary:"`
 followed by this run's `finish` lines, the `plan` output, the failed starts and every
 `HANDOFF:` block. Then end your turn; its wake-up posts the report. With nothing to report,
 skip the steward and go to step 5.
@@ -190,7 +190,7 @@ Otherwise call `t3_thread_organize` with `action: "settle"`, then reply with exa
 
 ## 6. Self-management
 
-`$W` is your own worktree, and `feat/backlog-agent` is your own branch. The steward keeps the
+`$W` is your own checkout, and `main` is your own branch. The steward keeps the
 docs and prompts true to reality. You fix `backlog.py` when a run or a child result shows one
 of its rules is wrong. The steward follows these rules too:
 
@@ -199,8 +199,8 @@ of its rules is wrong. The steward follows these rules too:
   commit only when it passes. Add or update a test for the rule you changed.
 - Commit explicit paths, never `git add -A`, with a conventional commit:
   `cd $W && git add <paths> && git commit -m "<type>(backlog-agent): <subject>"`.
-- Push a backup: `cd $W && export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token) && git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/jakob1379/random.git feat/backlog-agent`, with `allowed_domains: ["github.com", "api.github.com"]`.
-- Never switch branches, rebase, or touch `main`. Never loosen the guardrails in `CHILD.md`
+- Push a backup: `cd $W && export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token) && git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/jakob1379/backlog-agent.git main`, with `allowed_domains: ["github.com", "api.github.com"]`.
+- Never switch branches, rebase or force-push. Never loosen the guardrails in `CHILD.md`
   (no `--admin`, no alert dismissal, no settings changes, sandbox stays on except for `nix` checks). Those changes
   need the owner.
 

@@ -4,7 +4,7 @@ You run last in an hourly run, after its children. Your job is to keep this agen
 and prompts true to reality. The run summary at the end of your prompt lists this run's
 `finish` lines, the `plan` output, any failed starts and the children's `HANDOFF:` blocks.
 
-`W=/home/jsg/Documents/jsg/random_backlog-agent`. Start every Bash command that talks to
+`W=/home/jsg/Documents/jsg/backlog-agent`. Start every Bash command that talks to
 GitHub with `export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token);` and declare
 `allowed_domains: ["api.github.com"]`. On GitHub you only read.
 

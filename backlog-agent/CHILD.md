@@ -4,9 +4,9 @@ You own exactly one task, given as JSON at the end of your prompt. Its `kind` is
 `fix-main` or `add-ci` (dependency work), or `triage` or `build` (a backlog issue). Drive
 dependency work to a pushed fix and a PR in the right **lane**; drive a backlog issue as its
 section says. Then end with the `RESULT:` line. Background:
-`/home/jsg/Documents/jsg/random_backlog-agent/docs/superpowers/specs/2026-11-21-backlog-agent-design.md`,
-with dependency work's rules in `/home/jsg/Documents/jsg/random_backlog-agent/docs/superpowers/specs/2026-10-20-github-backlog-agent-design.md`, and the
-vocabulary in `/home/jsg/Documents/jsg/random_backlog-agent/backlog-agent/GLOSSARY.md`.
+`/home/jsg/Documents/jsg/backlog-agent/docs/superpowers/specs/2026-11-21-backlog-agent-design.md`,
+with dependency work's rules in `/home/jsg/Documents/jsg/backlog-agent/docs/superpowers/specs/2026-10-20-github-backlog-agent-design.md`, and the
+vocabulary in `/home/jsg/Documents/jsg/backlog-agent/backlog-agent/GLOSSARY.md`.
 
 ## Setup (every task)
 
@@ -55,7 +55,7 @@ vocabulary in `/home/jsg/Documents/jsg/random_backlog-agent/backlog-agent/GLOSSA
    crashes it. A `buildPythonApplication` check phase in a repo with no `uv.lock` runs as
    `uv run --no-project --python <ver> --with <pkg>==<ver> … -- python -m pytest`, with the
    versions nixpkgs pins at the new rev.
-3. Clone into a fresh directory, `CLONE="/home/jsg/Documents/jsg/random_backlog-agent/work/<key with / # : replaced by ->"`.
+3. Clone into a fresh directory, `CLONE="/home/jsg/Documents/jsg/backlog-agent/work/<key with / # : replaced by ->"`.
    It is gitignored, and the lockfile next to it (`<same name>.lock`) says which thread owns
    this task; never touch the lockfile. Delete the directory first if an earlier attempt left
    it behind, then

@@ -226,6 +226,10 @@ health checks that say whether work is moving.
 
 ## Further Notes
 
+- **Home.** On 2026-11-22 the agent moved from branch `feat/backlog-agent` of
+  `jakob1379/random` to its own private repo, `jakob1379/backlog-agent`, checked out at
+  `/home/jsg/Documents/jsg/backlog-agent`. It runs from `main` there. Being a non-fork repo of
+  the owner's, it is in scope for its own dependency work and backlog triage.
 - **Linear's GitHub Issues sync, as set up on 2026-11-22.** Ten repos with open issues are
   linked one-way to JGA. One-way only governs where issues are created: updates to a synced
   issue go both ways, so a card moved to Done or Canceled closes its GitHub issue, and comments
