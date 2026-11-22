@@ -36,7 +36,7 @@ GITHUB = r"https://github\.com/([\w.-]+/[\w.-]+)/(issues|pull)/(\d+)"
 
 CONTEXT = """query($team: String!) {
   viewer { id }
-  users(first: 250) { nodes { id owner app } }
+  users(first: 250) { nodes { id admin app active } }
   teams(filter: {key: {eq: $team}}) { nodes { id states(first: 100) { nodes { id name } } } }
   issueLabels(first: 250) { nodes { id name isGroup parent { name } team { key } } }
 }"""
@@ -144,7 +144,9 @@ def context(check: bool = True) -> dict:
         "team": team["id"],
         "agent": data["viewer"]["id"],
         "owners": [
-            u["id"] for u in data["users"]["nodes"] if u["owner"] and not u["app"]
+            u["id"]
+            for u in data["users"]["nodes"]
+            if u["admin"] and u["active"] and not u["app"]
         ],
         "states": states,
         "labels": labels,
@@ -220,7 +222,7 @@ def board() -> dict:
     ctx = context()
     if len(ctx["owners"]) != 1:
         raise SystemExit(
-            f"expected one Linear workspace owner, found {len(ctx['owners'])}"
+            f"expected one human Linear admin as the owner, found {len(ctx['owners'])}"
         )
     return {
         "statuses": list(ctx["states"]),
