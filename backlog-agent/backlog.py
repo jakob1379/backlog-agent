@@ -997,7 +997,7 @@ def main() -> None:
     args = ap.parse_args()
     if args.cmd == "collect":
         snapshot = collect()
-        if linear.TOKEN.exists():
+        if linear.CLIENT.exists():
             try:
                 snapshot["board"] = linear.board()
             except (RuntimeError, SystemExit) as e:

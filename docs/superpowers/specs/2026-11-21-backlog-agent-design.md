@@ -163,7 +163,9 @@ health checks that say whether work is moving.
   for linked repos, so this covers older issues, unlinked repos and new repos. The hour gives
   the sync time to make its own card first.
 - **Linear access.** One module talks to Linear, through the GraphQL API and the agent's own
-  OAuth app token, stored next to the GitHub token. `collect` reads the board: cards, statuses,
+  OAuth app's client ID and secret, stored next to the GitHub token in `linear-client`. Each
+  run asks Linear for a client-credentials token, which acts as the app and lasts 30 days with
+  no refresh token, so nothing has to be renewed by hand. `collect` reads the board: cards, statuses,
   labels, each card's linked issue or pull request, and its status history with who made each
   move. Writes happen in a new step after `plan`, which applies the moves `plan` decided. Only
   `backlog.py` makes writes. Children never get the Linear token. Per ADR 0001, nothing else

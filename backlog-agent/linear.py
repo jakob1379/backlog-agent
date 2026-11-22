@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 import urllib.error
@@ -5,7 +6,10 @@ import urllib.request
 from pathlib import Path
 
 API = "https://api.linear.app/graphql"
-TOKEN = Path.home() / ".config/backlog-agent/linear-token"
+TOKEN_URL = "https://api.linear.app/oauth/token"
+CLIENT = Path.home() / ".config/backlog-agent/linear-client"
+SCOPES = "read,write"
+_token = None
 TEAM = "JGA"
 STATUSES = {
     "Backlog": "backlog",
@@ -60,14 +64,39 @@ CREATE_STATE = """mutation($input: WorkflowStateCreateInput!) {
   workflowStateCreate(input: $input) { workflowState { id } } }"""
 
 
+def token() -> str:
+    global _token
+    if _token is None:
+        if not CLIENT.exists():
+            raise SystemExit(f"no Linear app credentials at {CLIENT}")
+        client_id, secret = CLIENT.read_text().split()
+        basic = base64.b64encode(f"{client_id}:{secret}".encode()).decode()
+        req = urllib.request.Request(
+            TOKEN_URL,
+            data=f"grant_type=client_credentials&scope={SCOPES}".encode(),
+            headers={
+                "Authorization": f"Basic {basic}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                _token = json.load(r)["access_token"]
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(
+                f"linear token HTTP {e.code}: {e.read().decode(errors='replace')[:300]}"
+            ) from None
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"linear token: {e.reason}") from None
+    return _token
+
+
 def graphql(query: str, **variables) -> dict:
-    if not TOKEN.exists():
-        raise SystemExit(f"no Linear token at {TOKEN}")
     req = urllib.request.Request(
         API,
         data=json.dumps({"query": query, "variables": variables}).encode(),
         headers={
-            "Authorization": f"Bearer {TOKEN.read_text().strip()}",
+            "Authorization": f"Bearer {token()}",
             "Content-Type": "application/json",
         },
     )
