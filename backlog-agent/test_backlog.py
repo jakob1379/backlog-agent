@@ -689,7 +689,10 @@ class TriagePlanTest(unittest.TestCase):
         )
         result = plan(c, empty(), NOW)
         self.assertEqual(picked(result), [(4, "triage", "owner")])
-        self.assertEqual(result["card_ops"], [mv(4, "In Progress")])
+        self.assertEqual(
+            [op for op in result["card_ops"] if op["op"] != "create"],
+            [mv(4, "In Progress")],
+        )
 
     def test_a_review_card_closes_once_its_issue_is_closed(self):
         prs = [
@@ -804,6 +807,28 @@ def close(id):
 
 
 class OwnerCardsPlanTest(unittest.TestCase):
+    def test_every_open_issue_gets_a_card_once_the_sync_had_its_chance(self):
+        c = snap(
+            backlog_repo(
+                issue(1, author="eve"),
+                issue(2),
+                issue(3, created_at="2026-10-21T11:30:00Z"),
+            ),
+            cards=[card(2, "Done")],
+        )
+        self.assertEqual(
+            [op for op in plan(c, empty(), NOW)["card_ops"] if op["op"] == "create"],
+            [
+                {
+                    "op": "create",
+                    "link": {"repo": "o/r", "number": 1, "type": "issue"},
+                    "title": "Issue 1",
+                    "status": "Backlog",
+                    "labels": ["kind: backlog", "repo: r"],
+                }
+            ],
+        )
+
     def test_pull_request_cards_open_and_close(self):
         def pr_card(n, status="In Review", repo="o/r"):
             link = {"repo": repo, "number": n, "type": "pr"}

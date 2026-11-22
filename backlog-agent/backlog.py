@@ -34,6 +34,7 @@ ADD_CI_REPOS = {"jakob1379/pacify", "jakob1379/br18", "jakob1379/brobizz-usage"}
 BACKLOG_TIERS = {"build": 8, "triage": 9}
 TOPUP_LIMIT = 3
 NEW_ISSUE_AGE = timedelta(hours=24)
+SYNC_GRACE = timedelta(hours=1)
 REASONS = ("needs-repro", "unable-to-fix", "failed")
 OUTCOMES = {
     "fix-pending": "In Review",
@@ -552,7 +553,9 @@ def repo_label(name: str) -> str:
     return f"repo: {name.split('/', 1)[1]}"
 
 
-def owner_cards(candidates: dict, ledger: dict, present: set[str]) -> list[dict]:
+def owner_cards(
+    candidates: dict, ledger: dict, present: set[str], now: datetime
+) -> list[dict]:
     if "board" not in candidates:
         return []
     repos = {r["repo"]: r for r in candidates["repos"]}
@@ -563,6 +566,21 @@ def owner_cards(candidates: dict, ledger: dict, present: set[str]) -> list[dict]
         for c in cards
         if c["link"] and c["link"]["type"] == "pr"
     }
+    issue_carded = {
+        (c["link"]["repo"], c["link"]["number"])
+        for c in cards
+        if c["link"] and c["link"]["type"] == "issue"
+    }
+    for name, r in repos.items():
+        for i in r.get("issues", []):
+            if (name, i["number"]) in issue_carded or now - datetime.fromisoformat(
+                i["created_at"]
+            ) < SYNC_GRACE:
+                continue
+            link = {"repo": name, "number": i["number"], "type": "issue"}
+            ops.append(
+                create(link, i["title"], "Backlog", ["kind: backlog", repo_label(name)])
+            )
     open_prs = {
         (name, p["number"])
         for name, r in repos.items()
@@ -717,7 +735,7 @@ def plan(
             review_room -= 1
         ready.append(t)
     backlog_tasks, card_ops, card_status = backlog_work(candidates, ledger, now)
-    card_ops += owner_cards(candidates, ledger, present)
+    card_ops += owner_cards(candidates, ledger, present, now)
     ready += [t for t in backlog_tasks if t["key"] not in busy]
     running = len(running_keys)
     used = used_today(ledger, now)

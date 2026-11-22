@@ -157,6 +157,11 @@ health checks that say whether work is moving.
   because an alert, a red default branch or missing CI has no GitHub URL to link. Only a
   Dependabot pull request's card is linked. A dependency card the owner closed by hand comes
   back while the work still needs the owner.
+- **A card for every backlog issue.** `plan` creates a Backlog card, with `kind: backlog` and
+  its `repo` label, for every open issue in an in-scope repo that no card links, once the issue
+  is an hour old. The sync only creates cards for issues opened after a repo is linked, and only
+  for linked repos, so this covers older issues, unlinked repos and new repos. The hour gives
+  the sync time to make its own card first.
 - **Linear access.** One module talks to Linear, through the GraphQL API and the agent's own
   OAuth app token, stored next to the GitHub token. `collect` reads the board: cards, statuses,
   labels, each card's linked issue or pull request, and its status history with who made each
@@ -165,11 +170,12 @@ health checks that say whether work is moving.
   in the agent knows it is Linear.
 - **Linking a card to its issue.** Use the sync's link when there is one. Otherwise use the
   "Imported from <url>" footer of the August import. A card with neither is not touched.
-- **Setup.** The owner installs the Linear GitHub Issues sync for the in-scope repos and the
-  agent's OAuth app. Everything else is a one-off agent job, run before the board is used:
-  creating the statuses and labels where the API allows, otherwise listing them as an owner
-  action, and marking August's imported cards as Duplicate when the sync made a second card
-  for the same URL.
+- **Setup.** The owner links in-scope repos to the JGA team in Linear's GitHub Issues sync,
+  one-way (GitHub to Linear), and creates the agent's OAuth app. Two-way is never used: it would
+  turn every card made in JGA into a GitHub issue. Everything else is a one-off agent job, run
+  before the board is used: creating the statuses and labels where the API allows, otherwise
+  listing them as an owner action, and marking August's imported cards as Duplicate when another
+  card links the same URL.
 - **Health checks on the run board:**
   1. no Dependabot PRs or alerts left unhandled
   2. no card in Needs triage or Approved for more than 24h
@@ -218,11 +224,13 @@ health checks that say whether work is moving.
 
 ## Further Notes
 
-- **Unverified facts about Linear's GitHub Issues sync.** None of these could be confirmed from
-  the docs, so setup has to check them before the board is used:
-  - whether it syncs comments both ways
-  - how it maps custom statuses to GitHub's open and closed
-  - whether it takes over issues already imported in August or creates new cards
+- **Linear's GitHub Issues sync, as set up on 2026-11-22.** Ten repos with open issues are
+  linked one-way to JGA. One-way only governs where issues are created: updates to a synced
+  issue go both ways, so a card moved to Done or Canceled closes its GitHub issue, and comments
+  in the card's synced thread reach GitHub. The sync makes no cards for issues that existed
+  before a repo was linked, which is why `plan` creates them. Linear also posts link-back
+  comments on GitHub issues in private repos; they are not the owner's, so the trust rule
+  ignores them. Still unverified: how the sync's own moves appear in a card's history.
 - **Top-up order is only as good as the labels.** Many issues have no labels, such as homelab's
   unauthenticated Traefik API. The owner labelling a few `security` or `Bug` is the cheapest
   way to steer the top-up.
