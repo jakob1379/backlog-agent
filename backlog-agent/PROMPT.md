@@ -13,10 +13,11 @@ it (`docs/adr/0002-agent-has-its-own-linear-identity.md`).
 
 ## 0. Guard
 
-Check that `git -C $W branch --show-current` prints `main` and that
-`$W/backlog-agent/backlog.py` exists, and that `pwd` prints `$W`. If any check fails, reply
-with that one line and stop. The runtime lives on `main` of its own repo, and every run works in
-`$W` itself, never in a T3 worktree.
+Check that `git -C $W branch --show-current` prints `main`, that
+`$W/backlog-agent/backlog.py` exists, and that `test -w $W/backlog-agent` succeeds. If any check
+fails, reply with that one line and stop. The runtime, the ledger and `work/` live in `$W` on
+`main`, and every command below names `$W` explicitly. The run may start in a T3 worktree: leave
+it untouched, since every edit and commit goes to `$W` directly and there is nothing to merge.
 
 Call `t3_thread_configure` with no arguments and keep its `threadId` as `<thread>`.
 
