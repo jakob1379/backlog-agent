@@ -4,6 +4,10 @@ Spec: `docs/superpowers/specs/2026-11-21-backlog-agent-design.md`. Vocabulary:
 `backlog-agent/GLOSSARY.md`. Decisions: `docs/adr/`. Integration branch: `feat/backlog-triage`
 (from `feat/backlog-agent`, which stays the live runtime until the owner merges).
 
+Status: all six tickets shipped (merges `68b2759` T1, `40cb5b1` T2, `892184e` T3, `4226bb6` T4,
+`0575c62` T5, `fa7eeff` T6). The runtime now lives on `main` of `jakob1379/backlog-agent`, and
+T5's "no live token" no longer holds: `apply` writes to the board every run.
+
 ## Task graph
 
 ```
