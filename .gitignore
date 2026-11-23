@@ -3,3 +3,4 @@ backlog-agent/ledger.tmp
 backlog-agent/ledger.lock
 work/
 __pycache__/
+.pre-commit-config.yaml
