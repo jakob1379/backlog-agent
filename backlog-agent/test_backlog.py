@@ -1436,6 +1436,27 @@ class LinearApplyTest(unittest.TestCase):
             self.assertEqual(linear.graphql("q"), {"x": 1})
         sleep.assert_called_once()
 
+    def test_a_lost_reply_leaves_the_op_pending_without_retrying_it(self):
+        for failure in (
+            TimeoutError("timed out"),
+            urllib.error.HTTPError(linear.API, 502, "bad gateway", {}, None),
+        ):
+            if isinstance(failure, urllib.error.HTTPError):
+                failure.read = lambda: b"bad gateway"
+            fake = FakeLinear()
+            replies = iter([None, failure])
+
+            def flaky(req, timeout=None):
+                reply = next(replies, None)
+                if reply is None:
+                    return fake(req, timeout)
+                raise reply
+
+            out, _ = self.run_apply(flaky, [CREATE])
+            self.assertEqual(fake.calls, [])
+            self.assertEqual(len(out["pending"]), 1)
+            self.assertIsNotNone(out["error"])
+
     def test_moves_land_before_creates(self):
         fake = FakeLinear()
         out, _ = self.run_apply(fake, [CREATE, card_move("c1", "In Progress")])
@@ -1493,6 +1514,26 @@ class LinearApplyTest(unittest.TestCase):
             ):
                 backlog.main()
         self.assertEqual(json.loads(out.getvalue())["release"], ["o/r#1:triage"])
+
+    def test_cli_keeps_a_claim_whose_card_is_already_in_progress(self):
+        decided = {
+            "dispatch": [{"key": "o/r#1:triage", "card": "c1"}],
+            "card_ops": [
+                dict(card_move("c1", "In Progress"), add_labels=["kind: backlog"])
+            ],
+        }
+        with tempfile.TemporaryDirectory() as d:
+            plan_path = Path(d, "plan.json")
+            plan_path.write_text(json.dumps(decided))
+            with (
+                mock.patch.object(linear, "_token", "t"),
+                mock.patch.object(linear, "APPLY_BUDGET", -1),
+                mock.patch("urllib.request.urlopen", side_effect=FakeLinear()),
+                mock.patch.object(sys, "argv", ["backlog.py", "apply", str(plan_path)]),
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out,
+            ):
+                backlog.main()
+        self.assertEqual(json.loads(out.getvalue())["release"], [])
 
 
 class GhRateLimitTest(unittest.TestCase):

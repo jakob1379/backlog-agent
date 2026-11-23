@@ -12,7 +12,7 @@ CLIENT = Path.home() / ".config/backlog-agent/linear-client"
 SCOPES = "read,write"
 _token = None
 TEAM = "JGA"
-APPLY_BUDGET = 300.0
+APPLY_BUDGET = 240.0
 STATUSES = {
     "Backlog": "backlog",
     "Needs triage": "unstarted",
@@ -88,8 +88,8 @@ def token() -> str:
             raise RuntimeError(
                 f"linear token HTTP {e.code}: {e.read().decode(errors='replace')[:300]}"
             ) from None
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"linear token: {e.reason}") from None
+        except OSError as e:
+            raise RuntimeError(f"linear token: {getattr(e, 'reason', e)}") from None
     return _token
 
 
@@ -109,14 +109,11 @@ def graphql(query: str, **variables) -> dict:
             break
         except urllib.error.HTTPError as e:
             error = f"HTTP {e.code}: {e.read().decode(errors='replace')[:500]}"
-            if e.code < 500 and e.code != 429:
+            if e.code != 429 or attempt == 2:
                 raise RuntimeError(f"linear {error}") from None
-            if e.code == 429 and attempt < 2:
-                time.sleep(60)
-        except urllib.error.URLError as e:
-            error = str(e.reason)
-    else:
-        raise RuntimeError(f"linear {error}")
+            time.sleep(60)
+        except OSError as e:
+            raise RuntimeError(f"linear {getattr(e, 'reason', e)}") from None
     if body.get("errors"):
         raise RuntimeError(f"linear: {[e['message'] for e in body['errors']]}")
     return body["data"]

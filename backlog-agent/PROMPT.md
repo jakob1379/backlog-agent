@@ -67,7 +67,8 @@ Done when no ledger entry is `running` with a terminal task behind it.
 export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token); $B collect > $TMPDIR/candidates-<thread>.json && $B plan $TMPDIR/candidates-<thread>.json '<thread>' > $TMPDIR/plan-<thread>.json && cat $TMPDIR/plan-<thread>.json
 ```
 
-Run it with `allowed_domains: ["api.github.com", "api.linear.app"]`. If it fails, reply with the
+Run it with `allowed_domains: ["api.github.com", "api.linear.app"]` and `timeout: 600000`, since
+`collect` waits out rate limits. If it fails, reply with the
 error's last line and stop. `collect` reads the GitHub repos and, when
 `~/.config/backlog-agent/linear-client` exists, the board. Without it there is no board
 yet: `plan` decides no card moves and starts no `triage` or `build` task. If `collect` prints a
@@ -82,7 +83,7 @@ $B apply $TMPDIR/plan-<thread>.json
 
 Run it with `allowed_domains: ["api.linear.app"]` and `timeout: 600000`. It applies moves
 before creates, waits out Linear's rate limits (20 new GitHub links a minute), and stops after
-about 5 minutes. It prints `applied`, `pending`, `error`, `missing_labels` and `release`:
+about 4 minutes. It prints `applied`, `pending`, `error`, `missing_labels` and `release`:
 
 - `applied`: the ops it made; keep them for the **Cards** line in step 5.
 - `pending`: ops it did not reach. Do nothing about them: the next `plan` decides them again

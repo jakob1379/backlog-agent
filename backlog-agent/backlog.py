@@ -797,9 +797,9 @@ QUERY = """query($endCursor: String) { viewer { login
 
 
 def gh(*args: str):
-    for _ in range(3):
+    for attempt in range(3):
         r = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
-        if not r.returncode:
+        if not r.returncode or attempt == 2:
             break
         if "rate limit" in r.stderr:
             time.sleep(60)
@@ -1017,7 +1017,11 @@ def main() -> None:
     if args.cmd == "apply":
         decided = json.loads(args.plan.read_text())
         result = linear.apply(decided["card_ops"])
-        held = {op["card"] for op in result["pending"] if "card" in op}
+        held = {
+            op["card"]
+            for op in result["pending"]
+            if op.get("to") == "In Progress" and not op["add_labels"]
+        }
         result["release"] = [
             t["key"] for t in decided["dispatch"] if t.get("card") in held
         ]

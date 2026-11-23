@@ -248,7 +248,9 @@ health checks that say whether work is moving.
 - **Linear's rate limit on links.** Linear allows 20 attachment links a minute and answers
   HTTP 429 past that. The first board sync on 2026-11-23 had 53 creates and failed partway on
   it, so the Linear module now waits a minute on a 429 and retries. `apply` makes moves before
-  creates and stops after about 5 minutes. It keeps no outbox: the ops it did not reach come
+  creates and stops after about 4 minutes, so it ends inside the dispatcher's 10-minute command
+  timeout. Only a 429 is retried: Linear did not run that call. A timeout or a 5xx may have run
+  it, so the op stays pending, and the next `plan` sees a card that did land. It keeps no outbox: the ops it did not reach come
   back in the next `plan`, which reads the board, so a large sync drains over a few runs. A
   replayed outbox could undo a move the owner made since.
 - **Top-up order is only as good as the labels.** Many issues have no labels, such as homelab's
