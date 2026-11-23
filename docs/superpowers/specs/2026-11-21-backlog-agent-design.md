@@ -261,8 +261,11 @@ health checks that say whether work is moving.
   same in-scope issue or pull request and keeps one: the one the owner has moved out of Backlog,
   then one with its GitHub link attached, then the oldest. The others are dropped: `apply`
   removes their GitHub link first, so the sync can't close the issue, and then moves them to
-  Duplicate. A kept card without its GitHub link attached gets it attached again, which retries a
-  link that failed after a create. An open issue whose only cards are Duplicate counts as having
+  Duplicate. A kept card without its GitHub link attached, known only by its "Imported from"
+  footer, gets the link attached. That retries a link that failed after a create, and it also
+  gives a footer-only card that never had one, such as an August import, its first. A run on
+  2026-11-23 linked 74 cards this way and `apply` reported all 74 done. If a later `plan` emits `link`
+  for the same cards, the link did not land where `collect` reads attachments. An open issue whose only cards are Duplicate counts as having
   no card, so it gets a new one. So a lost or half-made op is redone, and any doubling it causes
   is dropped on the next run.
 - **The GitHub token.** `~/.config/backlog-agent/gh-token` is a fine-grained token of the owner's
