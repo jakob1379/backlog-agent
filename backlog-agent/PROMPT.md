@@ -82,12 +82,15 @@ $B apply $TMPDIR/plan-<thread>.json
 
 Run it with `allowed_domains: ["api.linear.app"]` and `timeout: 600000`. It applies moves
 before creates, waits out Linear's rate limits (20 new GitHub links a minute), and stops after
-about 5 minutes. It prints `applied`, `pending`, `error` and `release`:
+about 5 minutes. It prints `applied`, `pending`, `error`, `missing_labels` and `release`:
 
 - `applied`: the ops it made; keep them for the **Cards** line in step 5.
 - `pending`: ops it did not reach. Do nothing about them: the next `plan` decides them again
   from the board, so a large sync drains over the next runs.
 - `error`: when set, put it under **Needs you**.
+- `missing_labels`: labels the board lacks. The agent can't create labels, so `apply` left them
+  off the cards. Put each under **Needs you** as `add label <name> to JGA`; the next `plan` adds
+  it to the cards once it exists.
 - `release`: the `dispatch` keys whose card moves are pending. Release each with
   `$B finish '<key>' failed -` and the note `card moves not applied`, so no child works on a card
   the board doesn't show as In Progress. The card never reached In Progress, so the next `plan`

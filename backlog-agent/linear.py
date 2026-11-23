@@ -252,6 +252,11 @@ def label_id(ctx: dict, name: str) -> str:
     return ctx["labels"][name]
 
 
+def known_labels(ctx: dict, names: list[str]) -> list[str]:
+    ctx["missing"].update(n for n in names if n not in ctx["labels"])
+    return [ctx["labels"][n] for n in names if n in ctx["labels"]]
+
+
 def github_url(link: dict) -> str:
     kind = "issues" if link["type"] == "issue" else "pull"
     return f"https://github.com/{link['repo']}/{kind}/{link['number']}"
@@ -268,7 +273,7 @@ def apply_op(ctx: dict, op: dict) -> dict:
                 if op["link"]
                 else "",
                 "stateId": ctx["states"][op["status"]],
-                "labelIds": [label_id(ctx, n) for n in op["labels"]],
+                "labelIds": known_labels(ctx, op["labels"]),
             },
         )["issueCreate"]["issue"]
         if op["link"]:
@@ -276,7 +281,7 @@ def apply_op(ctx: dict, op: dict) -> dict:
         return {**op, "card": issue["identifier"]}
     update = {"stateId": ctx["states"][op["to"]]}
     if op.get("add_labels"):
-        update["addedLabelIds"] = [label_id(ctx, n) for n in op["add_labels"]]
+        update["addedLabelIds"] = known_labels(ctx, op["add_labels"])
     if op.get("remove_labels"):
         update["removedLabelIds"] = [
             ctx["labels"][n] for n in op["remove_labels"] if n in ctx["labels"]
@@ -287,10 +292,10 @@ def apply_op(ctx: dict, op: dict) -> dict:
 
 def apply(card_ops: list[dict], budget: float | None = None) -> dict:
     ops = sorted(card_ops, key=lambda op: op["op"] == "create")
-    result = {"applied": [], "pending": [], "error": None}
+    result = {"applied": [], "pending": [], "error": None, "missing_labels": []}
     if not ops:
         return result
-    ctx = context()
+    ctx = {**context(), "missing": set()}
     deadline = time.monotonic() + (APPLY_BUDGET if budget is None else budget)
     for i, op in enumerate(ops):
         if time.monotonic() > deadline:
@@ -301,6 +306,7 @@ def apply(card_ops: list[dict], budget: float | None = None) -> dict:
         except RuntimeError as e:
             result["pending"], result["error"] = ops[i:], str(e)
             break
+    result["missing_labels"] = sorted(ctx["missing"])
     return result
 
 

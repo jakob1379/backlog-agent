@@ -236,7 +236,15 @@ health checks that say whether work is moving.
   in the card's synced thread reach GitHub. The sync makes no cards for issues that existed
   before a repo was linked, which is why `plan` creates them. Linear also posts link-back
   comments on GitHub issues in private repos; they are not the owner's, so the trust rule
-  ignores them. Still unverified: how the sync's own moves appear in a card's history.
+  ignores them. Still unverified: how the sync's own moves appear in a card's history, and
+  whether closing a GitHub issue moves its card to Done. By 2026-11-23 the sync had made no
+  card and no move on JGA.
+- **What the first live run showed (2026-11-23).** A label-only move sends the card's current
+  status, and Linear records no status change for it: the 72 relabelled cards show only the
+  label change, so the agent does not become the card's last mover. The app actor can run
+  `issueCreate` and `attachmentLinkURL`. It cannot create labels or statuses, so `apply` leaves
+  a label the board lacks off the card and lists it in `missing_labels` for the owner to add;
+  the next `plan` adds it once it exists.
 - **Linear's rate limit on links.** Linear allows 20 attachment links a minute and answers
   HTTP 429 past that. The first board sync on 2026-11-23 had 53 creates and failed partway on
   it, so the Linear module now waits a minute on a 429 and retries. `apply` makes moves before

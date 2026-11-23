@@ -1333,7 +1333,13 @@ class CliTest(unittest.TestCase):
             ).stdout
             self.assertEqual(
                 json.loads(out),
-                {"applied": [], "pending": [], "error": None, "release": []},
+                {
+                    "applied": [],
+                    "pending": [],
+                    "error": None,
+                    "missing_labels": [],
+                    "release": [],
+                },
             )
 
 
@@ -1444,6 +1450,20 @@ class LinearApplyTest(unittest.TestCase):
         self.assertEqual([op["title"] for op in out["pending"]], ["t", "u"])
         self.assertIn("429", out["error"])
         self.assertEqual(sleep.call_count, 2)
+
+    def test_a_label_the_board_lacks_is_left_off_and_named_for_the_owner(self):
+        fake = FakeLinear()
+        out, _ = self.run_apply(
+            fake,
+            [
+                dict(CREATE, labels=["repo: new"]),
+                dict(card_move("c1", "Backlog"), add_labels=["repo: new"]),
+            ],
+        )
+        self.assertNotIn("issueLabelCreate", fake.calls)
+        self.assertEqual(len(out["applied"]), 2)
+        self.assertEqual((out["pending"], out["error"]), ([], None))
+        self.assertEqual(out["missing_labels"], ["repo: new"])
 
     def test_spent_budget_defers_the_rest_without_error(self):
         fake = FakeLinear()
