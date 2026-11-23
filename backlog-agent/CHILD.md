@@ -123,7 +123,11 @@ and the vocabulary in
    with `hub.docker.com` declared (#2). Run Python checks under the version the
    workflow sets up: the sandbox's uv picks the newest (3.14), but
    Canvas-Code-Correction's `Test` pins 3.13. Use `uv run --python <ver>` with
-   `UV_PROJECT_ENVIRONMENT=$TMPDIR/<slug>-venv`.
+   `UV_PROJECT_ENVIRONMENT=$TMPDIR/<slug>-venv`. Canvas-Code-Correction's `poe`
+   steps call Prefect's telemetry host `sens-o-matic.prefect.io`; the sandbox
+   refuses it and nothing breaks, so don't declare it (#233). No workflow there
+   reads `docker-compose.yml`, so a green `Test` checks nothing about an image
+   bump in it; say so in the PR comment (#232).
 
 Done when: the clone exists and you can name the command that reproduces each
 required check.
