@@ -137,7 +137,7 @@ skip the steward and go to step 5.
 
 There is something to report when any of these happened this run: a `finish` in step 1, a
 failed start, a non-empty `dispatch`, `card_ops`, `resolved`, `newly_blocked` or `stale_locks`,
-`announce_cap` is true, a failed `apply`, or a self-change commit (step 6). In that case, after the steward has finished,
+`announce_cap` is true, `rotate_token` is set, a failed `apply`, or a self-change commit (step 6). In that case, after the steward has finished,
 reply with at most 10 lines, each linking to its PR or repo:
 
 - **Started**: the keys from `dispatch`, each with the status its child finished with.
@@ -147,7 +147,9 @@ reply with at most 10 lines, each linking to its PR or repo:
   or pull request it links to.
 - **Needs you**: every `blocked` finish and every `newly_blocked` entry, with the owner action
   each one names. This includes admin steps from `add-ci` results, a failed `apply`, and the
-  steward's `OWNER:` line. A `triage` or `build` finish needs the owner too: `needs-approval`
+  steward's `OWNER:` line, and, when `rotate_token` is set, `rotate the GitHub token in
+  ~/.config/backlog-agent/gh-token, it expires <rotate_token>` with the permissions listed in the
+  spec's Further Notes. A `triage` or `build` finish needs the owner too: `needs-approval`
   (approve the plan by moving the card to Approved, or turn it down with Canceled),
   `needs-repro` or `unable-to-fix` (answer on the issue), and `fix-pending` (review the pull
   requests).

@@ -270,6 +270,34 @@ class PlanTest(unittest.TestCase):
         self.assertEqual((first["dispatch"], first["announce_cap"]), ([], True))
         self.assertEqual((second["dispatch"], second["announce_cap"]), ([], False))
 
+    def test_a_token_near_expiry_is_announced_once_a_day(self):
+        soon = (NOW + timedelta(days=3)).isoformat()
+        c = dict(cands(repo()), token_expires=soon)
+        L = empty()
+        self.assertEqual(plan(c, L, NOW)["rotate_token"], soon)
+        self.assertIsNone(plan(c, L, NOW)["rotate_token"])
+        self.assertEqual(plan(c, L, NOW + timedelta(days=1))["rotate_token"], soon)
+        later = dict(c, token_expires=(NOW + timedelta(days=30)).isoformat())
+        self.assertIsNone(plan(later, empty(), NOW)["rotate_token"])
+        self.assertIsNone(plan(cands(repo()), empty(), NOW)["rotate_token"])
+
+    def test_token_expiry_is_read_from_githubs_header(self):
+        reply = subprocess.CompletedProcess(
+            [],
+            0,
+            "HTTP/2.0 200 OK\r\n"
+            "Github-Authentication-Token-Expiration: 2026-12-20 09:18:09 UTC\r\n"
+            "\r\n{}",
+            "",
+        )
+        with mock.patch("subprocess.run", return_value=reply):
+            self.assertEqual(backlog.token_expiry(), "2026-12-20T09:18:09+00:00")
+        with mock.patch(
+            "subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, "HTTP/2.0 200 OK\r\n\r\n{}", ""),
+        ):
+            self.assertIsNone(backlog.token_expiry())
+
     def test_resolved_and_stale_done(self):
         L = empty()
         for key in ["o/r#1", "o/r#2", "o/r#3"]:

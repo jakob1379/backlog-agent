@@ -256,6 +256,16 @@ health checks that say whether work is moving.
   it, so the op stays pending, and the next `plan` sees a card that did land. It keeps no outbox: the ops it did not reach come
   back in the next `plan`, which reads the board, so a large sync drains over a few runs. A
   replayed outbox could undo a move the owner made since.
+- **The GitHub token.** `~/.config/backlog-agent/gh-token` is a fine-grained token of the owner's
+  with only what the agent and its children use: access to all of the owner's repositories (new
+  repos are found by `collect`), Metadata read, Actions read (`gh run`), Checks read, Commit
+  statuses read, Dependabot alerts read, Contents read and write (clone, push, merge, the backup
+  push), Issues read and write (comments, labels), Pull requests read and write (open, label,
+  review, auto-merge) and Workflows read and write (`add-ci` and action pin bumps). No account
+  permissions and no Administration. `collect` reads its expiry from GitHub's
+  `github-authentication-token-expiration` header, and `plan` sets `rotate_token` once a day
+  in the last 7 days, so the run asks the owner to rotate it. Git in the main checkout uses the
+  same token, so T3's fetch before each run doesn't depend on the owner's keyring.
 - **Top-up order is only as good as the labels.** Many issues have no labels, such as homelab's
   unauthenticated Traefik API. The owner labelling a few `security` or `Bug` is the cheapest
   way to steer the top-up.

@@ -36,6 +36,7 @@ BACKLOG_TIERS = {"build": 8, "triage": 9}
 TOPUP_LIMIT = 3
 NEW_ISSUE_AGE = timedelta(hours=24)
 SYNC_GRACE = timedelta(hours=1)
+TOKEN_WARN = timedelta(days=7)
 REASONS = ("needs-repro", "unable-to-fix", "failed")
 OUTCOMES = {
     "fix-pending": "In Review",
@@ -747,6 +748,16 @@ def plan(
     )
     if announce_cap:
         ledger["cap_announced"] = today
+    expires = candidates.get("token_expires")
+    rotate_token = (
+        expires
+        if expires
+        and datetime.fromisoformat(expires) - now < TOKEN_WARN
+        and ledger.get("rotation_announced") != today
+        else None
+    )
+    if rotate_token:
+        ledger["rotation_announced"] = today
     dispatch = []
     for t in ready[:slots]:
         start(ledger, t["key"], "", now, thread_id)
@@ -761,6 +772,7 @@ def plan(
         "running": running,
         "used_today": used,
         "announce_cap": announce_cap,
+        "rotate_token": rotate_token,
         "resolved": resolved,
         "newly_blocked": newly_blocked,
         "health": health(candidates, ledger, tasks, now),
@@ -903,6 +915,23 @@ def other_pr_record(name: str, p: dict) -> dict:
     }
 
 
+def token_expiry() -> str | None:
+    r = subprocess.run(
+        ["gh", "api", "--include", "rate_limit"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    m = re.search(
+        r"^github-authentication-token-expiration: (.+?)\s*$", r.stdout, re.I | re.M
+    )
+    if not m:
+        return None
+    return (
+        datetime.strptime(m[1], "%Y-%m-%d %H:%M:%S %Z").replace(tzinfo=UTC).isoformat()
+    )
+
+
 def collect() -> dict:
     # shortcut: first 50 PRs / 100 alerts per repo, paginate those if a repo ever exceeds them
     pages = gh("api", "graphql", "--paginate", "--slurp", "-f", f"query={QUERY}")
@@ -962,6 +991,7 @@ def collect() -> dict:
         "needs_review_open": needs_review_open,
         "owner": owner,
         "repos": repos,
+        "token_expires": token_expiry(),
     }
 
 
