@@ -232,8 +232,11 @@ health checks that say whether work is moving.
   the owner's, it is in scope for its own dependency work and backlog triage.
 - **Linear's GitHub Issues sync, as set up on 2026-11-22.** Ten repos with open issues are
   linked one-way to JGA. One-way only governs where issues are created: updates to a synced
-  issue go both ways, so a card moved to Done or Canceled closes its GitHub issue, and comments
-  in the card's synced thread reach GitHub. The sync makes no cards for issues that existed
+  issue are meant to go both ways, so a card the sync made, moved to Done or Canceled, should
+  close its GitHub issue, and comments in its synced thread should reach GitHub. Neither has
+  been seen yet. Closing a card has not closed its issue so far: on 2026-11-23 `apply`
+  moved the cards for homelab#3 and jakob1379.github.io#6 to Canceled and both issues stayed
+  open, so a not-actionable issue stays open on GitHub until the owner closes it. The sync makes no cards for issues that existed
   before a repo was linked, which is why `plan` creates them. Linear also posts link-back
   comments on GitHub issues in private repos; they are not the owner's, so the trust rule
   ignores them. Still unverified: how the sync's own moves appear in a card's history, and
