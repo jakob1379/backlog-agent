@@ -30,8 +30,10 @@ vocabulary in `/home/jsg/Documents/jsg/backlog-agent/backlog-agent/GLOSSARY.md`.
    A `*` must stand for whole labels (`productionresultssa*.blob…` is rejected). Work inside
    the sandbox; when a host is refused, add it and rerun.
    The caches in `~` are read-only there, so start every package-tool and `gh` command with
-   `export UV_CACHE_DIR=$TMPDIR/uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
+   `export UV_CACHE_DIR=$TMPDIR/<slug>-uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
    (`gh run view --log-failed` writes to `~/.cache/gh`, uv installs Pythons and `uvx` tools under `~`, and matplotlib writes its config there).
+   The uv cache is per task because the shared `$TMPDIR/uv-cache` is corrupt: its
+   `pydantic-2.13.4.dist-info` has no `WHEEL` (jakob1379.github.io#6).
    `bun` is installed (`~/.nix-profile/bin/bun`) and runs in the sandbox with
    `registry.npmjs.org` declared, so a bun repo needs no `nix develop`.
    `$TMPDIR` is shared with every earlier task and keeps their files (`$TMPDIR/main` and
