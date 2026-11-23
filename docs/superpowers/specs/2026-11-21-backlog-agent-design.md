@@ -230,8 +230,9 @@ health checks that say whether work is moving.
   `jakob1379/random` to its own private repo, `jakob1379/backlog-agent`, checked out at
   `/home/jsg/Documents/jsg/backlog-agent`. It runs from `main` there. Being a non-fork repo of
   the owner's, it is in scope for its own dependency work and backlog triage.
-- **Linear's GitHub Issues sync, as set up on 2026-11-22.** Ten repos with open issues are
-  linked one-way to JGA. One-way only governs where issues are created: updates to a synced
+- **Linear's GitHub Issues sync.** Ten repos with open issues were linked one-way to JGA on
+  2026-11-22, and the other 37 in-scope repos on 2026-11-23, so every repo in scope is linked.
+  A repo created or opted in later needs linking by hand (Settings → Integrations → GitHub). One-way only governs where issues are created: updates to a synced
   issue are meant to go both ways, so a card the sync made, moved to Done or Canceled, should
   close its GitHub issue, and comments in its synced thread should reach GitHub. Neither has
   been seen yet. Closing a card has not closed its issue so far: on 2026-11-23 `apply`
