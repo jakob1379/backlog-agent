@@ -1451,8 +1451,9 @@ def rate_limited(url, *_):
 
 
 class FakeLinear:
-    def __init__(self, link_limited=False):
+    def __init__(self, link_limited=False, link_fails=False):
         self.calls, self.link_limited, self.n = [], link_limited, 0
+        self.link_fails = link_fails
 
     def __call__(self, req, timeout=None):
         q = json.loads(req.data)["query"]
@@ -1498,7 +1499,7 @@ class FakeLinear:
                     "issue": {"id": f"i{self.n}", "identifier": f"JGA-{self.n}"}
                 },
                 "issueUpdate": {"success": True},
-                "attachmentLinkURL": {"success": True},
+                "attachmentLinkURL": {"success": not self.link_fails},
                 "attachmentDelete": {"success": True},
             }
         )
@@ -1538,6 +1539,13 @@ class LinearApplyTest(unittest.TestCase):
             self.assertEqual(linear.graphql("q"), {"x": 1})
         sleep.assert_called_once()
 
+    def test_a_link_linear_refuses_stays_pending(self):
+        link = {"op": "link", "card": "c", "link": CREATE["link"]}
+        out, _ = self.run_apply(FakeLinear(link_fails=True), [link])
+        self.assertEqual(out["applied"], [])
+        self.assertEqual(out["pending"], [link])
+        self.assertIn("attachmentLinkURL", out["error"])
+
     def test_a_lost_reply_leaves_the_op_pending_without_retrying_it(self):
         for failure in (
             TimeoutError("timed out"),
@@ -1566,7 +1574,13 @@ class LinearApplyTest(unittest.TestCase):
         out, _ = self.run_apply(fake, [link, CREATE, drop])
         self.assertEqual(
             fake.calls,
-            ["attachmentDelete", "issueUpdate", "issueCreate", "attachment", "attachment"],
+            [
+                "attachmentDelete",
+                "issueUpdate",
+                "issueCreate",
+                "attachment",
+                "attachment",
+            ],
         )
         self.assertEqual(len(out["applied"]), 3)
 

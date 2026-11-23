@@ -118,6 +118,13 @@ def graphql(query: str, **variables) -> dict:
             raise RuntimeError(f"linear {getattr(e, 'reason', e)}") from None
     if body.get("errors"):
         raise RuntimeError(f"linear: {[e['message'] for e in body['errors']]}")
+    failed = [
+        k
+        for k, v in body["data"].items()
+        if isinstance(v, dict) and v.get("success") is False
+    ]
+    if failed:
+        raise RuntimeError(f"linear: {failed} returned success: false")
     return body["data"]
 
 
