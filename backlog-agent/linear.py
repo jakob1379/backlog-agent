@@ -50,7 +50,7 @@ ISSUES = """query($team: String!, $after: String) {
       id identifier title description createdAt
       state { name }
       labels(first: 20) { nodes { name parent { name } } }
-      attachments(first: 10) { nodes { url } }
+      attachments(first: 10) { nodes { id url } }
       history(first: 100) { nodes {
         createdAt actor { id } fromState { name } toState { name } } } } } }"""
 
@@ -60,6 +60,8 @@ UPDATE_ISSUE = """mutation($id: String!, $input: IssueUpdateInput!) {
   issueUpdate(id: $id, input: $input) { success } }"""
 LINK_URL = """mutation($issueId: String!, $url: String!) {
   attachmentLinkURL(issueId: $issueId, url: $url) { success } }"""
+DELETE_ATTACHMENT = """mutation($id: String!) {
+  attachmentDelete(id: $id) { success } }"""
 CREATE_LABEL = """mutation($input: IssueLabelCreateInput!) {
   issueLabelCreate(input: $input) { issueLabel { id } } }"""
 CREATE_STATE = """mutation($input: WorkflowStateCreateInput!) {
@@ -195,13 +197,19 @@ def card(node: dict, agent: str, owner: str) -> dict:
         who = (h["actor"] or {}).get("id")
         return "agent" if who == agent else "owner" if who == owner else "other"
 
+    link = attached(node) or imported(node)
     return {
         "id": node["id"],
         "identifier": node["identifier"],
         "title": node["title"],
         "status": node["state"]["name"],
         "labels": [label_name(lb) for lb in node["labels"]["nodes"]],
-        "link": attached(node) or imported(node),
+        "link": link,
+        "attachments": [
+            a["id"]
+            for a in node["attachments"]["nodes"]
+            if link and github_link(re.match(GITHUB, a["url"])) == link
+        ],
         "created_at": node["createdAt"],
         "history": sorted(
             (
@@ -276,6 +284,11 @@ def apply_op(ctx: dict, op: dict) -> dict:
         if op["link"]:
             graphql(LINK_URL, issueId=issue["id"], url=github_url(op["link"]))
         return {**op, "card": issue["identifier"]}
+    if op["op"] == "link":
+        graphql(LINK_URL, issueId=op["card"], url=github_url(op["link"]))
+        return op
+    for attachment in op.get("attachments", []):
+        graphql(DELETE_ATTACHMENT, id=attachment)
     update = {"stateId": ctx["states"][op["to"]]}
     if op.get("add_labels"):
         update["addedLabelIds"] = known_labels(ctx, op["add_labels"])
@@ -288,7 +301,7 @@ def apply_op(ctx: dict, op: dict) -> dict:
 
 
 def apply(card_ops: list[dict], budget: float | None = None) -> dict:
-    ops = sorted(card_ops, key=lambda op: op["op"] == "create")
+    ops = sorted(card_ops, key=lambda op: {"create": 1, "link": 2}.get(op["op"], 0))
     result = {"applied": [], "pending": [], "error": None, "missing_labels": []}
     if not ops:
         return result

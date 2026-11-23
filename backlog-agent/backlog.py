@@ -405,7 +405,11 @@ def backlog_work(
     ops, ranked, chosen = [], [], {}
     for c in candidates.get("board", {}).get("cards", []):
         link = c["link"] or {}
-        if link.get("type") != "issue" or link["repo"] not in scope:
+        if (
+            link.get("type") != "issue"
+            or link["repo"] not in scope
+            or c["status"] == "Duplicate"
+        ):
             continue
         ref = f"{link['repo']}#{link['number']}"
         if ref in issues:
@@ -538,6 +542,39 @@ def backlog_work(
     return [task for *_, task in ranked], ops, status
 
 
+def tidy_cards(cards: list[dict], scope: set[str]) -> tuple[list[dict], set[str]]:
+    groups = {}
+    for c in cards:
+        link = c["link"]
+        if link and link["repo"] in scope and c["status"] not in CLOSED_STATUSES:
+            groups.setdefault((link["type"], link["repo"], link["number"]), []).append(
+                c
+            )
+    ops, dropped = [], set()
+    for group in groups.values():
+        keep, *extra = sorted(
+            group,
+            key=lambda c: (
+                c["status"] == "Backlog",
+                not c["attachments"],
+                c["created_at"],
+            ),
+        )
+        if not keep["attachments"]:
+            ops.append({"op": "link", "card": keep["id"], "link": keep["link"]})
+        for c in extra:
+            dropped.add(c["id"])
+            ops.append(
+                {
+                    "op": "drop",
+                    "card": c["id"],
+                    "attachments": c["attachments"],
+                    "to": "Duplicate",
+                }
+            )
+    return ops, dropped
+
+
 def create(link: dict | None, title: str, status: str, labels: list) -> dict:
     return {
         "op": "create",
@@ -563,15 +600,16 @@ def owner_cards(
     repos = {r["repo"]: r for r in candidates["repos"]}
     cards = candidates["board"]["cards"]
     ops = []
+    live = [c for c in cards if c["link"] and c["status"] != "Duplicate"]
     carded = {
         (c["link"]["repo"], c["link"]["number"])
-        for c in cards
-        if c["link"] and c["link"]["type"] == "pr"
+        for c in live
+        if c["link"]["type"] == "pr"
     }
     issue_carded = {
         (c["link"]["repo"], c["link"]["number"])
-        for c in cards
-        if c["link"] and c["link"]["type"] == "issue"
+        for c in live
+        if c["link"]["type"] == "issue"
     }
     for name, r in repos.items():
         for i in r.get("issues", []):
@@ -666,6 +704,19 @@ def plan(
     busy: frozenset = frozenset(),
 ) -> dict:
     present = present_keys(candidates)
+    tidy_ops = []
+    if "board" in candidates:
+        board = candidates["board"]
+        tidy_ops, dropped = tidy_cards(
+            board["cards"], {r["repo"] for r in candidates["repos"]}
+        )
+        candidates = {
+            **candidates,
+            "board": {
+                **board,
+                "cards": [c for c in board["cards"] if c["id"] not in dropped],
+            },
+        }
     newest_alert = {}
     for r in candidates["repos"]:
         for a in r["alerts"]:
@@ -737,7 +788,7 @@ def plan(
             review_room -= 1
         ready.append(t)
     backlog_tasks, card_ops, card_status = backlog_work(candidates, ledger, now)
-    card_ops += owner_cards(candidates, ledger, present, now)
+    card_ops += owner_cards(candidates, ledger, present, now) + tidy_ops
     ready += [t for t in backlog_tasks if t["key"] not in busy]
     running = len(running_keys)
     used = used_today(ledger, now)

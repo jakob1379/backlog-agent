@@ -256,6 +256,14 @@ health checks that say whether work is moving.
   it, so the op stays pending, and the next `plan` sees a card that did land. It keeps no outbox: the ops it did not reach come
   back in the next `plan`, which reads the board, so a large sync drains over a few runs. A
   replayed outbox could undo a move the owner made since.
+- **No card is lost, and none is doubled.** Every run, `plan` takes the open cards that link the
+  same in-scope issue or pull request and keeps one: the one the owner has moved out of Backlog,
+  then one with its GitHub link attached, then the oldest. The others are dropped: `apply`
+  removes their GitHub link first, so the sync can't close the issue, and then moves them to
+  Duplicate. A kept card without its GitHub link attached gets it attached again, which retries a
+  link that failed after a create. An open issue whose only cards are Duplicate counts as having
+  no card, so it gets a new one. So a lost or half-made op is redone, and any doubling it causes
+  is dropped on the next run.
 - **The GitHub token.** `~/.config/backlog-agent/gh-token` is a fine-grained token of the owner's
   with only what the agent and its children use: access to all of the owner's repositories (new
   repos are found by `collect`), Metadata read, Actions read (`gh run`), Checks read, Commit

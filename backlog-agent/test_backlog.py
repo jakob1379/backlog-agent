@@ -294,7 +294,9 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(backlog.token_expiry(), "2026-12-20T09:18:09+00:00")
         with mock.patch(
             "subprocess.run",
-            return_value=subprocess.CompletedProcess([], 0, "HTTP/2.0 200 OK\r\n\r\n{}", ""),
+            return_value=subprocess.CompletedProcess(
+                [], 0, "HTTP/2.0 200 OK\r\n\r\n{}", ""
+            ),
         ):
             self.assertIsNone(backlog.token_expiry())
 
@@ -466,6 +468,7 @@ def card(number, status="Backlog", history=(), labels=(), repo="o/r", type="issu
         "labels": ["kind: backlog", f"repo: {repo.split('/')[1]}", *labels],
         "link": {"repo": repo, "number": number, "type": type},
         "created_at": "2026-09-01T00:00:00Z",
+        "attachments": [f"att-{number}"],
         "history": list(history),
     }
 
@@ -841,6 +844,70 @@ def owner_card(id, title, status, labels, link=None):
 
 def close(id):
     return {"op": "close", "card": id, "to": "Done"}
+
+
+def twin(number, status="Backlog", attachments=(), created_at="2026-10-01T00:00:00Z"):
+    return {
+        **card(number, status),
+        "id": f"card-{number}b",
+        "identifier": f"JGA-{number}00",
+        "created_at": created_at,
+        "attachments": list(attachments),
+    }
+
+
+def ops_of(result, kind):
+    return [op for op in result["card_ops"] if op["op"] == kind]
+
+
+class CardGuardrailTest(unittest.TestCase):
+    def test_a_second_open_card_for_an_issue_is_dropped_as_a_duplicate(self):
+        c = snap(backlog_repo(issue(5)), cards=[card(5), twin(5, attachments=["x"])])
+        result = plan(c, empty(), NOW)
+        self.assertEqual(
+            ops_of(result, "drop"),
+            [
+                {
+                    "op": "drop",
+                    "card": "card-5b",
+                    "attachments": ["x"],
+                    "to": "Duplicate",
+                }
+            ],
+        )
+        self.assertNotIn("card-5b", {op["card"] for op in ops_of(result, "move")})
+
+    def test_the_card_the_owner_moved_on_is_kept(self):
+        c = snap(backlog_repo(issue(5)), cards=[card(5), twin(5, "Needs info")])
+        self.assertEqual(
+            [op["card"] for op in ops_of(plan(c, empty(), NOW), "drop")], ["card-5"]
+        )
+
+    def test_closed_cards_are_never_dropped(self):
+        c = snap(
+            backlog_repo(issue(5)), cards=[card(5, "Done"), twin(5, attachments=["x"])]
+        )
+        self.assertEqual(ops_of(plan(c, empty(), NOW), "drop"), [])
+
+    def test_an_open_issue_whose_cards_are_all_duplicates_gets_a_new_card(self):
+        c = snap(backlog_repo(issue(5)), cards=[card(5, "Duplicate")])
+        self.assertEqual(
+            [op["link"]["number"] for op in ops_of(plan(c, empty(), NOW), "create")],
+            [5],
+        )
+
+    def test_a_card_that_lost_its_github_link_is_linked_again(self):
+        c = snap(backlog_repo(issue(5)), cards=[{**card(5), "attachments": []}])
+        self.assertEqual(
+            ops_of(plan(c, empty(), NOW), "link"),
+            [
+                {
+                    "op": "link",
+                    "card": "card-5",
+                    "link": {"repo": "o/r", "number": 5, "type": "issue"},
+                }
+            ],
+        )
 
 
 class OwnerCardsPlanTest(unittest.TestCase):
@@ -1411,7 +1478,13 @@ class FakeLinear:
             )
         name = next(
             n
-            for n in ("issueLabelCreate", "issueCreate", "issueUpdate", "attachment")
+            for n in (
+                "issueLabelCreate",
+                "issueCreate",
+                "issueUpdate",
+                "attachmentDelete",
+                "attachment",
+            )
             if n in q
         )
         self.calls.append(name)
@@ -1426,6 +1499,7 @@ class FakeLinear:
                 },
                 "issueUpdate": {"success": True},
                 "attachmentLinkURL": {"success": True},
+                "attachmentDelete": {"success": True},
             }
         )
 
@@ -1484,6 +1558,17 @@ class LinearApplyTest(unittest.TestCase):
             self.assertEqual(fake.calls, [])
             self.assertEqual(len(out["pending"]), 1)
             self.assertIsNotNone(out["error"])
+
+    def test_a_dropped_card_loses_its_links_before_it_is_closed(self):
+        fake = FakeLinear()
+        drop = {"op": "drop", "card": "c1", "attachments": ["a1"], "to": "Duplicate"}
+        link = {"op": "link", "card": "c2", "link": CREATE["link"]}
+        out, _ = self.run_apply(fake, [link, CREATE, drop])
+        self.assertEqual(
+            fake.calls,
+            ["attachmentDelete", "issueUpdate", "issueCreate", "attachment", "attachment"],
+        )
+        self.assertEqual(len(out["applied"]), 3)
 
     def test_moves_land_before_creates(self):
         fake = FakeLinear()
