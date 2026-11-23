@@ -74,19 +74,27 @@ yet: `plan` decides no card moves and starts no `triage` or `build` task. If `co
 `board not read` line, the credentials exist but Linear failed: put that line under **Needs you** and
 go on; this run makes no card moves.
 
-Then apply the card moves `plan` decided, in order, before starting any child:
+Then apply the card moves `plan` decided before starting any child:
 
 ```
 $B apply $TMPDIR/plan-<thread>.json
 ```
 
-Run it with `allowed_domains: ["api.linear.app"]` and `timeout: 600000`. Linear allows 20 new
-GitHub links a minute, and `apply` waits a minute whenever it hits that limit, so a run with
-many `create` ops takes minutes. It prints the ops it applied; keep them for the
-**Cards** line in step 5. If it fails, put its error's last line under **Needs you**, and release
-every `triage` and `build` task in `dispatch` with `$B finish '<key>' failed -` and the note
-`card moves not applied`, so no child works on a card the board doesn't show as In Progress. Then
-go on with the dependency tasks only.
+Run it with `allowed_domains: ["api.linear.app"]` and `timeout: 600000`. It applies moves
+before creates, waits out Linear's rate limits (20 new GitHub links a minute), and stops after
+about 5 minutes. It prints `applied`, `pending`, `error` and `release`:
+
+- `applied`: the ops it made; keep them for the **Cards** line in step 5.
+- `pending`: ops it did not reach. Do nothing about them: the next `plan` decides them again
+  from the board, so a large sync drains over the next runs.
+- `error`: when set, put it under **Needs you**.
+- `release`: the `dispatch` keys whose card moves are pending. Release each with
+  `$B finish '<key>' failed -` and the note `card moves not applied`, so no child works on a card
+  the board doesn't show as In Progress. The card never reached In Progress, so the next `plan`
+  drops the entry and the attempt does not count.
+
+If the command itself fails, put its last line under **Needs you**, and release every `triage`
+and `build` task in `dispatch` the same way. Then go on with the remaining tasks.
 
 ## 3. Dispatch, one child at a time
 
@@ -130,7 +138,7 @@ reply with at most 10 lines, each linking to its PR or repo:
 
 - **Started**: the keys from `dispatch`, each with the status its child finished with.
 - **Merged/closed**: the keys from `resolved`.
-- **Cards**: the ops `apply` printed, each as the card's identifier (from the snapshot's
+- **Cards**: the `applied` ops, each as the card's identifier (from the snapshot's
   `board.cards`, matched on `id`; a `create` prints its new one), its new status, and the issue
   or pull request it links to.
 - **Needs you**: every `blocked` finish and every `newly_blocked` entry, with the owner action
@@ -168,7 +176,7 @@ tile per section that has something in it, each with its count and a one-line hi
   each. Colour it `--warning` with a `!`, a 16% tint and a 1px outline at 45% of that colour; at 0,
   dim it to 55% opacity.
 - **Started**: the `dispatch` count.
-- **Cards**: the count of ops `apply` printed, the hint naming the moves (for example
+- **Cards**: the count of `applied` ops, plus `pending` left for the next run, the hint naming the moves (for example
   `2 to Needs approval, 1 created`).
 - One tile per finish status that occurred (`done` and `fix-pending` with ✓ in `--success`;
   `blocked`, `needs-approval`, `needs-repro` and `unable-to-fix` with ! in `--warning`;

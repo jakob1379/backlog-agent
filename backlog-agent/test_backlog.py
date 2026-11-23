@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import subprocess
@@ -9,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
+import backlog
 import linear
 from backlog import (
     covering_pr,
@@ -339,7 +341,9 @@ class PlanTest(unittest.TestCase):
         start(L, "o/a#9", "t", NOW)
         finish(L, "o/a#9", "blocked", "", NOW)
         c = cands(
-            repo("o/a", main="red", prs=[pr(9), pr(10)], alerts=[alert(covered_by_pr=9)]),
+            repo(
+                "o/a", main="red", prs=[pr(9), pr(10)], alerts=[alert(covered_by_pr=9)]
+            ),
             repo("o/b", main="pending"),
         )
         h = plan(c, L, NOW)["health"]
@@ -358,7 +362,9 @@ class PlanTest(unittest.TestCase):
                 "labels": [],
                 "link": None,
                 "created_at": (NOW - timedelta(days=30)).isoformat(),
-                "history": [{"from": "Backlog", "to": status, "actor": "owner", "at": at}]
+                "history": [
+                    {"from": "Backlog", "to": status, "actor": "owner", "at": at}
+                ]
                 if moved
                 else [],
             }
@@ -1325,23 +1331,170 @@ class CliTest(unittest.TestCase):
                 text=True,
                 check=True,
             ).stdout
-            self.assertEqual(json.loads(out), [])
+            self.assertEqual(
+                json.loads(out),
+                {"applied": [], "pending": [], "error": None, "release": []},
+            )
 
 
-if __name__ == "__main__":
-    unittest.main()
+def linear_reply(body: dict):
+    r = mock.MagicMock()
+    r.__enter__.return_value.read.return_value = json.dumps({"data": body}).encode()
+    return r
 
 
-class LinearRateLimitTest(unittest.TestCase):
-    def test_graphql_waits_out_a_rate_limit(self):
-        limited = urllib.error.HTTPError(linear.API, 429, "ratelimited", {}, None)
-        limited.read = lambda: b"ratelimit exceeded"
-        ok = mock.MagicMock()
-        ok.__enter__.return_value.read.return_value = b'{"data": {"x": 1}}'
+def rate_limited(url, *_):
+    e = urllib.error.HTTPError(url, 429, "ratelimited", {}, None)
+    e.read = lambda: b"ratelimit exceeded"
+    return e
+
+
+class FakeLinear:
+    def __init__(self, link_limited=False):
+        self.calls, self.link_limited, self.n = [], link_limited, 0
+
+    def __call__(self, req, timeout=None):
+        q = json.loads(req.data)["query"]
+        if "viewer" in q:
+            return linear_reply(
+                {
+                    "viewer": {"id": "agent"},
+                    "users": {"nodes": []},
+                    "teams": {
+                        "nodes": [
+                            {
+                                "id": "team",
+                                "states": {
+                                    "nodes": [
+                                        {"id": s, "name": s} for s in linear.STATUSES
+                                    ]
+                                },
+                            }
+                        ]
+                    },
+                    "issueLabels": {"nodes": []},
+                }
+            )
+        name = next(
+            n
+            for n in ("issueLabelCreate", "issueCreate", "issueUpdate", "attachment")
+            if n in q
+        )
+        self.calls.append(name)
+        if name == "attachment" and self.link_limited:
+            raise rate_limited(req.full_url)
+        self.n += 1
+        return linear_reply(
+            {
+                "issueLabelCreate": {"issueLabel": {"id": f"l{self.n}"}},
+                "issueCreate": {
+                    "issue": {"id": f"i{self.n}", "identifier": f"JGA-{self.n}"}
+                },
+                "issueUpdate": {"success": True},
+                "attachmentLinkURL": {"success": True},
+            }
+        )
+
+
+CREATE = {
+    "op": "create",
+    "link": {"repo": "o/r", "number": 9, "type": "issue"},
+    "title": "t",
+    "status": "Backlog",
+    "labels": [],
+}
+
+
+def card_move(card, to):
+    return {"op": "move", "card": card, "to": to, "add_labels": [], "remove_labels": []}
+
+
+class LinearApplyTest(unittest.TestCase):
+    def run_apply(self, fake, ops, **kw):
         with (
             mock.patch.object(linear, "_token", "t"),
-            mock.patch("urllib.request.urlopen", side_effect=[limited, ok]),
+            mock.patch("urllib.request.urlopen", side_effect=fake),
+            mock.patch("time.sleep") as sleep,
+        ):
+            return linear.apply(ops, **kw), sleep
+
+    def test_graphql_waits_out_a_rate_limit(self):
+        with (
+            mock.patch.object(linear, "_token", "t"),
+            mock.patch(
+                "urllib.request.urlopen",
+                side_effect=[rate_limited(linear.API), linear_reply({"x": 1})],
+            ),
             mock.patch("time.sleep") as sleep,
         ):
             self.assertEqual(linear.graphql("q"), {"x": 1})
         sleep.assert_called_once()
+
+    def test_moves_land_before_creates(self):
+        fake = FakeLinear()
+        out, _ = self.run_apply(fake, [CREATE, card_move("c1", "In Progress")])
+        self.assertEqual(fake.calls, ["issueUpdate", "issueCreate", "attachment"])
+        self.assertEqual([op.get("card") for op in out["applied"]], ["c1", "JGA-2"])
+        self.assertEqual((out["pending"], out["error"]), ([], None))
+
+    def test_a_lasting_rate_limit_leaves_the_rest_pending(self):
+        fake = FakeLinear(link_limited=True)
+        out, sleep = self.run_apply(fake, [CREATE, dict(CREATE, title="u")])
+        self.assertEqual(out["applied"], [])
+        self.assertEqual([op["title"] for op in out["pending"]], ["t", "u"])
+        self.assertIn("429", out["error"])
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_spent_budget_defers_the_rest_without_error(self):
+        fake = FakeLinear()
+        out, _ = self.run_apply(fake, [card_move("c1", "Backlog"), CREATE], budget=-1)
+        self.assertEqual(out["applied"], [])
+        self.assertEqual(len(out["pending"]), 2)
+        self.assertIsNone(out["error"])
+
+    def test_cli_releases_only_claims_whose_card_moves_are_pending(self):
+        fake = FakeLinear()
+        decided = {
+            "dispatch": [
+                {"key": "o/r#1:triage", "card": "c1"},
+                {"key": "o/r#2", "kind": "dependency"},
+            ],
+            "card_ops": [card_move("c1", "In Progress"), CREATE],
+        }
+        with tempfile.TemporaryDirectory() as d:
+            plan_path = Path(d, "plan.json")
+            plan_path.write_text(json.dumps(decided))
+            with (
+                mock.patch.object(linear, "_token", "t"),
+                mock.patch.object(linear, "APPLY_BUDGET", -1),
+                mock.patch("urllib.request.urlopen", side_effect=fake),
+                mock.patch.object(sys, "argv", ["backlog.py", "apply", str(plan_path)]),
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out,
+            ):
+                backlog.main()
+        self.assertEqual(json.loads(out.getvalue())["release"], ["o/r#1:triage"])
+
+
+class GhRateLimitTest(unittest.TestCase):
+    def test_gh_waits_out_a_rate_limit(self):
+        limited = subprocess.CompletedProcess(
+            [], 1, "", "HTTP 403: API rate limit exceeded"
+        )
+        ok = subprocess.CompletedProcess([], 0, "[]", "")
+        with (
+            mock.patch("subprocess.run", side_effect=[limited, ok]),
+            mock.patch("time.sleep") as sleep,
+        ):
+            self.assertEqual(backlog.gh("api", "x"), [])
+        sleep.assert_called_once()
+
+    def test_gh_gives_up_on_other_client_errors(self):
+        missing = subprocess.CompletedProcess([], 1, "", "HTTP 404: Not Found")
+        with mock.patch("subprocess.run", return_value=missing) as run:
+            with self.assertRaises(RuntimeError):
+                backlog.gh("api", "x")
+        self.assertEqual(run.call_count, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

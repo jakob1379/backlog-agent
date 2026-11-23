@@ -12,6 +12,7 @@ CLIENT = Path.home() / ".config/backlog-agent/linear-client"
 SCOPES = "read,write"
 _token = None
 TEAM = "JGA"
+APPLY_BUDGET = 300.0
 STATUSES = {
     "Backlog": "backlog",
     "Needs triage": "unstarted",
@@ -101,17 +102,17 @@ def graphql(query: str, **variables) -> dict:
             "Content-Type": "application/json",
         },
     )
-    for _ in range(3):
+    for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=60) as r:
                 body = json.load(r)
             break
         except urllib.error.HTTPError as e:
             error = f"HTTP {e.code}: {e.read().decode(errors='replace')[:500]}"
-            if e.code == 429:
-                time.sleep(60)
-            elif e.code < 500:
+            if e.code < 500 and e.code != 429:
                 raise RuntimeError(f"linear {error}") from None
+            if e.code == 429 and attempt < 2:
+                time.sleep(60)
         except urllib.error.URLError as e:
             error = str(e.reason)
     else:
@@ -256,39 +257,51 @@ def github_url(link: dict) -> str:
     return f"https://github.com/{link['repo']}/{kind}/{link['number']}"
 
 
-def apply(card_ops: list[dict]) -> list[dict]:
-    if not card_ops:
-        return []
+def apply_op(ctx: dict, op: dict) -> dict:
+    if op["op"] == "create":
+        issue = graphql(
+            CREATE_ISSUE,
+            input={
+                "teamId": ctx["team"],
+                "title": op["title"],
+                "description": f"Imported from {github_url(op['link'])}"
+                if op["link"]
+                else "",
+                "stateId": ctx["states"][op["status"]],
+                "labelIds": [label_id(ctx, n) for n in op["labels"]],
+            },
+        )["issueCreate"]["issue"]
+        if op["link"]:
+            graphql(LINK_URL, issueId=issue["id"], url=github_url(op["link"]))
+        return {**op, "card": issue["identifier"]}
+    update = {"stateId": ctx["states"][op["to"]]}
+    if op.get("add_labels"):
+        update["addedLabelIds"] = [label_id(ctx, n) for n in op["add_labels"]]
+    if op.get("remove_labels"):
+        update["removedLabelIds"] = [
+            ctx["labels"][n] for n in op["remove_labels"] if n in ctx["labels"]
+        ]
+    graphql(UPDATE_ISSUE, id=op["card"], input=update)
+    return op
+
+
+def apply(card_ops: list[dict], budget: float | None = None) -> dict:
+    ops = sorted(card_ops, key=lambda op: op["op"] == "create")
+    result = {"applied": [], "pending": [], "error": None}
+    if not ops:
+        return result
     ctx = context()
-    applied = []
-    for op in card_ops:
-        if op["op"] == "create":
-            issue = graphql(
-                CREATE_ISSUE,
-                input={
-                    "teamId": ctx["team"],
-                    "title": op["title"],
-                    "description": f"Imported from {github_url(op['link'])}"
-                    if op["link"]
-                    else "",
-                    "stateId": ctx["states"][op["status"]],
-                    "labelIds": [label_id(ctx, n) for n in op["labels"]],
-                },
-            )["issueCreate"]["issue"]
-            if op["link"]:
-                graphql(LINK_URL, issueId=issue["id"], url=github_url(op["link"]))
-            applied.append({**op, "card": issue["identifier"]})
-            continue
-        update = {"stateId": ctx["states"][op["to"]]}
-        if op.get("add_labels"):
-            update["addedLabelIds"] = [label_id(ctx, n) for n in op["add_labels"]]
-        if op.get("remove_labels"):
-            update["removedLabelIds"] = [
-                ctx["labels"][n] for n in op["remove_labels"] if n in ctx["labels"]
-            ]
-        graphql(UPDATE_ISSUE, id=op["card"], input=update)
-        applied.append(op)
-    return applied
+    deadline = time.monotonic() + (APPLY_BUDGET if budget is None else budget)
+    for i, op in enumerate(ops):
+        if time.monotonic() > deadline:
+            result["pending"] = ops[i:]
+            break
+        try:
+            result["applied"].append(apply_op(ctx, op))
+        except RuntimeError as e:
+            result["pending"], result["error"] = ops[i:], str(e)
+            break
+    return result
 
 
 def setup() -> None:

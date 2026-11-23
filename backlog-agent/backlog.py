@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -798,7 +799,11 @@ QUERY = """query($endCursor: String) { viewer { login
 def gh(*args: str):
     for _ in range(3):
         r = subprocess.run(["gh", *args], capture_output=True, text=True, check=False)
-        if not r.returncode or "HTTP 4" in r.stderr:
+        if not r.returncode:
+            break
+        if "rate limit" in r.stderr:
+            time.sleep(60)
+        elif "HTTP 4" in r.stderr:
             break
     if r.returncode:
         raise RuntimeError(f"gh {' '.join(args[:2])}: {r.stderr.strip()}")
@@ -1010,8 +1015,13 @@ def main() -> None:
         print(json.dumps(linear.board(), indent=2))
         return
     if args.cmd == "apply":
-        ops = json.loads(args.plan.read_text())["card_ops"]
-        print(json.dumps(linear.apply(ops), indent=2))
+        decided = json.loads(args.plan.read_text())
+        result = linear.apply(decided["card_ops"])
+        held = {op["card"] for op in result["pending"] if "card" in op}
+        result["release"] = [
+            t["key"] for t in decided["dispatch"] if t.get("card") in held
+        ]
+        print(json.dumps(result, indent=2))
         return
     if args.cmd == "setup":
         linear.setup()
