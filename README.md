@@ -120,9 +120,16 @@ approval gate. The guardrails above don't change.
 ## Working on it
 
 ```bash
-nix develop                                   # python3, gh, git
+nix develop                                   # python3, gh, git; installs the git hooks
+nix fmt                                       # run every hook on every file
 cd backlog-agent && python3 -m unittest       # gate for every rule change
 ```
+
+The hooks ([`nix/git-hooks.nix`](nix/git-hooks.nix)) run on every commit in
+every worktree, including the agent's own. Betterleaks scans each staged change,
+and the full history before each push. A guard refuses the ledger, lockfiles,
+`gh-token`, `linear-client` and `.env` files. Commit messages must be
+conventional commits.
 
 | Command                                   | Does                                                         |
 | ----------------------------------------- | ------------------------------------------------------------ |

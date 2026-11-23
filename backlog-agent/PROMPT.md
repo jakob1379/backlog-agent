@@ -249,6 +249,11 @@ result shows one of its rules is wrong. The steward follows these rules too:
   changed.
 - Commit explicit paths, never `git add -A`, with a conventional commit:
   `cd $W && git add <paths> && git commit -m "<type>(backlog-agent): <subject>"`.
+- Every commit runs the repo's git hooks (`nix/git-hooks.nix`): formatters, a
+  betterleaks secret scan, and a guard against committing the ledger, lockfiles
+  or credentials. If a hook only rewrote files, `git add` the same paths and
+  commit again. If betterleaks or the guard refuses, unstage that file and put
+  the finding under **Needs you**. Never pass `--no-verify`.
 - Push a backup:
   `cd $W && export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token) && git -c credential.helper= -c credential.helper='!gh auth git-credential' push https://github.com/jakob1379/backlog-agent.git main`,
   with `allowed_domains: ["github.com", "api.github.com"]`.
