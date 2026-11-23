@@ -80,7 +80,9 @@ Then apply the card moves `plan` decided, in order, before starting any child:
 $B apply $TMPDIR/plan-<thread>.json
 ```
 
-Run it with `allowed_domains: ["api.linear.app"]`. It prints the ops it applied; keep them for the
+Run it with `allowed_domains: ["api.linear.app"]` and `timeout: 600000`. Linear allows 20 new
+GitHub links a minute, and `apply` waits a minute whenever it hits that limit, so a run with
+many `create` ops takes minutes. It prints the ops it applied; keep them for the
 **Cards** line in step 5. If it fails, put its error's last line under **Needs you**, and release
 every `triage` and `build` task in `dispatch` with `$B finish '<key>' failed -` and the note
 `card moves not applied`, so no child works on a card the board doesn't show as In Progress. Then

@@ -237,6 +237,10 @@ health checks that say whether work is moving.
   before a repo was linked, which is why `plan` creates them. Linear also posts link-back
   comments on GitHub issues in private repos; they are not the owner's, so the trust rule
   ignores them. Still unverified: how the sync's own moves appear in a card's history.
+- **Linear's rate limit on links.** Linear allows 20 attachment links a minute and answers
+  HTTP 429 past that. The first board sync on 2026-11-23 had 53 creates and failed partway on
+  it, so the Linear module now waits a minute on a 429 and retries, and a large `apply` takes
+  minutes.
 - **Top-up order is only as good as the labels.** Many issues have no labels, such as homelab's
   unauthenticated Traefik API. The owner labelling a few `security` or `Bug` is the cheapest
   way to steer the top-up.
