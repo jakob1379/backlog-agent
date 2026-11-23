@@ -1556,7 +1556,7 @@ class LinearApplyTest(unittest.TestCase):
             fake = FakeLinear()
             replies = iter([None, failure])
 
-            def flaky(req, timeout=None):
+            def flaky(req, timeout=None, replies=replies, fake=fake):
                 reply = next(replies, None)
                 if reply is None:
                     return fake(req, timeout)
@@ -1678,9 +1678,11 @@ class GhRateLimitTest(unittest.TestCase):
 
     def test_gh_gives_up_on_other_client_errors(self):
         missing = subprocess.CompletedProcess([], 1, "", "HTTP 404: Not Found")
-        with mock.patch("subprocess.run", return_value=missing) as run:
-            with self.assertRaises(RuntimeError):
-                backlog.gh("api", "x")
+        with (
+            mock.patch("subprocess.run", return_value=missing) as run,
+            self.assertRaises(RuntimeError),
+        ):
+            backlog.gh("api", "x")
         self.assertEqual(run.call_count, 1)
 
 

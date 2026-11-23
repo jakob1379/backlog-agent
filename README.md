@@ -2,20 +2,21 @@
   <img src="docs/readme/hero.svg" width="100%" alt="backlog-agent: a personal quality scrubber that runs every hour. A dial sweeps once an hour past each repo; most turn green, a few turn amber because they wait on the owner.">
 </p>
 
-Every hour, backlog-agent goes through each of my GitHub repos. It fixes what it can fix
-alone, turns the rest into cards on one Linear board, and asks me only for the decisions
-that need me: approving a plan and reviewing a pull request.
+Every hour, backlog-agent goes through each of my GitHub repos. It fixes what it
+can fix alone, turns the rest into cards on one Linear board, and asks me only
+for the decisions that need me: approving a plan and reviewing a pull request.
 
 It handles three kinds of work:
 
-- **Dependency and security work.** It handles Dependabot PRs, security alerts, red default
-  branches and repos with no CI from start to finish. It only needs me when a task ends
-  blocked or in review.
-- **The backlog.** Every open issue gets a card. The agent reproduces and diagnoses an issue,
-  then proposes a plan for one small part of it. Once I approve the plan, it builds exactly
-  that and opens a pull request.
-- **Its own docs.** After any hour with something to report, a steward runs last and fixes
-  the spec, the glossary and the prompts wherever they no longer match what happened.
+- **Dependency and security work.** It handles Dependabot PRs, security alerts,
+  red default branches and repos with no CI from start to finish. It only needs
+  me when a task ends blocked or in review.
+- **The backlog.** Every open issue gets a card. The agent reproduces and
+  diagnoses an issue, then proposes a plan for one small part of it. Once I
+  approve the plan, it builds exactly that and opens a pull request.
+- **Its own docs.** After any hour with something to report, a steward runs last
+  and fixes the spec, the glossary and the prompts wherever they no longer match
+  what happened.
 
 ## The crew
 
@@ -25,13 +26,13 @@ It handles three kinds of work:
 
 Each agent in a run has its own scrubber:
 
-| Scrubber | Agent                        | Follows                                    |
-| -------- | ---------------------------- | ------------------------------------------ |
-| Foreman  | the hourly dispatcher        | [`PROMPT.md`](backlog-agent/PROMPT.md)     |
-| Patch    | a child on dependency work   | [`CHILD.md`](backlog-agent/CHILD.md)       |
-| Probe    | a child on a triage run      | [`CHILD.md`](backlog-agent/CHILD.md)       |
-| Rivet    | a child on a build run       | [`CHILD.md`](backlog-agent/CHILD.md)       |
-| Ledger   | the steward                  | [`STEWARD.md`](backlog-agent/STEWARD.md)   |
+| Scrubber | Agent                      | Follows                                  |
+| -------- | -------------------------- | ---------------------------------------- |
+| Foreman  | the hourly dispatcher      | [`PROMPT.md`](backlog-agent/PROMPT.md)   |
+| Patch    | a child on dependency work | [`CHILD.md`](backlog-agent/CHILD.md)     |
+| Probe    | a child on a triage run    | [`CHILD.md`](backlog-agent/CHILD.md)     |
+| Rivet    | a child on a build run     | [`CHILD.md`](backlog-agent/CHILD.md)     |
+| Ledger   | the steward                | [`STEWARD.md`](backlog-agent/STEWARD.md) |
 
 They all show their state the same way, with the eyes and the beacon on top:
 
@@ -45,12 +46,14 @@ They all show their state the same way, with the eyes and the beacon on top:
   <img src="docs/readme/hourly-run.svg" width="100%" alt="Foreman rides through the hourly run's six steps: guard, reconcile, plan, dispatch (where Patch, Probe and Rivet pop up one at a time), steward (where Ledger pops up) and report, then again next hour.">
 </p>
 
-The model doesn't make the decisions. [`backlog.py`](backlog-agent/backlog.py) holds every
-rule: ranking, holds, caps, retries, the ledger and the triage state machine. Unit tests
-cover all of it. The hourly dispatcher ([`PROMPT.md`](backlog-agent/PROMPT.md)) runs
-`backlog.py`, applies the card moves it decides, and starts the children it names one at a
-time ([`CHILD.md`](backlog-agent/CHILD.md)). It then hands off to the steward
-([`STEWARD.md`](backlog-agent/STEWARD.md)). An hour with nothing to report stays silent.
+The model doesn't make the decisions. [`backlog.py`](backlog-agent/backlog.py)
+holds every rule: ranking, holds, caps, retries, the ledger and the triage state
+machine. Unit tests cover all of it. The hourly dispatcher
+([`PROMPT.md`](backlog-agent/PROMPT.md)) runs `backlog.py`, applies the card
+moves it decides, and starts the children it names one at a time
+([`CHILD.md`](backlog-agent/CHILD.md)). It then hands off to the steward
+([`STEWARD.md`](backlog-agent/STEWARD.md)). An hour with nothing to report stays
+silent.
 
 ## A card's journey
 
@@ -58,32 +61,35 @@ time ([`CHILD.md`](backlog-agent/CHILD.md)). It then hands off to the steward
   <img src="docs/readme/card-journey.svg" width="100%" alt="A card moves from Backlog to Done. Probe rides it through the triage run and waits with an amber beacon in Needs approval. The owner's cursor drags it to Approved, and Rivet builds it, waits in In Review and cheers at Done.">
 </p>
 
-Only two steps are mine: dragging a card to **Approved** and merging the pull request. The
-agent moves the card everywhere else. A triage run can also end in one of these other ways:
+Only two steps are mine: dragging a card to **Approved** and merging the pull
+request. The agent moves the card everywhere else. A triage run can also end in
+one of these other ways:
 
-| The run ends with                      | The card goes to                            |
-| -------------------------------------- | ------------------------------------------- |
-| a fix PR, for a bug I sent to triage   | In Review                                   |
-| a question, or no way to reproduce it  | Needs info, labeled `needs-repro`           |
-| a diagnosis but no safe fix            | Needs info, labeled `unable-to-fix`         |
-| a crash, twice                         | Needs info, labeled `failed`                |
-| a finding that it's not actionable     | Canceled                                    |
+| The run ends with                     | The card goes to                    |
+| ------------------------------------- | ----------------------------------- |
+| a fix PR, for a bug I sent to triage  | In Review                           |
+| a question, or no way to reproduce it | Needs info, labeled `needs-repro`   |
+| a diagnosis but no safe fix           | Needs info, labeled `unable-to-fix` |
+| a crash, twice                        | Needs info, labeled `failed`        |
+| a finding that it's not actionable    | Canceled                            |
 
-To answer a question, I comment on the issue, and the card goes back to triage the next
-hour. When nothing waits for me, the agent picks the best untriaged issues itself, security
-first, then bugs, oldest first. It stops once three plans wait for my approval.
+To answer a question, I comment on the issue, and the card goes back to triage
+the next hour. When nothing waits for me, the agent picks the best untriaged
+issues itself, security first, then bugs, oldest first. It stops once three
+plans wait for my approval.
 
 ## Guardrails
 
-- Only my drag from Needs approval to Approved counts as approval. The agent undoes that
-  move when anyone else makes it ([ADR 0002](docs/adr/0002-agent-has-its-own-linear-identity.md)).
-- Only text I wrote can start or steer a run. Issues and comments from anyone else, bots
-  included, wait in Backlog until I move them.
-- Children never write to Linear. Only `backlog.py` writes, through the agent's own OAuth
-  app, so a card's history always shows who moved it.
+- Only my drag from Needs approval to Approved counts as approval. The agent
+  undoes that move when anyone else makes it
+  ([ADR 0002](docs/adr/0002-agent-has-its-own-linear-identity.md)).
+- Only text I wrote can start or steer a run. Issues and comments from anyone
+  else, bots included, wait in Backlog until I move them.
+- Children never write to Linear. Only `backlog.py` writes, through the agent's
+  own OAuth app, so a card's history always shows who moved it.
 - Build PRs are labeled `needs-review`, assigned to me, and never auto-merge.
-- At most 3 runs at once and 100 a day, shared by all work. Dependency work always ranks
-  above triage and build runs.
+- At most 3 runs at once and 100 a day, shared by all work. Dependency work
+  always ranks above triage and build runs.
 - A crashed run is retried once, then parked for me.
 
 ## Health checks
@@ -98,16 +104,18 @@ The run report shows whether work is moving, not how much is left:
 
 ## Scope
 
-A repo is in scope when it is mine (`jakob1379`), not archived, and not a fork. A fork comes
-into scope when I add the `backlog-agent` topic to it. Repos in other orgs never count. The
-same rule applies to dependency work and to the backlog.
+A repo is in scope when it is mine (`jakob1379`), not archived, and not a fork.
+A fork comes into scope when I add the `backlog-agent` topic to it. Repos in
+other orgs never count. The same rule applies to dependency work and to the
+backlog.
 
 ## Where it's going
 
-Today the agent works on what has already been filed: dependency updates and the issues I've
-written. The next step is to keep improving my repos even when nobody has filed anything.
-New kinds of work plug in the way triage did: a task kind in `backlog.py`, a section in
-`CHILD.md`, and the same caps, ledger and approval gate. The guardrails above don't change.
+Today the agent works on what has already been filed: dependency updates and the
+issues I've written. The next step is to keep improving my repos even when
+nobody has filed anything. New kinds of work plug in the way triage did: a task
+kind in `backlog.py`, a section in `CHILD.md`, and the same caps, ledger and
+approval gate. The guardrails above don't change.
 
 ## Working on it
 
@@ -116,19 +124,20 @@ nix develop                                   # python3, gh, git
 cd backlog-agent && python3 -m unittest       # gate for every rule change
 ```
 
-| Command                                    | Does                                                        |
-| ------------------------------------------ | ----------------------------------------------------------- |
-| `backlog.py collect`                       | reads the in-scope repos and, with credentials, the board   |
-| `backlog.py plan <candidates> <thread>`    | decides dispatch, card moves and health; claims tasks       |
-| `backlog.py apply <plan>`                  | makes the card moves on the board under its rate limits     |
-| `backlog.py start <key> <task_id>`         | records a started child                                     |
-| `backlog.py finish <key> <status> <note>`  | records its outcome (`-` reads the note from stdin)         |
-| `backlog.py running`                       | lists running tasks and whether they're overdue             |
-| `backlog.py board`                         | prints the board as JSON                                    |
-| `backlog.py setup`                         | one-off: adds statuses and labels, marks imported duplicates |
+| Command                                   | Does                                                         |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| `backlog.py collect`                      | reads the in-scope repos and, with credentials, the board    |
+| `backlog.py plan <candidates> <thread>`   | decides dispatch, card moves and health; claims tasks        |
+| `backlog.py apply <plan>`                 | makes the card moves on the board under its rate limits      |
+| `backlog.py start <key> <task_id>`        | records a started child                                      |
+| `backlog.py finish <key> <status> <note>` | records its outcome (`-` reads the note from stdin)          |
+| `backlog.py running`                      | lists running tasks and whether they're overdue              |
+| `backlog.py board`                        | prints the board as JSON                                     |
+| `backlog.py setup`                        | one-off: adds statuses and labels, marks imported duplicates |
 
 The agent reads its credentials from `~/.config/backlog-agent/` (`gh-token`, and
-`linear-client` for the board). The ledger and `work/` are local and ignored by git.
+`linear-client` for the board). The ledger and `work/` are local and ignored by
+git.
 
 Before changing a rule, read the [glossary](backlog-agent/GLOSSARY.md), the
 [design](docs/superpowers/specs/2026-11-21-backlog-agent-design.md), and ADRs

@@ -318,14 +318,15 @@ def health(candidates: dict, ledger: dict, tasks: list[dict], now: datetime) -> 
             for t in tasks
         ),
         "stale_queue": sum(
-            c["status"] in QUEUE_STATUSES
-            and in_status_for(c, now) > STALE_QUEUE_AFTER
+            c["status"] in QUEUE_STATUSES and in_status_for(c, now) > STALE_QUEUE_AFTER
             for c in cards
         ),
         "topup_waiting": sum(
             c["status"] == "Needs approval"
             and c["link"] is not None
-            and ledger.get("origins", {}).get(f"{c['link']['repo']}#{c['link']['number']}")
+            and ledger.get("origins", {}).get(
+                f"{c['link']['repo']}#{c['link']['number']}"
+            )
             == "topup"
             for c in cards
         ),
@@ -974,7 +975,9 @@ def token_expiry() -> str | None:
         check=False,
     )
     m = re.search(
-        r"^github-authentication-token-expiration: (.+?)\s*$", r.stdout, re.I | re.M
+        r"^github-authentication-token-expiration: (.+?)\s*$",
+        r.stdout,
+        re.IGNORECASE | re.MULTILINE,
     )
     if not m:
         return None

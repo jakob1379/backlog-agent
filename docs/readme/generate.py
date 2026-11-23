@@ -14,7 +14,9 @@ DIM = "#4A5E82"
 AGENT = "#8EA2FF"
 OWNER = "#F7B955"
 CLEAN = "#52DBA8"
-FONT = "Inter, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
+FONT = (
+    "Inter, 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
+)
 
 
 def pct(t, T):
@@ -52,12 +54,19 @@ CREW = {
     "rivet": ("Rivet", "#F28FB0", "hammer", "builds approved plans"),
     "ledger": ("Ledger", "#C3CEDD", "book", "keeps the docs true"),
 }
+
+
 def squircle(cx, cy, rx, ry, n=4.5, steps=72):
     pts = []
     for k in range(steps):
         a = 2 * math.pi * k / steps
         c, s = math.cos(a), math.sin(a)
-        pts.append((cx + rx * math.copysign(abs(c) ** (2 / n), c), cy + ry * math.copysign(abs(s) ** (2 / n), s)))
+        pts.append(
+            (
+                cx + rx * math.copysign(abs(c) ** (2 / n), c),
+                cy + ry * math.copysign(abs(s) ** (2 / n), s),
+            )
+        )
     return "M" + "L".join(f"{x:.1f} {y:.1f}" for x, y in pts) + "Z"
 
 
@@ -85,9 +94,9 @@ BOT_CSS = (
 def tool(kind, accent):
     return {
         "stopwatch": f'<circle cx="-2" cy="8" r="7.5" fill="#EAF0F8" stroke="{accent}" stroke-width="2.5"/><rect x="-3.5" y="-2.5" width="3" height="3" fill="{accent}"/><path d="M-2 8 V3.5 M-2 8 L1.5 9.5" stroke="{INK}" stroke-width="1.8" stroke-linecap="round"/>',
-        "wrench": f'<path d="M0 0 L-3 12" stroke="#C3CEDD" stroke-width="4" stroke-linecap="round"/><circle cx="-4" cy="17" r="5" fill="none" stroke="#C3CEDD" stroke-width="4" stroke-dasharray="22 9"/>',
+        "wrench": '<path d="M0 0 L-3 12" stroke="#C3CEDD" stroke-width="4" stroke-linecap="round"/><circle cx="-4" cy="17" r="5" fill="none" stroke="#C3CEDD" stroke-width="4" stroke-dasharray="22 9"/>',
         "magnifier": f'<path d="M0 0 L-3 7" stroke="#6479A0" stroke-width="4" stroke-linecap="round"/><circle cx="-6" cy="14" r="7.5" fill="#9FE8FF" fill-opacity=".25" stroke="{accent}" stroke-width="3"/>',
-        "hammer": f'<path d="M0 -6 L0 14" stroke="#C8A27A" stroke-width="3.5" stroke-linecap="round"/><rect x="-8" y="-11" width="16" height="7" rx="2" fill="#8C9CB5"/>',
+        "hammer": '<path d="M0 -6 L0 14" stroke="#C8A27A" stroke-width="3.5" stroke-linecap="round"/><rect x="-8" y="-11" width="16" height="7" rx="2" fill="#8C9CB5"/>',
         "book": f'<rect x="-9" y="2" width="14" height="17" rx="2" fill="#EAF0F8" stroke="{accent}" stroke-width="2"/><path d="M-6 8 H2 M-6 12 H2 M-6 16 H-1" stroke="#8C9CB5" stroke-width="1.5" stroke-linecap="round"/>',
     }[kind]
 
@@ -110,20 +119,26 @@ def face(state):
     if state == "work":
         return (
             f'<rect x="-15" y="-57.5" width="10" height="5" rx="2.5" fill="{EYE}"/><rect x="5" y="-57.5" width="10" height="5" rx="2.5" fill="{EYE}"/>'
-            f'<circle class="glow" cx="16" cy="-94" r="10" fill="{AGENT}" fill-opacity=".3"/>' + lamp(AGENT)
+            f'<circle class="glow" cx="16" cy="-94" r="10" fill="{AGENT}" fill-opacity=".3"/>'
+            + lamp(AGENT)
         )
     if state == "wait":
         return (
             rays(OWNER)
             + f'<circle cx="-10" cy="-55" r="5.5" fill="{OWNER}"/><circle cx="10" cy="-55" r="5.5" fill="{OWNER}"/>'
-            f'<circle cx="-9" cy="-57" r="2" fill="{INK}"/><circle cx="11" cy="-57" r="2" fill="{INK}"/>' + lamp(OWNER)
+            f'<circle cx="-9" cy="-57" r="2" fill="{INK}"/><circle cx="11" cy="-57" r="2" fill="{INK}"/>'
+            + lamp(OWNER)
         )
     if state == "happy":
-        star = lambda x, y, d: f'<path class="twinkle" style="animation-delay:{d}s" d="M{x} {y - 5} Q{x} {y} {x + 5} {y} Q{x} {y} {x} {y + 5} Q{x} {y} {x - 5} {y} Q{x} {y} {x} {y - 5}Z" fill="{CLEAN}"/>'
+        star = lambda x, y, d: (
+            f'<path class="twinkle" style="animation-delay:{d}s" d="M{x} {y - 5} Q{x} {y} {x + 5} {y} Q{x} {y} {x} {y + 5} Q{x} {y} {x - 5} {y} Q{x} {y} {x} {y - 5}Z" fill="{CLEAN}"/>'
+        )
         return (
             f'<path d="M-15 -52 l5 -5.5 l5 5.5 M5 -52 l5 -5.5 l5 5.5" fill="none" stroke="{CLEAN}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>'
-            f'<circle class="glow" cx="16" cy="-94" r="10" fill="{CLEAN}" fill-opacity=".3"/>' + lamp(CLEAN)
-            + star(-38, -78, 0) + star(36, -64, 0.6)
+            f'<circle class="glow" cx="16" cy="-94" r="10" fill="{CLEAN}" fill-opacity=".3"/>'
+            + lamp(CLEAN)
+            + star(-38, -78, 0)
+            + star(36, -64, 0.6)
         )
     return (
         rays(RED, fast=True)
@@ -136,7 +151,8 @@ def bot(kind, x, y, sc, states, motion="", arm="", spin=True, delay=0.0):
     """states: {state: css class or ''}; a '' class means always shown."""
     _, accent, tl, _ = CREW[kind]
     layers = "".join(
-        f'<g class="{cls}">{face(st)}</g>' if cls else face(st) for st, cls in states.items()
+        f'<g class="{cls}">{face(st)}</g>' if cls else face(st)
+        for st, cls in states.items()
     )
     disc_cls = ' class="disc"' if spin else ""
     return (
@@ -176,7 +192,10 @@ def win(name, ranges, T, e=0.15):
     if st[-1][0] < T:
         st.append((T, "opacity:0"))
     default = "1" if ranges[0][0] <= 0 else "0"
-    return keyframes(name, st, T) + f".{name}{{animation:{name} {T}s linear infinite;opacity:{default}}}"
+    return (
+        keyframes(name, st, T)
+        + f".{name}{{animation:{name} {T}s linear infinite;opacity:{default}}}"
+    )
 
 
 def timeline(prefix, spans, T):
@@ -210,7 +229,9 @@ def hero():
         f"@keyframes owner{{0%,10%{{fill:{AGENT}}}28%,100%{{fill:{OWNER}}}}}"
         f".breathe{{animation:breathe 4s ease-in-out infinite}}@keyframes breathe{{50%{{opacity:.55}}}}"
     )
-    body.append(f'<g clip-path="url(#panel)"><rect width="{W}" height="{H}" fill="url(#dots)" mask="url(#m)"/></g>')
+    body.append(
+        f'<g clip-path="url(#panel)"><rect width="{W}" height="{H}" fill="url(#dots)" mask="url(#m)"/></g>'
+    )
 
     body.append(
         f'<g class="in"><text x="72" y="168" font-size="78" font-weight="800" letter-spacing="-3" fill="{TEXT}">backlog-agent</text></g>'
@@ -219,17 +240,27 @@ def hero():
         f'<text x="74" y="276">It clears dependency and security work, triages the</text>'
         f'<text x="74" y="306">backlog, and leaves the owner only the calls that are theirs.</text></g>'
     )
-    legend = [(AGENT, "agent at work"), (OWNER, "waiting on the owner"), (CLEAN, "clean")]
+    legend = [
+        (AGENT, "agent at work"),
+        (OWNER, "waiting on the owner"),
+        (CLEAN, "clean"),
+    ]
     x = 74
     items = []
     for color, label in legend:
-        items.append(f'<circle cx="{x + 7}" cy="372" r="7" fill="{color}"/><text x="{x + 24}" y="379" font-size="19" fill="{MUTED}">{label}</text>')
+        items.append(
+            f'<circle cx="{x + 7}" cy="372" r="7" fill="{color}"/><text x="{x + 24}" y="379" font-size="19" fill="{MUTED}">{label}</text>'
+        )
         x += 24 + len(label) * 9.6 + 34
     body.append(f'<g class="in" style="animation-delay:.45s">{"".join(items)}</g>')
 
     dial = [f'<g transform="translate({cx} {cy})">']
-    dial.append(f'<circle r="184" fill="{INK}" fill-opacity=".7" stroke="{LINE}" stroke-width="2"/>')
-    dial.append(f'<circle r="120" fill="none" stroke="#22324D" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>')
+    dial.append(
+        f'<circle r="184" fill="{INK}" fill-opacity=".7" stroke="{LINE}" stroke-width="2"/>'
+    )
+    dial.append(
+        '<circle r="120" fill="none" stroke="#22324D" stroke-width="2" stroke-dasharray="2 8" stroke-linecap="round"/>'
+    )
     for i in range(60):
         a = math.radians(i * 6)
         major = i % 5 == 0
@@ -254,7 +285,9 @@ def hero():
         sweep.append(
             f'<path d="M{pts[0][0]:.1f} {pts[0][1]:.1f}L{pts[1][0]:.1f} {pts[1][1]:.1f}A{r_out} {r_out} 0 0 0 {pts[2][0]:.1f} {pts[2][1]:.1f}L{pts[3][0]:.1f} {pts[3][1]:.1f}A{r_in} {r_in} 0 0 1 {pts[0][0]:.1f} {pts[0][1]:.1f}Z" fill="{AGENT}" fill-opacity="{op:.3f}"/>'
         )
-    sweep.append(f'<line x1="0" y1="-46" x2="0" y2="-178" stroke="{AGENT}" stroke-width="3" stroke-linecap="round"/>')
+    sweep.append(
+        f'<line x1="0" y1="-46" x2="0" y2="-178" stroke="{AGENT}" stroke-width="3" stroke-linecap="round"/>'
+    )
     sweep.append(f'<circle cy="-178" r="5" fill="{AGENT}" filter="url(#glow)"/>')
     sweep.append("</g>")
     dial.extend(sweep)
@@ -271,8 +304,12 @@ def hero():
             f'<circle class="{cls}" style="animation-delay:{delay:.2f}s" cx="{x:.1f}" cy="{y:.1f}" r="7.5"/>'
         )
     dial.append(f'<circle r="44" fill="{INK}" stroke="#2E4268" stroke-width="2"/>')
-    dial.append(f'<circle class="breathe" r="52" fill="none" stroke="{AGENT}" stroke-opacity=".25" stroke-width="2"/>')
-    dial.append(f'<text y="11" text-anchor="middle" font-size="30" font-weight="700" letter-spacing="-1" fill="{TEXT}">1h</text>')
+    dial.append(
+        f'<circle class="breathe" r="52" fill="none" stroke="{AGENT}" stroke-opacity=".25" stroke-width="2"/>'
+    )
+    dial.append(
+        f'<text y="11" text-anchor="middle" font-size="30" font-weight="700" letter-spacing="-1" fill="{TEXT}">1h</text>'
+    )
     dial.append("</g>")
     body.extend(dial)
     return frame(W, H, "".join(defs), "".join(s), "\n".join(body))
@@ -297,24 +334,39 @@ def loop():
         ".flow{animation:flow 1.6s linear infinite}@keyframes flow{to{stroke-dashoffset:-24}}"
     )
     back = f"M{xs[-1] + 26} {y} C{xs[-1] + 110} {y} {xs[-1] + 110} {yb} {xs[-1]} {yb} H{xs[0]} C{xs[0] - 110} {yb} {xs[0] - 110} {y} {xs[0] - 26} {y}"
-    body.append(f'<path class="flow" d="{back}" fill="none" stroke="#33476A" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round"/>')
-    body.append(f'<rect x="{640 - 92}" y="{yb - 14}" width="184" height="28" fill="{INK}"/>')
-    body.append(f'<text x="640" y="{yb + 7}" text-anchor="middle" font-size="18" fill="{DIM}">again next hour</text>')
+    body.append(
+        f'<path class="flow" d="{back}" fill="none" stroke="#33476A" stroke-width="2" stroke-dasharray="2 10" stroke-linecap="round"/>'
+    )
+    body.append(
+        f'<rect x="{640 - 92}" y="{yb - 14}" width="184" height="28" fill="{INK}"/>'
+    )
+    body.append(
+        f'<text x="640" y="{yb + 7}" text-anchor="middle" font-size="18" fill="{DIM}">again next hour</text>'
+    )
 
     L = xs[-1] - xs[0]
-    body.append(f'<line x1="{xs[0]}" y1="{y}" x2="{xs[-1]}" y2="{y}" stroke="{LINE}" stroke-width="4" stroke-linecap="round"/>')
+    body.append(
+        f'<line x1="{xs[0]}" y1="{y}" x2="{xs[-1]}" y2="{y}" stroke="{LINE}" stroke-width="4" stroke-linecap="round"/>'
+    )
     prog = [(0, f"stroke-dashoffset:{L}")]
     for i in range(6):
         off = L - (xs[i] - xs[0])
         prog += [(arrive[i], f"stroke-dashoffset:{off}")]
-    prog += [(13.4, "stroke-dashoffset:0;opacity:1"), (14, "stroke-dashoffset:0;opacity:0")]
-    s.append(keyframes("prog", prog, T) + f".prog{{animation:prog {T}s linear infinite}}")
-    body.append(f'<line class="prog" x1="{xs[0]}" y1="{y}" x2="{xs[-1]}" y2="{y}" stroke="{CLEAN}" stroke-opacity=".7" stroke-width="4" stroke-linecap="round" stroke-dasharray="{L} {L}" stroke-dashoffset="0"/>')
+    prog += [
+        (13.4, "stroke-dashoffset:0;opacity:1"),
+        (14, "stroke-dashoffset:0;opacity:0"),
+    ]
+    s.append(
+        keyframes("prog", prog, T) + f".prog{{animation:prog {T}s linear infinite}}"
+    )
+    body.append(
+        f'<line class="prog" x1="{xs[0]}" y1="{y}" x2="{xs[-1]}" y2="{y}" stroke="{CLEAN}" stroke-opacity=".7" stroke-width="4" stroke-linecap="round" stroke-dasharray="{L} {L}" stroke-dashoffset="0"/>'
+    )
 
     for i, (title, c1, c2) in enumerate(steps):
         x = xs[i]
         ring = [
-            (0, f"stroke:#33476A"),
+            (0, "stroke:#33476A"),
             (max(arrive[i] - 0.01, 0), "stroke:#33476A"),
             (arrive[i] + 0.15, f"stroke:{AGENT}"),
             (leave[i], f"stroke:{AGENT}"),
@@ -339,30 +391,68 @@ def loop():
             (leave[i] + 0.3, "opacity:0"),
             (14, "opacity:0"),
         ]
-        s.append(keyframes(f"r{i}", ring, T) + keyframes(f"n{i}", num, T) + keyframes(f"h{i}", halo, T))
-        s.append(f".r{i}{{animation:r{i} {T}s linear infinite}}.n{i}{{animation:n{i} {T}s linear infinite}}.h{i}{{animation:h{i} {T}s linear infinite;opacity:0}}")
-        body.append(f'<text x="{x}" y="{y + 60}" text-anchor="middle" font-size="23" font-weight="650" letter-spacing="-.3" fill="{TEXT}">{title}</text>')
-        body.append(f'<circle class="h{i}" cx="{x}" cy="{y}" r="34" fill="{AGENT}" fill-opacity=".18" filter="url(#glow)"/>')
-        body.append(f'<circle class="r{i}" cx="{x}" cy="{y}" r="26" fill="{INK}" stroke="#33476A" stroke-width="3"/>')
-        body.append(f'<text class="n{i}" x="{x}" y="{y + 7}" text-anchor="middle" font-size="20" font-weight="700" fill="{DIM}">{i}</text>')
-        body.append(f'<text x="{x}" y="{y + 88}" text-anchor="middle" font-size="18" fill="{MUTED}">{c1}</text>')
-        body.append(f'<text x="{x}" y="{y + 110}" text-anchor="middle" font-size="18" fill="{MUTED}">{c2}</text>')
+        s.append(
+            keyframes(f"r{i}", ring, T)
+            + keyframes(f"n{i}", num, T)
+            + keyframes(f"h{i}", halo, T)
+        )
+        s.append(
+            f".r{i}{{animation:r{i} {T}s linear infinite}}.n{i}{{animation:n{i} {T}s linear infinite}}.h{i}{{animation:h{i} {T}s linear infinite;opacity:0}}"
+        )
+        body.append(
+            f'<text x="{x}" y="{y + 60}" text-anchor="middle" font-size="23" font-weight="650" letter-spacing="-.3" fill="{TEXT}">{title}</text>'
+        )
+        body.append(
+            f'<circle class="h{i}" cx="{x}" cy="{y}" r="34" fill="{AGENT}" fill-opacity=".18" filter="url(#glow)"/>'
+        )
+        body.append(
+            f'<circle class="r{i}" cx="{x}" cy="{y}" r="26" fill="{INK}" stroke="#33476A" stroke-width="3"/>'
+        )
+        body.append(
+            f'<text class="n{i}" x="{x}" y="{y + 7}" text-anchor="middle" font-size="20" font-weight="700" fill="{DIM}">{i}</text>'
+        )
+        body.append(
+            f'<text x="{x}" y="{y + 88}" text-anchor="middle" font-size="18" fill="{MUTED}">{c1}</text>'
+        )
+        body.append(
+            f'<text x="{x}" y="{y + 110}" text-anchor="middle" font-size="18" fill="{MUTED}">{c2}</text>'
+        )
 
-    fs, fcss = timeline("fm", [(0, 5.2, "work"), (5.2, 12, "idle"), (12, 14, "happy")], T)
+    fs, fcss = timeline(
+        "fm", [(0, 5.2, "work"), (5.2, 12, "idle"), (12, 14, "happy")], T
+    )
     s.append(BOT_CSS + fcss)
-    kids = [("patch", xs[3], 6.1), ("probe", xs[3], 7.0), ("rivet", xs[3], 7.9), ("ledger", xs[4], 10.1)]
+    kids = [
+        ("patch", xs[3], 6.1),
+        ("probe", xs[3], 7.0),
+        ("rivet", xs[3], 7.9),
+        ("ledger", xs[4], 10.1),
+    ]
     for kind, kx, a in kids:
-        ks, kcss = timeline(f"k{kind}", [(0, a + 0.55, "work"), (a + 0.55, T, "happy")], T)
+        ks, kcss = timeline(
+            f"k{kind}", [(0, a + 0.55, "work"), (a + 0.55, T, "happy")], T
+        )
         s.append(kcss + win(f"v{kind}", [(a, a + 0.85)], T, e=0.12))
-        body.append(f'<g class="v{kind}">' + bot(kind, kx + 66, y - 30, 0.5, ks) + "</g>")
-    pulse = [(0, "transform:translateX(0);opacity:0"), (0.3, "transform:translateX(0);opacity:1")]
+        body.append(
+            f'<g class="v{kind}">' + bot(kind, kx + 66, y - 30, 0.5, ks) + "</g>"
+        )
+    pulse = [
+        (0, "transform:translateX(0);opacity:0"),
+        (0.3, "transform:translateX(0);opacity:1"),
+    ]
     for i in range(6):
         dx = xs[i] - xs[0]
         if i:
             pulse.append((arrive[i], f"transform:translateX({dx}px);opacity:1"))
         pulse.append((leave[i], f"transform:translateX({dx}px);opacity:1"))
-    pulse += [(13.5, f"transform:translateX({L}px);opacity:0"), (14, f"transform:translateX({L}px);opacity:0")]
-    s.append(keyframes("pulse", pulse, T) + f".pulse{{animation:pulse {T}s cubic-bezier(.45,0,.25,1) infinite}}")
+    pulse += [
+        (13.5, f"transform:translateX({L}px);opacity:0"),
+        (14, f"transform:translateX({L}px);opacity:0"),
+    ]
+    s.append(
+        keyframes("pulse", pulse, T)
+        + f".pulse{{animation:pulse {T}s cubic-bezier(.45,0,.25,1) infinite}}"
+    )
     body.append('<g class="pulse">' + bot("foreman", xs[0], y - 32, 0.72, fs) + "</g>")
     return frame(W, H, BOT_DEFS, "".join(s), "\n".join(body))
 
@@ -396,7 +486,12 @@ def board():
     s, body = [], []
     for i, (title, c1, c2, kind) in enumerate(stages):
         x = xs[i]
-        stroke = {"owner": OWNER, "run": "#3A5180", "idle": "#2A3D60", "done": "#2A3D60"}[kind]
+        stroke = {
+            "owner": OWNER,
+            "run": "#3A5180",
+            "idle": "#2A3D60",
+            "done": "#2A3D60",
+        }[kind]
         dash = ' stroke-dasharray="6 6"' if kind in ("owner", "idle", "done") else ""
         sop = ".75" if kind == "owner" else "1"
         lit = [
@@ -408,18 +503,35 @@ def board():
             (T, "fill-opacity:0"),
         ]
         glow = OWNER if kind == "owner" else (CLEAN if kind == "done" else AGENT)
-        s.append(keyframes(f"s{i}", lit, T) + f".s{i}{{animation:s{i} {T}s linear infinite;fill-opacity:0}}")
-        body.append(f'<text x="{x}" y="{cy + 80}" text-anchor="middle" font-size="19" font-weight="650" letter-spacing="-.3" fill="{TEXT}">{title}</text>')
-        body.append(f'<rect x="{x - 64}" y="{cy - 50}" width="128" height="100" rx="14" fill="{INK}" stroke="{stroke}" stroke-opacity="{sop}" stroke-width="2"{dash}/>')
-        body.append(f'<rect class="s{i}" x="{x - 64}" y="{cy - 50}" width="128" height="100" rx="14" fill="{glow}"/>')
+        s.append(
+            keyframes(f"s{i}", lit, T)
+            + f".s{i}{{animation:s{i} {T}s linear infinite;fill-opacity:0}}"
+        )
+        body.append(
+            f'<text x="{x}" y="{cy + 80}" text-anchor="middle" font-size="19" font-weight="650" letter-spacing="-.3" fill="{TEXT}">{title}</text>'
+        )
+        body.append(
+            f'<rect x="{x - 64}" y="{cy - 50}" width="128" height="100" rx="14" fill="{INK}" stroke="{stroke}" stroke-opacity="{sop}" stroke-width="2"{dash}/>'
+        )
+        body.append(
+            f'<rect class="s{i}" x="{x - 64}" y="{cy - 50}" width="128" height="100" rx="14" fill="{glow}"/>'
+        )
         cap = OWNER if kind == "owner" else MUTED
-        body.append(f'<text x="{x}" y="{cy + 106}" text-anchor="middle" font-size="17" fill="{cap}">{c1}</text>')
-        body.append(f'<text x="{x}" y="{cy + 128}" text-anchor="middle" font-size="17" fill="{cap}">{c2}</text>')
+        body.append(
+            f'<text x="{x}" y="{cy + 106}" text-anchor="middle" font-size="17" fill="{cap}">{c1}</text>'
+        )
+        body.append(
+            f'<text x="{x}" y="{cy + 128}" text-anchor="middle" font-size="17" fill="{cap}">{c2}</text>'
+        )
         if kind == "run":
-            body.append(f'<text x="{x}" y="{cy + 154}" text-anchor="middle" font-size="15" fill="{DIM}">In Progress</text>')
+            body.append(
+                f'<text x="{x}" y="{cy + 154}" text-anchor="middle" font-size="15" fill="{DIM}">In Progress</text>'
+            )
     for i, color in enumerate(movers):
         x = (xs[i] + xs[i + 1]) / 2
-        body.append(f'<path d="M{x - 6} {cy - 8} l8 8 -8 8" fill="none" stroke="{color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>')
+        body.append(
+            f'<path d="M{x - 6} {cy - 8} l8 8 -8 8" fill="none" stroke="{color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
+        )
 
     def card_kf(fn):
         stops = []
@@ -440,8 +552,16 @@ def board():
     mv = card_kf(pos)
     mv.append((T - 0.35, f"transform:translate({xs[7] - xs[0]}px,0)"))
     mv.append((T, f"transform:translate({xs[7] - xs[0]}px,0)"))
-    s.append(keyframes("mv", mv, T) + f".mv{{animation:mv {T}s cubic-bezier(.5,0,.3,1) infinite}}")
-    fade = [(0, "opacity:0"), (0.35, "opacity:1"), (T - 0.4, "opacity:1"), (T, "opacity:0")]
+    s.append(
+        keyframes("mv", mv, T)
+        + f".mv{{animation:mv {T}s cubic-bezier(.5,0,.3,1) infinite}}"
+    )
+    fade = [
+        (0, "opacity:0"),
+        (0.35, "opacity:1"),
+        (T - 0.4, "opacity:1"),
+        (T, "opacity:0"),
+    ]
     s.append(keyframes("cf", fade, T) + f".cf{{animation:cf {T}s linear infinite}}")
 
     def col(i, phase):
@@ -449,7 +569,10 @@ def board():
 
     stops = []
     for i in range(8):
-        stops += [(arrive[i] + 0.1, col(i, "at")), (leave[i] + MOVE - 0.05, col(i, "at"))]
+        stops += [
+            (arrive[i] + 0.1, col(i, "at")),
+            (leave[i] + MOVE - 0.05, col(i, "at")),
+        ]
     stops.append((T, col(7, "at")))
     stops.insert(0, (0, col(0, "at")))
     s.append(keyframes("st", stops, T) + f".st{{animation:st {T}s linear infinite}}")
@@ -457,17 +580,35 @@ def board():
     def window(name, ranges, prop_on, prop_off):
         st = [(0, prop_off)]
         for a, b in ranges:
-            st += [(a - 0.01, prop_off), (a + 0.2, prop_on), (b, prop_on), (b + 0.2, prop_off)]
+            st += [
+                (a - 0.01, prop_off),
+                (a + 0.2, prop_on),
+                (b, prop_on),
+                (b + 0.2, prop_off),
+            ]
         st.append((T, prop_off))
         return keyframes(name, st, T)
 
-    s.append(window("sp", [(arrive[2], leave[2]), (arrive[5], leave[5])], "opacity:1", "opacity:0") + f".sp{{animation:sp {T}s linear infinite;opacity:0}}")
-    s.append(".rot{animation:rot 1s linear infinite;transform-box:fill-box;transform-origin:center}@keyframes rot{to{transform:rotate(360deg)}}")
-    s.append(window("ck", [(arrive[7], T - 0.4)], "opacity:1", "opacity:0") + f".ck{{animation:ck {T}s linear infinite;opacity:0}}")
+    s.append(
+        window(
+            "sp",
+            [(arrive[2], leave[2]), (arrive[5], leave[5])],
+            "opacity:1",
+            "opacity:0",
+        )
+        + f".sp{{animation:sp {T}s linear infinite;opacity:0}}"
+    )
+    s.append(
+        ".rot{animation:rot 1s linear infinite;transform-box:fill-box;transform-origin:center}@keyframes rot{to{transform:rotate(360deg)}}"
+    )
+    s.append(
+        window("ck", [(arrive[7], T - 0.4)], "opacity:1", "opacity:0")
+        + f".ck{{animation:ck {T}s linear infinite;opacity:0}}"
+    )
 
     c0 = xs[0]
     card = [
-        f'<g class="mv"><g class="cf">',
+        '<g class="mv"><g class="cf">',
         f'<rect x="{c0 - 54}" y="{cy - 33}" width="108" height="66" rx="11" fill="#1A2C4A" stroke="#3A5180" stroke-width="1.5"/>',
         f'<rect class="st" x="{c0 - 54}" y="{cy - 33}" width="6" height="66" rx="3" fill="#5A6F93"/>',
         f'<rect x="{c0 - 38}" y="{cy - 18}" width="58" height="9" rx="4.5" fill="#6479A0"/>',
@@ -477,9 +618,22 @@ def board():
         f'<g class="ck"><circle cx="{c0 + 36}" cy="{cy - 14}" r="10" fill="{CLEAN}"/><path d="M{c0 + 31} {cy - 14} l3.5 3.5 6.5 -7" fill="none" stroke="{INK}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></g>',
     ]
     crew = {
-        "foreman": ([(0, arrive[2]), (arrive[4], arrive[5])], [(0, arrive[4], "idle"), (arrive[4], T, "happy")]),
-        "probe": ([(arrive[2], arrive[4])], [(0, arrive[3], "work"), (arrive[3], T, "wait")]),
-        "rivet": ([(arrive[5], T)], [(0, arrive[6], "work"), (arrive[6], arrive[7], "wait"), (arrive[7], T, "happy")]),
+        "foreman": (
+            [(0, arrive[2]), (arrive[4], arrive[5])],
+            [(0, arrive[4], "idle"), (arrive[4], T, "happy")],
+        ),
+        "probe": (
+            [(arrive[2], arrive[4])],
+            [(0, arrive[3], "work"), (arrive[3], T, "wait")],
+        ),
+        "rivet": (
+            [(arrive[5], T)],
+            [
+                (0, arrive[6], "work"),
+                (arrive[6], arrive[7], "wait"),
+                (arrive[7], T, "happy"),
+            ],
+        ),
     }
     s.append(BOT_CSS)
     for kind, (vis, spans) in crew.items():
@@ -495,13 +649,19 @@ def board():
         (ga - 0.01, f"transform:translate({xs[3] - xs[0] + 26}px,40px);opacity:0"),
         (ga + 0.45, f"transform:translate({xs[3] - xs[0]}px,0);opacity:1"),
         (leave[3], f"transform:translate({xs[3] - xs[0]}px,0) scale(.88);opacity:1"),
-        (leave[3] + MOVE / 2, f"transform:translate({(xs[3] + xs[4]) / 2 - xs[0]}px,-10px) scale(.88);opacity:1"),
+        (
+            leave[3] + MOVE / 2,
+            f"transform:translate({(xs[3] + xs[4]) / 2 - xs[0]}px,-10px) scale(.88);opacity:1",
+        ),
         (arrive[4], f"transform:translate({xs[4] - xs[0]}px,0) scale(.88);opacity:1"),
         (arrive[4] + 0.2, f"transform:translate({xs[4] - xs[0]}px,0);opacity:1"),
         (gb, f"transform:translate({xs[4] - xs[0] + 24}px,30px);opacity:0"),
         (T, f"transform:translate({xs[4] - xs[0] + 24}px,30px);opacity:0"),
     ]
-    s.append(keyframes("cur", cur, T) + f".cur{{animation:cur {T}s cubic-bezier(.5,0,.3,1) infinite;opacity:0;transform-box:fill-box;transform-origin:center}}")
+    s.append(
+        keyframes("cur", cur, T)
+        + f".cur{{animation:cur {T}s cubic-bezier(.5,0,.3,1) infinite;opacity:0;transform-box:fill-box;transform-origin:center}}"
+    )
     hx, hy = c0 + 14, cy + 4
     body.append(
         f'<g class="cur"><g transform="translate({hx} {hy})">'
@@ -514,7 +674,13 @@ def board():
 def crew():
     W, H, g, sc = 1280, 392, 262, 1.7
     order = ["foreman", "patch", "probe", "rivet", "ledger"]
-    look = {"foreman": "work", "patch": "idle", "probe": "work", "rivet": "idle", "ledger": "idle"}
+    look = {
+        "foreman": "work",
+        "patch": "idle",
+        "probe": "work",
+        "rivet": "idle",
+        "ledger": "idle",
+    }
     gest = (
         ".g-foreman{animation:gf 4.5s ease-in-out infinite}@keyframes gf{0%,50%,100%{transform:rotate(0)}62%,84%{transform:rotate(105deg)}}"
         ".g-patch{animation:gp 1.4s ease-in-out infinite}@keyframes gp{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(28deg)}}"
@@ -526,11 +692,31 @@ def crew():
     for i, kind in enumerate(order):
         name, accent, _, role = CREW[kind]
         x = 168 + i * 236
-        b = bot(kind, x, g, sc, {look[kind]: ""}, arm=f"g-{kind}", spin=look[kind] != "idle", delay=-i * 0.7)
-        body.append(b.replace('class="blink"', f'class="blink" style="animation-delay:{-i * 1.3:.1f}s"'))
-        body.append(f'<text x="{x}" y="{g + 52}" text-anchor="middle" font-size="25" font-weight="700" letter-spacing="-.4" fill="{TEXT}">{name}</text>')
-        body.append(f'<text x="{x}" y="{g + 80}" text-anchor="middle" font-size="18" fill="{MUTED}">{role}</text>')
-        body.append(f'<rect x="{x - 14}" y="{g + 94}" width="28" height="4" rx="2" fill="{accent}"/>')
+        b = bot(
+            kind,
+            x,
+            g,
+            sc,
+            {look[kind]: ""},
+            arm=f"g-{kind}",
+            spin=look[kind] != "idle",
+            delay=-i * 0.7,
+        )
+        body.append(
+            b.replace(
+                'class="blink"',
+                f'class="blink" style="animation-delay:{-i * 1.3:.1f}s"',
+            )
+        )
+        body.append(
+            f'<text x="{x}" y="{g + 52}" text-anchor="middle" font-size="25" font-weight="700" letter-spacing="-.4" fill="{TEXT}">{name}</text>'
+        )
+        body.append(
+            f'<text x="{x}" y="{g + 80}" text-anchor="middle" font-size="18" fill="{MUTED}">{role}</text>'
+        )
+        body.append(
+            f'<rect x="{x - 14}" y="{g + 94}" width="28" height="4" rx="2" fill="{accent}"/>'
+        )
     return frame(W, H, BOT_DEFS, BOT_CSS + gest, "\n".join(body))
 
 
@@ -547,8 +733,12 @@ def states():
     for i, (st, motion, spin, label, cap, color) in enumerate(rows):
         x = 168 + i * 236
         body.append(bot("foreman", x, g, sc, {st: ""}, motion=motion, spin=spin))
-        body.append(f'<text x="{x}" y="{g + 56}" text-anchor="middle" font-size="23" font-weight="650" letter-spacing="-.3" fill="{color}">{label}</text>')
-        body.append(f'<text x="{x}" y="{g + 84}" text-anchor="middle" font-size="18" fill="{MUTED}">{cap}</text>')
+        body.append(
+            f'<text x="{x}" y="{g + 56}" text-anchor="middle" font-size="23" font-weight="650" letter-spacing="-.3" fill="{color}">{label}</text>'
+        )
+        body.append(
+            f'<text x="{x}" y="{g + 84}" text-anchor="middle" font-size="18" fill="{MUTED}">{cap}</text>'
+        )
     return frame(W, H, BOT_DEFS, BOT_CSS, "\n".join(body))
 
 
