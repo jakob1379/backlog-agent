@@ -1,6 +1,7 @@
 import base64
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -107,7 +108,9 @@ def graphql(query: str, **variables) -> dict:
             break
         except urllib.error.HTTPError as e:
             error = f"HTTP {e.code}: {e.read().decode(errors='replace')[:500]}"
-            if e.code < 500:
+            if e.code == 429:
+                time.sleep(60)
+            elif e.code < 500:
                 raise RuntimeError(f"linear {error}") from None
         except urllib.error.URLError as e:
             error = str(e.reason)

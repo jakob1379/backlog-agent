@@ -4,9 +4,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest import mock
 
+import linear
 from backlog import (
     covering_pr,
     finish,
@@ -1327,3 +1330,18 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LinearRateLimitTest(unittest.TestCase):
+    def test_graphql_waits_out_a_rate_limit(self):
+        limited = urllib.error.HTTPError(linear.API, 429, "ratelimited", {}, None)
+        limited.read = lambda: b"ratelimit exceeded"
+        ok = mock.MagicMock()
+        ok.__enter__.return_value.read.return_value = b'{"data": {"x": 1}}'
+        with (
+            mock.patch.object(linear, "_token", "t"),
+            mock.patch("urllib.request.urlopen", side_effect=[limited, ok]),
+            mock.patch("time.sleep") as sleep,
+        ):
+            self.assertEqual(linear.graphql("q"), {"x": 1})
+        sleep.assert_called_once()
