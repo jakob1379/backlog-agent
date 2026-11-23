@@ -36,8 +36,10 @@ and the vocabulary in
    `job<TAB>step<TAB>timestamp `; strip that with
    `sed 's/^[^\t]*\t[^\t]*\t[^ ]* //'` before matching on a line's start. A `*`
    must stand for whole labels (`productionresultssa*.blob…` is rejected). Work
-   inside the sandbox; when a host is refused, add it and rerun. The caches in
-   `~` are read-only there, so start every package-tool and `gh` command with
+   inside the sandbox; when a host is refused, add it and rerun. A command that
+   fails at once with `bwrap: Can't find source path …/.claude/launch.json`
+   never ran; rerun it unchanged (Canvas-Code-Correction#232). The caches in `~`
+   are read-only there, so start every package-tool and `gh` command with
    `export UV_CACHE_DIR=$TMPDIR/<slug>-uv-cache UV_PYTHON_INSTALL_DIR=$TMPDIR/uv-python UV_TOOL_DIR=$TMPDIR/uv-tools npm_config_cache=$TMPDIR/npm-cache XDG_CACHE_HOME=$TMPDIR/xdg-cache MPLCONFIGDIR=$TMPDIR/mpl;`
    (`gh run view --log-failed` writes to `~/.cache/gh`, uv installs Pythons and
    `uvx` tools under `~`, and matplotlib writes its config there). The uv cache
