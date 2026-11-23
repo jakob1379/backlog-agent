@@ -76,5 +76,6 @@
       entry = "${lib.getExe pkgs.statix} fix";
     };
     trim-trailing-whitespace.enable = true;
+    ty.enable = true;
   };
 }
