@@ -7,6 +7,7 @@ import tempfile
 import unittest
 import urllib.error
 from datetime import UTC, datetime, timedelta
+from email.message import Message
 from pathlib import Path
 from unittest import mock
 
@@ -1445,9 +1446,9 @@ def linear_reply(body: dict):
 
 
 def rate_limited(url, *_):
-    e = urllib.error.HTTPError(url, 429, "ratelimited", {}, None)
-    e.read = lambda: b"ratelimit exceeded"
-    return e
+    return urllib.error.HTTPError(
+        url, 429, "ratelimited", Message(), io.BytesIO(b"ratelimit exceeded")
+    )
 
 
 class FakeLinear:
@@ -1549,10 +1550,10 @@ class LinearApplyTest(unittest.TestCase):
     def test_a_lost_reply_leaves_the_op_pending_without_retrying_it(self):
         for failure in (
             TimeoutError("timed out"),
-            urllib.error.HTTPError(linear.API, 502, "bad gateway", {}, None),
+            urllib.error.HTTPError(
+                linear.API, 502, "bad gateway", Message(), io.BytesIO(b"bad gateway")
+            ),
         ):
-            if isinstance(failure, urllib.error.HTTPError):
-                failure.read = lambda: b"bad gateway"
             fake = FakeLinear()
             replies = iter([None, failure])
 

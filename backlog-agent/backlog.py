@@ -232,7 +232,7 @@ def alert_key(repo: str, a: dict) -> str:
     return f"{repo}:dep:{a['ecosystem']}:{re.sub(r'[-_.]+', '-', a['package']).lower()}"
 
 
-def candidate_tasks(candidates: dict, now: datetime) -> list[tuple]:
+def candidate_tasks(candidates: dict, now: datetime) -> list[dict]:
     ranked = []
     for r in candidates["repos"]:
         base = {"repo": r["repo"], "has_ci": r["has_ci"]}
@@ -339,7 +339,9 @@ def health(candidates: dict, ledger: dict, tasks: list[dict], now: datetime) -> 
     }
 
 
-def move(card_id: str, to: str, add: list = (), remove: list = ()) -> dict:
+def move(
+    card_id: str, to: str, add: list | tuple = (), remove: list | tuple = ()
+) -> dict:
     return {
         "op": "move",
         "card": card_id,
@@ -361,7 +363,7 @@ def outcome_op(card: dict, outcome: str) -> dict | None:
     return None
 
 
-def owner_replied(issue: dict, history: list, owner: str) -> bool:
+def owner_replied(issue: dict, history: list, owner: str | None) -> bool:
     marks = [
         datetime.fromisoformat(m["created_at"])
         for m in issue["comments"]

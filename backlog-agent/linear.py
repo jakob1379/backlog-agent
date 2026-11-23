@@ -4,6 +4,7 @@ import re
 import time
 import urllib.error
 import urllib.request
+from operator import itemgetter
 from pathlib import Path
 
 API = "https://api.linear.app/graphql"
@@ -186,11 +187,11 @@ def github_link(m: re.Match | None) -> dict | None:
 
 def attached(node: dict) -> dict | None:
     links = [
-        github_link(m)
+        link
         for a in node["attachments"]["nodes"]
-        if (m := re.match(GITHUB, a["url"]))
+        if (link := github_link(re.match(GITHUB, a["url"])))
     ]
-    return min(links, key=lambda x: x["type"] != "issue", default=None)
+    return min(links, key=lambda x: x["type"] != "issue") if links else None
 
 
 def imported(node: dict) -> dict | None:
@@ -229,7 +230,7 @@ def card(node: dict, agent: str, owner: str) -> dict:
                 for h in node["history"]["nodes"]
                 if h["toState"]
             ),
-            key=lambda h: h["at"],
+            key=itemgetter("at"),
         ),
     }
 

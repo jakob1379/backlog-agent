@@ -348,7 +348,7 @@ def loop():
     body.append(
         f'<line x1="{xs[0]}" y1="{y}" x2="{xs[-1]}" y2="{y}" stroke="{LINE}" stroke-width="4" stroke-linecap="round"/>'
     )
-    prog = [(0, f"stroke-dashoffset:{L}")]
+    prog: list[tuple[float, str]] = [(0, f"stroke-dashoffset:{L}")]
     for i in range(6):
         off = L - (xs[i] - xs[0])
         prog += [(arrive[i], f"stroke-dashoffset:{off}")]
