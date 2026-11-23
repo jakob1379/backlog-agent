@@ -91,7 +91,15 @@ vocabulary in `/home/jsg/Documents/jsg/backlog-agent/backlog-agent/GLOSSARY.md`.
    against the PR.
    jakob1379.github.io's Playwright suite can't run locally: under `nix develop` the browser
    fails to launch with `GLIBC_2.43 not found` (alsa-lib's libasound). Take the PR's CI `test`
-   run on the head as that check (#47).
+   run on the head as that check (#47). Its `rendercv render` (`poe build_rendercv`) runs in the
+   sandbox under `uv run --locked --python 3.13` with `packages.typst.org` declared next to
+   PyPI; `--markdown-path` gives output you can grep (#6).
+   homelab's `Test Docker Compose Configuration` runs `setup-dev.sh`, then `docker compose
+   config`. In the sandbox `setup-dev.sh` stops without `mkcert` (and without `openssl`, its CI
+   fallback), leaving `.env` incomplete; only the flake's dev shell has `mkcert`, so run those
+   steps as `nix develop -c` outside the sandbox. To check that an image tag exists, `curl
+   https://hub.docker.com/v2/repositories/<ns>/<img>/tags/<tag>` with `hub.docker.com`
+   declared (#2).
    Run Python checks under the version the workflow sets up: the sandbox's uv picks the newest
    (3.14), but Canvas-Code-Correction's `Test` pins 3.13. Use `uv run --python <ver>` with
    `UV_PROJECT_ENVIRONMENT=$TMPDIR/<slug>-venv`.
