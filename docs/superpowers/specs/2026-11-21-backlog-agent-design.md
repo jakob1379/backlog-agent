@@ -333,19 +333,22 @@ whether work is moving.
 - **Linear's GitHub Issues sync.** Ten repos with open issues were linked
   one-way to JGA on 2026-11-22, and the other 37 in-scope repos on 2026-11-23,
   so every repo in scope is linked. A repo created or opted in later needs
-  linking by hand (Settings → Integrations → GitHub). One-way only governs where
-  issues are created: updates to a synced issue are meant to go both ways, so a
-  card the sync made, moved to Done or Canceled, should close its GitHub issue,
-  and comments in its synced thread should reach GitHub. Neither has been seen
-  yet. Closing a card has not closed its issue so far: on 2026-11-23 `apply`
-  moved the cards for homelab#3 and jakob1379.github.io#6 to Canceled and both
-  issues stayed open, so a not-actionable issue stays open on GitHub until the
-  owner closes it. The sync makes no cards for issues that existed before a repo
-  was linked, which is why `plan` creates them. Linear also posts link-back
-  comments on GitHub issues in private repos; they are not the owner's, so the
-  trust rule ignores them. Still unverified: how the sync's own moves appear in
-  a card's history, and whether closing a GitHub issue moves its card to Done.
-  By 2026-11-23 the sync had made no card and no move on JGA.
+  linking by hand (Settings → Integrations → GitHub), and its `repo: <name>`
+  label added to JGA by the owner, since the agent can't create labels: on
+  2026-11-24 `apply` created the card for backlog-agent#1 without its `repo`
+  label and listed `repo: backlog-agent` in `missing_labels`. One-way only
+  governs where issues are created: updates to a synced issue are meant to go
+  both ways, so a card the sync made, moved to Done or Canceled, should close
+  its GitHub issue, and comments in its synced thread should reach GitHub.
+  Neither has been seen yet. Closing a card has not closed its issue so far: on
+  2026-11-23 `apply` moved the cards for homelab#3 and jakob1379.github.io#6 to
+  Canceled and both issues stayed open, so a not-actionable issue stays open on
+  GitHub until the owner closes it. The sync makes no cards for issues that
+  existed before a repo was linked, which is why `plan` creates them. Linear
+  also posts link-back comments on GitHub issues in private repos; they are not
+  the owner's, so the trust rule ignores them. Still unverified: how the sync's
+  own moves appear in a card's history, and whether closing a GitHub issue moves
+  its card to Done. By 2026-11-23 the sync had made no card and no move on JGA.
 - **What the first live run showed (2026-11-23).** A label-only move sends the
   card's current status, and Linear records no status change for it: the 72
   relabelled cards show only the label change, so the agent does not become the
