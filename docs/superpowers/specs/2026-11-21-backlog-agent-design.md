@@ -179,6 +179,65 @@ whether work is moving.
 - **Scope.** An in-scope repo is a non-archived repo owned by `jakob1379` that
   is not a fork, or a fork carrying the `backlog-agent` topic. No other org.
   `collect` applies this one rule to both kinds of work.
+- **Scans.** A `scan` task (key `<repo>:scan`) reviews one repo's default branch
+  with the `aggregate-code-quality-report` skill and files findings as GitHub
+  issues, so they reach the board, the top-up and the approval gate like any
+  backlog issue (ADR 0003).
+  - **When.** `plan` offers a scan when the repo is not a fork, its default
+    branch head differs from the one last scanned and the last scan started at
+    least 7 days ago. Order: a scan being retried, then repos never scanned,
+    then the repo scanned longest ago. Among repos never scanned, a dormant one,
+    whose head commit is over 30 days old, goes last. A dormant repo's head does
+    not move, so it is scanned once and again only after a push, which a merged
+    fix for one of its findings is. Until then the findings its one scan did not
+    file stay in its report. One scan runs at a time and it is appended after
+    every other task, though once running it holds one of the three slots.
+  - **Limit.** At most three findings wait for the owner. The task carries
+    `limit`: three minus the open issues a scan filed whose card is not
+    Canceled. No scan starts at zero, nor on a repo whose open issues would pass
+    the 100 that `collect` reads. A scan entry that finished after the snapshot
+    was taken waits for the next run's snapshot. No scan starts, and no
+    remembered issue is forgotten, from a snapshot older than any scan's finish.
+  - **Whose issue.** An issue is a scan's when the owner is its author and its
+    body starts with the marker, or when the owner is its author and it was
+    created in that repo while a scan of it ran. The second rule covers a child
+    that forgot the marker; `plan` remembers those issues in the ledger
+    (`found`) while they are open. Such an issue never takes the new-owner-issue
+    path.
+  - **Outcomes.** A failed scan is retried once. A scan that ends blocked, or
+    fails twice, keeps a card in Needs info, like blocked dependency work and
+    with its `kind: dependency` label, and the repo is not scanned while the
+    card is open. When the owner closes the card, a scan that ran counts as
+    scanned and one that failed twice is tried again. A run that reads no board
+    leaves a blocked scan as it is.
+  - **State.** The ledger keeps each repo's last scan (`scans`: its start, its
+    finish and the head it was planned for), the open issues `plan` took for a
+    scan's by their timing (`found`), and on every task whether its last attempt
+    crashed. If the ledger is lost, each due repo is scanned once more, and an
+    unmarked issue from an earlier scan reads as the owner's again.
+  - **Incremental.** The child keeps each repo's last `findings.json` under
+    `work/.scans/` and hands it to the next scan as its baseline, so that scan
+    reviews only the files changed since, and in full only the lanes the last
+    one did not finish. Each finding has an id built from its category, file and
+    enclosing symbol, the issue carries it, and a child never files an id an
+    earlier issue has. Losing `work/.scans/` costs one full scan.
+  - **Profiles.** When the skill drafts a profile for a stack it has none for,
+    or a fix for an existing one, the child opens one pull request on nix-config
+    that adds or changes that profile, in the review lane and never auto-merged.
+    One per scan at most. The task carries `profile`, false while the
+    needs-review cap is full when the scan is planned; a scan already running
+    may still open its one. None when the scanned repo is private and nix-config
+    is public, none for a draft whose trial failed or a fix for a broken profile
+    with no command that ran, and none for a stack whose profile the owner
+    already has in review, merged or turned down; a fix is keyed on the pinned
+    profile's content, so it is offered once until the pin moves. The pull
+    request quotes no finding from the scanned repo. It gets its own card like
+    any pull request with no issue behind it. The agent picks a merged profile
+    up when `flake.lock` is next updated, which needs `flake.nix` to follow
+    nix-config's default branch.
+  - **Skills.** The skill comes from the owner's nix-config as the flake package
+    `.#skills`, so that copy changes only with `flake.lock`. Plugin skills its
+    lanes call and the scanners it downloads are not pinned.
 - **Board.** The JGA team's statuses are Backlog, Needs triage, Needs approval,
   Approved, In Progress, In Review, Needs info, Done, Canceled and Duplicate.
   Needs triage, Needs approval, Approved and Needs info are new. In Review means
@@ -322,6 +381,8 @@ whether work is moving.
   creates.
 - A second tracker. The design only keeps porting to one module.
 - Auto-merging anything a triage or build run produced.
+- A health check that counts findings, and labels or priorities set by a scan.
+- Scanning forks, and writing on repos outside the scope.
 
 ## Further Notes
 

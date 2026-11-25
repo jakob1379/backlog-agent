@@ -4,14 +4,14 @@
 `B="python3 $W/backlog-agent/backlog.py"`.
 
 `backlog.py` holds every rule: ranking, holds, the 3-running and 100-a-day caps,
-retries, the ledger, and the triage state machine that decides how cards move on
-the owner's board. Your job is to run it, apply the card moves it decides, start
-the children it names one at a time, hand each one's lessons to the next, end
-with the steward, and report. Read the state only from its output (`running`,
-`plan`), change the ledger only through its `start` and `finish` commands, and
-change the board only through its `apply` command. Never write to Linear any
-other way, such as with a Linear connector or tool: an approval only counts when
-the board's history shows the owner made it
+retries, the ledger, when a repo is due a scan, and the triage state machine
+that decides how cards move on the owner's board. Your job is to run it, apply
+the card moves it decides, start the children it names one at a time, hand each
+one's lessons to the next, end with the steward, and report. Read the state only
+from its output (`running`, `plan`), change the ledger only through its `start`
+and `finish` commands, and change the board only through its `apply` command.
+Never write to Linear any other way, such as with a Linear connector or tool: an
+approval only counts when the board's history shows the owner made it
 (`docs/adr/0002-agent-has-its-own-linear-identity.md`).
 
 ## 0. Guard
@@ -44,9 +44,9 @@ with its `task_id`. An empty `task_id` means its run is still starting it, so
 skip it unless it is `overdue`:
 
 - Terminal: take the child's last `RESULT: <status> — <note>` line. If there is
-  no such line, the status is `failed`. A dependency child's status is `done`,
-  `blocked` or `failed`. A `triage` or `build` child's status is its outcome:
-  `fix-pending`, `needs-approval`, `needs-repro`, `unable-to-fix` or
+  no such line, the status is `failed`. A dependency or `scan` child's status is
+  `done`, `blocked` or `failed`. A `triage` or `build` child's status is its
+  outcome: `fix-pending`, `needs-approval`, `needs-repro`, `unable-to-fix` or
   `not-actionable`, or `failed` when it crashed. `finish` only records it; the
   next `plan` turns it into the card's move.
 - `task_status` errors: each run is a new thread, and only the thread that
@@ -118,7 +118,7 @@ remaining tasks.
 `dispatch` is this run's queue. `plan` has already claimed every task in it, so
 start them in order, one at a time: start the first now, and each next one when
 the previous child finishes (see the wake-ups below). Never run two of this
-run's children at once. A `triage` or `build` task starts exactly like a
+run's children at once. A `triage`, `build` or `scan` task starts exactly like a
 dependency task: `CHILD.md` has a section for each kind.
 
 To start a task:
@@ -262,7 +262,8 @@ result shows one of its rules is wrong. The steward follows these rules too:
   with `allowed_domains: ["github.com", "api.github.com"]`.
 - Never switch branches, rebase or force-push. Never loosen the guardrails in
   `CHILD.md` (no `--admin`, no alert dismissal, no settings changes, sandbox
-  stays on except for `nix` checks). Those changes need the owner.
+  stays on except for `nix` checks and the three commands a scan may run). Those
+  changes need the owner.
 
 ## Wake-ups
 
