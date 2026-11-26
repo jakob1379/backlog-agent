@@ -366,6 +366,13 @@ whether work is moving.
   keeps no outbox: the ops it did not reach come back in the next `plan`, which
   reads the board, so a large sync drains over a few runs. A replayed outbox
   could undo a move the owner made since.
+- **A Linear error that is not a 429 stops `apply`.** On 2026-11-26 the run's
+  one op, a create for nix-config#154, failed with the GraphQL error
+  `usage limit exceeded`. It is not a 429, so it was not retried: `apply`
+  stopped there and the op stayed pending. The next `plan` emits it again, so
+  each run hits the same error until its cause is gone. The cause is unknown.
+  The agent can't read the workspace's limits, so the error goes under **Needs
+  you** for the owner to check.
 - **No card is lost, and none is doubled.** Every run, `plan` takes the open
   cards that link the same in-scope issue or pull request and keeps one: the one
   the owner has moved out of Backlog, then one with its GitHub link attached,
