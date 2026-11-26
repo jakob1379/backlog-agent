@@ -213,9 +213,11 @@ whether work is moving.
   wait for approval. Its order is the `security` label, then `Bug`, then
   everything else, oldest issue first within each.
 - **Trust.** Only the owner is a trusted author. `collect` records the author of
-  each issue and comment. `plan` never starts a run from a card whose issue was
-  written by someone else unless the owner moved it. A child's prompt never
-  includes comments from untrusted authors.
+  each issue and comment. On the board, the owner is the one active human admin
+  of the Linear workspace. When there is not exactly one, `collect` prints
+  `board not read` and the run makes no card moves. `plan` never starts a run
+  from a card whose issue was written by someone else unless the owner moved it.
+  A child's prompt never includes comments from untrusted authors.
 - **Bugs and the origin of a run.** `plan` records whether the owner or the
   top-up put a card in Needs triage. A triage run started by the owner may open
   a fix pull request for a bug. One started by the top-up must end with a plan.
