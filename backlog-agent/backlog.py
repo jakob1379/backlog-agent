@@ -35,6 +35,10 @@ ADD_CI_REPOS = {"jakob1379/pacify", "jakob1379/br18", "jakob1379/brobizz-usage"}
 BACKLOG_TIERS = {"build": 8, "triage": 9}
 TOPUP_LIMIT = 3
 NEW_ISSUE_AGE = timedelta(hours=24)
+SCAN_INTERVAL = timedelta(days=7)
+SCAN_ACTIVE_WITHIN = timedelta(days=30)
+SCAN_OPEN_LIMIT = 3
+ISSUE_PAGE = 100
 SYNC_GRACE = timedelta(hours=1)
 TOKEN_WARN = timedelta(days=7)
 REASONS = ("needs-repro", "unable-to-fix", "failed")
@@ -90,15 +94,21 @@ def backlog_kind(key: str) -> str | None:
     return m and m[1]
 
 
+def scan_repo(key: str) -> str | None:
+    m = re.fullmatch(r"([^:#]+):scan", key)
+    return m and m[1]
+
+
 def finish(ledger: dict, key: str, status: str, note: str, now: datetime) -> str:
     entry = ledger["tasks"][key]
     if status not in (
         {*OUTCOMES, "blocked"} if backlog_kind(key) else {"done", "blocked"}
     ):
         status = "failed"
-    if status == "failed" and entry["attempts"] >= MAX_ATTEMPTS:
+    crashed = status == "failed"
+    if crashed and entry["attempts"] >= MAX_ATTEMPTS:
         status = "blocked"
-    entry.update(status=status, note=note, finished=now.isoformat())
+    entry.update(status=status, note=note, finished=now.isoformat(), crashed=crashed)
     return status
 
 
@@ -136,7 +146,7 @@ def sweep_locks(work: Path, now: datetime) -> tuple[set[str], list[str]]:
         else:
             busy.add(lock["key"])
     for d in work.glob("[!.]*"):
-        if d.is_dir() and not d.with_suffix(".lock").exists():
+        if d.is_dir() and not d.with_name(d.name + ".lock").exists():
             shutil.rmtree(d, ignore_errors=True)
     return busy, stale
 
@@ -518,6 +528,7 @@ def backlog_work(
             c["status"] == "Backlog"
             and not history
             and issue["author"] == owner
+            and not scan_filed(ledger, ref, issue)
             and now - datetime.fromisoformat(issue["created_at"]) < NEW_ISSUE_AGE
         ):
             to_triage(ref, c, "owner")
@@ -543,6 +554,76 @@ def backlog_work(
             to_triage(ref, c, "topup")
     ranked.sort(key=lambda x: x[:3])
     return [task for *_, task in ranked], ops, status
+
+
+def scan_filed(ledger: dict, ref: str, issue: dict) -> bool:
+    return bool(issue.get("by_agent")) or ref in ledger.get("found", [])
+
+
+def scan_tasks(
+    candidates: dict, ledger: dict, now: datetime, busy: frozenset
+) -> list[dict]:
+    entries = {scan_repo(k): e for k, e in ledger["tasks"].items() if scan_repo(k)}
+    issue_cards = [
+        ((c["link"]["repo"], c["link"]["number"]), c["status"])
+        for c in candidates.get("board", {}).get("cards", [])
+        if c["link"] and c["link"]["type"] == "issue"
+    ]
+    rejected = {ref for ref, status in issue_cards if status == "Canceled"} - {
+        ref for ref, status in issue_cards if status not in CLOSED_STATUSES
+    }
+    limit = SCAN_OPEN_LIMIT - sum(
+        scan_filed(ledger, f"{r['repo']}#{i['number']}", i)
+        and (r["repo"], i["number"]) not in rejected
+        for r in candidates["repos"]
+        for i in r.get("issues", [])
+    )
+    if (
+        limit <= 0
+        or any(scan_repo(k) for k in busy)
+        or any(e["status"] == "running" for e in entries.values())
+    ):
+        return []
+    scans = ledger.get("scans", {})
+    due = []
+    for r in candidates["repos"]:
+        repo, head = r["repo"], r.get("head")
+        if (
+            r.get("fork")
+            or not head
+            or entries.get(repo, {}).get("status") == "blocked"
+            or len(r.get("issues", [])) + limit > ISSUE_PAGE
+        ):
+            continue
+        last = scans.get(repo)
+        if last and (
+            last["head"] == head
+            or now - datetime.fromisoformat(last["at"]) < SCAN_INTERVAL
+        ):
+            continue
+        dormant = (
+            not last and now - datetime.fromisoformat(r["head_at"]) > SCAN_ACTIVE_WITHIN
+        )
+        due.append(
+            (
+                repo not in entries,
+                bool(last),
+                dormant,
+                last["at"] if last else "",
+                repo,
+                head,
+            )
+        )
+    return [
+        {
+            "repo": repo,
+            "key": f"{repo}:scan",
+            "kind": "scan",
+            "head": head,
+            "limit": limit,
+        }
+        for *_, repo, head in sorted(due)[:1]
+    ]
 
 
 def tidy_cards(cards: list[dict], scope: set[str]) -> tuple[list[dict], set[str]]:
@@ -632,7 +713,9 @@ def owner_cards(
     agent_prs = {
         (m[1], int(m[2])): key
         for key, e in ledger["tasks"].items()
-        if not backlog_kind(key) and e["status"] in ("done", "blocked")
+        if not backlog_kind(key)
+        and not scan_repo(key)
+        and e["status"] in ("done", "blocked")
         for m in re.finditer(PR_URL, e["note"])
     }
     for name, r in repos.items():
@@ -733,8 +816,43 @@ def plan(
         if p["checks"] == "red" and not SKIP_LABELS & set(p["labels"])
     }
     resolved, newly_blocked = [], []
+    heads = {r["repo"]: r.get("head") for r in candidates["repos"]}
+    scans = {k: v for k, v in ledger.get("scans", {}).items() if k in heads}
+    generated = datetime.fromisoformat(candidates["generated"])
+    cards = candidates.get("board", {}).get("cards", [])
+    spans = []
+    hold_scans = any(
+        datetime.fromisoformat(v["until"]) > generated for v in scans.values()
+    )
     for key, e in list(ledger["tasks"].items()):
+        scanned = scan_repo(key)
+        if scanned:
+            spans.append((scanned, e["started"], e["finished"]))
         if e["status"] == "running":
+            continue
+        if scanned:
+            finished = datetime.fromisoformat(e["finished"])
+            if scanned not in heads:
+                del ledger["tasks"][key]
+            elif finished > generated:
+                hold_scans = True
+            elif e["status"] == "done" or (
+                e["status"] == "blocked"
+                and any(
+                    c["status"] in CLOSED_STATUSES
+                    and "kind: dependency" in c["labels"]
+                    and c["title"].split(" ", 1)[0] == key
+                    and datetime.fromisoformat(c["created_at"]) > finished
+                    for c in cards
+                )
+            ):
+                del ledger["tasks"][key]
+                if not e["crashed"]:
+                    scans[scanned] = {
+                        "at": e["started"],
+                        "until": e["finished"],
+                        "head": e["head"],
+                    }
             continue
         if key not in present:
             del ledger["tasks"][key]
@@ -760,6 +878,24 @@ def plan(
         ):
             e.update(status="blocked", note=RED_NOTE)
             newly_blocked.append({"key": key, "note": RED_NOTE})
+    ledger["scans"] = scans
+    present |= {k for k in ledger["tasks"] if scan_repo(k)}
+    owner, found, still_open = candidates.get("owner"), set(), set()
+    for r in candidates["repos"]:
+        for i in r.get("issues", []):
+            ref = f"{r['repo']}#{i['number']}"
+            still_open.add(ref)
+            created = datetime.fromisoformat(i["created_at"])
+            if i["author"] == owner and any(
+                r["repo"] == repo
+                and datetime.fromisoformat(since)
+                <= created
+                <= (datetime.fromisoformat(until) if until else now)
+                for repo, since, until in spans
+            ):
+                found.add(ref)
+    found |= set(ledger.get("found", []))
+    ledger["found"] = sorted(found if hold_scans else found & still_open)
     tasks = candidate_tasks(candidates, now)
     keys = {t["key"] for t in tasks}
     held = [
@@ -793,6 +929,11 @@ def plan(
     backlog_tasks, card_ops, card_status = backlog_work(candidates, ledger, now)
     card_ops += owner_cards(candidates, ledger, present, now) + tidy_ops
     ready += [t for t in backlog_tasks if t["key"] not in busy]
+    if not hold_scans:
+        ready += [
+            {**t, "profile": review_room > 0}
+            for t in scan_tasks(candidates, ledger, now, busy)
+        ]
     running = len(running_keys)
     used = used_today(ledger, now)
     slots = max(0, min(MAX_RUNNING - running, DAILY_CAP - used))
@@ -818,6 +959,8 @@ def plan(
         dispatch.append({**t, "attempt": ledger["tasks"][t["key"]]["attempts"]})
         if t["kind"] in BACKLOG_TIERS and card_status[t["card"]] != "In Progress":
             card_ops.append(move(t["card"], "In Progress"))
+        if t["kind"] == "scan":
+            ledger["tasks"][t["key"]]["head"] = t["head"]
     return {
         "dispatch": dispatch,
         "card_ops": card_ops,
@@ -843,14 +986,14 @@ QUERY = """query($endCursor: String) { viewer { login
     nodes {
       nameWithOwner isFork owner { login }
       repositoryTopics(first: 20) { nodes { topic { name } } }
-      defaultBranchRef { name target { oid } }
+      defaultBranchRef { name target { oid ... on Commit { committedDate } } }
       pullRequests(states: OPEN, first: 50) { nodes {
         number title body createdAt isDraft mergeable headRefOid author { login }
         labels(first: 20) { nodes { name } }
         closingIssuesReferences(first: 10) { nodes { number repository { nameWithOwner } } }
         autoMergeRequest { enabledAt } } }
       issues(states: OPEN, first: 100) { nodes {
-        number title createdAt author { login }
+        number title body createdAt author { login }
         labels(first: 20) { nodes { name } }
         comments(last: 50) { nodes { author { login } createdAt body } } } }
       vulnerabilityAlerts(states: OPEN, first: 100) { nodes {
@@ -922,11 +1065,12 @@ def login(node: dict) -> str:
     return (node["author"] or {}).get("login", "ghost")
 
 
-def issue_record(i: dict) -> dict:
+def issue_record(i: dict, owner: str) -> dict:
     return {
         "number": i["number"],
         "title": i["title"],
         "author": login(i),
+        "by_agent": login(i) == owner and i["body"].lstrip().startswith(AGENT_MARKER),
         "created_at": i["createdAt"],
         "labels": [lb["name"] for lb in i["labels"]["nodes"]],
         "comments": [
@@ -989,6 +1133,7 @@ def token_expiry() -> str | None:
 
 
 def collect() -> dict:
+    generated = datetime.now(UTC).isoformat()
     # shortcut: first 50 PRs / 100 alerts per repo, paginate those if a repo ever exceeds them
     pages = gh("api", "graphql", "--paginate", "--slurp", "-f", f"query={QUERY}")
     owner = pages[0]["data"]["viewer"]["login"]
@@ -1016,6 +1161,8 @@ def collect() -> dict:
             {
                 "repo": name,
                 "fork": node["isFork"],
+                "head": branch["target"]["oid"] if branch else None,
+                "head_at": branch["target"]["committedDate"] if branch else None,
                 "has_ci": bool(required),
                 "main": sha_state(name, branch["target"]["oid"], required)
                 if branch
@@ -1038,12 +1185,12 @@ def collect() -> dict:
                 "alerts": [
                     alert_record(a, prs) for a in node["vulnerabilityAlerts"]["nodes"]
                 ],
-                "issues": [issue_record(i) for i in node["issues"]["nodes"]],
+                "issues": [issue_record(i, owner) for i in node["issues"]["nodes"]],
                 "other_prs": others,
             }
         )
     return {
-        "generated": datetime.now(UTC).isoformat(),
+        "generated": generated,
         "needs_review_open": needs_review_open,
         "owner": owner,
         "repos": repos,

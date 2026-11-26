@@ -6,7 +6,7 @@ Every hour, backlog-agent goes through each of my GitHub repos. It fixes what it
 can fix alone, turns the rest into cards on one Linear board, and asks me only
 for the decisions that need me: approving a plan and reviewing a pull request.
 
-It handles three kinds of work:
+It handles four kinds of work:
 
 - **Dependency and security work.** It handles Dependabot PRs, security alerts,
   red default branches and repos with no CI from start to finish. It only needs
@@ -14,6 +14,11 @@ It handles three kinds of work:
 - **The backlog.** Every open issue gets a card. The agent reproduces and
   diagnoses an issue, then proposes a plan for one small part of it. Once I
   approve the plan, it builds exactly that and opens a pull request.
+- **Scans.** For work nobody filed, it reviews each of my repos that is not a
+  fork, and again when its default branch has moved, at most once a week. It
+  files up to three findings as issues. They wait in the backlog like any other
+  issue, and it stops scanning while three are open. A repo nobody has touched
+  for a month gets one scan too.
 - **Its own docs.** After any hour with something to report, a steward runs last
   and fixes the spec, the glossary and the prompts wherever they no longer match
   what happened.
@@ -26,13 +31,13 @@ It handles three kinds of work:
 
 Each agent in a run has its own scrubber:
 
-| Scrubber | Agent                      | Follows                                  |
-| -------- | -------------------------- | ---------------------------------------- |
-| Foreman  | the hourly dispatcher      | [`PROMPT.md`](backlog-agent/PROMPT.md)   |
-| Patch    | a child on dependency work | [`CHILD.md`](backlog-agent/CHILD.md)     |
-| Probe    | a child on a triage run    | [`CHILD.md`](backlog-agent/CHILD.md)     |
-| Rivet    | a child on a build run     | [`CHILD.md`](backlog-agent/CHILD.md)     |
-| Ledger   | the steward                | [`STEWARD.md`](backlog-agent/STEWARD.md) |
+| Scrubber | Agent                       | Follows                                  |
+| -------- | --------------------------- | ---------------------------------------- |
+| Foreman  | the hourly dispatcher       | [`PROMPT.md`](backlog-agent/PROMPT.md)   |
+| Patch    | a child on dependency work  | [`CHILD.md`](backlog-agent/CHILD.md)     |
+| Probe    | a child on a triage or scan | [`CHILD.md`](backlog-agent/CHILD.md)     |
+| Rivet    | a child on a build run      | [`CHILD.md`](backlog-agent/CHILD.md)     |
+| Ledger   | the steward                 | [`STEWARD.md`](backlog-agent/STEWARD.md) |
 
 They all show their state the same way, with the eyes and the beacon on top:
 
@@ -85,6 +90,10 @@ plans wait for my approval.
   ([ADR 0002](docs/adr/0002-agent-has-its-own-linear-identity.md)).
 - Only text I wrote can start or steer a run. Issues and comments from anyone
   else, bots included, wait in Backlog until I move them.
+- A scan changes no code in the repo it reviews. It only files issues, and each
+  one is marked as the agent's, so it can never start a run the way an issue I
+  wrote does. When it drafts a tool profile for a stack the skill doesn't know,
+  it may open a pull request on nix-config for me to review.
 - Children never write to Linear. Only `backlog.py` writes, through the agent's
   own OAuth app, so a card's history always shows who moved it.
 - Build PRs are labeled `needs-review`, assigned to me, and never auto-merge.
@@ -111,11 +120,13 @@ backlog.
 
 ## Where it's going
 
-Today the agent works on what has already been filed: dependency updates and the
-issues I've written. The next step is to keep improving my repos even when
-nobody has filed anything. New kinds of work plug in the way triage did: a task
-kind in `backlog.py`, a section in `CHILD.md`, and the same caps, ledger and
-approval gate. The guardrails above don't change.
+The agent started with what had already been filed: dependency updates and the
+issues I've written. Scans are the first step past that. They run the
+`aggregate-code-quality-report` skill from my nix-config, which this repo's
+flake pins as `.#skills` (the plugin skills its lanes call are not pinned);
+`nix flake update nix-config` moves the agent to a newer copy. New kinds of work
+plug in the way triage and scans did: a task kind in `backlog.py`, a section in
+`CHILD.md`, and the same caps, ledger and approval gate.
 
 ## Working on it
 
@@ -148,5 +159,6 @@ git.
 
 Before changing a rule, read the [glossary](backlog-agent/GLOSSARY.md), the
 [design](docs/superpowers/specs/2026-11-21-backlog-agent-design.md), and ADRs
-[0001](docs/adr/0001-triage-state-machine-lives-in-the-agent.md) and
-[0002](docs/adr/0002-agent-has-its-own-linear-identity.md).
+[0001](docs/adr/0001-triage-state-machine-lives-in-the-agent.md),
+[0002](docs/adr/0002-agent-has-its-own-linear-identity.md) and
+[0003](docs/adr/0003-scan-findings-are-marked-github-issues.md).

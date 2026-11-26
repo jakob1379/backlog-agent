@@ -5,6 +5,11 @@
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    nix-config = {
+      url = "github:jakob1379/nix-config";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.git-hooks.follows = "git-hooks";
+    };
   };
 
   outputs =
@@ -12,6 +17,7 @@
       self,
       nixpkgs,
       git-hooks,
+      nix-config,
       ...
     }:
     let
@@ -30,6 +36,10 @@
             inherit (nixpkgs) lib;
           }
         );
+      });
+
+      packages = forAll (pkgs: {
+        skills = nix-config.packages.${pkgs.stdenv.hostPlatform.system}.agent-skills;
       });
 
       formatter = forAll (

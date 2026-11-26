@@ -574,6 +574,17 @@ class TriagePlanTest(unittest.TestCase):
             result["card_ops"], [mv(1, "Needs triage"), mv(1, "In Progress")]
         )
 
+    def test_an_issue_a_scan_filed_waits_for_the_topup(self):
+        found = {**issue(1, created_at="2026-10-21T11:00:00Z"), "by_agent": True}
+        c = snap(
+            backlog_repo(found, issue(2)), cards=[card(1), card(2, "Needs approval")]
+        )
+        result = plan(c, empty(), NOW)
+        self.assertEqual((result["dispatch"], result["card_ops"]), ([], []))
+
+        c = snap(backlog_repo(found), cards=[card(1)])
+        self.assertEqual(picked(plan(c, empty(), NOW)), [(1, "triage", "topup")])
+
     def test_topup_picks_security_then_bug_then_oldest_and_stops_at_three(self):
         issues = [
             issue(1, created_at="2026-01-01T00:00:00Z"),
@@ -818,6 +829,417 @@ class TriagePlanTest(unittest.TestCase):
             plan(snapshot(), empty(), NOW)["card_ops"],
             [{"op": "close", "card": "card-5", "to": "Done"}],
         )
+
+
+def active(name="o/r", head="h1", head_at="2026-10-20T00:00:00Z", issues=(), **kw):
+    return {
+        **backlog_repo(*issues, name=name),
+        "head": head,
+        "head_at": head_at,
+        **kw,
+    }
+
+
+def found(number):
+    return {**issue(number), "by_agent": True}
+
+
+def last_scan(at, head="h0"):
+    return {"at": at, "until": at, "head": head}
+
+
+def taken(c, when):
+    return {**c, "generated": when.isoformat()}
+
+
+def parked(
+    status,
+    created_at="2026-10-21T12:30:00Z",
+    title="o/r:scan — note",
+    kind="kind: dependency",
+):
+    return {
+        **owner_card("c1", title, status, [kind, "repo: r"]),
+        "created_at": created_at,
+    }
+
+
+def scanned(key, status, at=NOW, head="h1", took=timedelta(0)):
+    L = empty()
+    start(L, key, "t", at)
+    L["tasks"][key]["head"] = head
+    finish(L, key, status, "note", at + took)
+    return L
+
+
+class ScanPlanTest(unittest.TestCase):
+    def test_an_active_repo_never_scanned_gets_a_scan(self):
+        L = empty()
+        result = plan(cands(active()), L, NOW)
+        self.assertEqual(
+            result["dispatch"],
+            [
+                {
+                    "repo": "o/r",
+                    "key": "o/r:scan",
+                    "kind": "scan",
+                    "head": "h1",
+                    "limit": 3,
+                    "profile": True,
+                    "attempt": 1,
+                }
+            ],
+        )
+        self.assertEqual(L["tasks"]["o/r:scan"]["head"], "h1")
+
+    def test_a_repo_is_scanned_when_its_default_branch_moved_and_a_week_passed(self):
+        old, recent = "2026-10-13T00:00:00+00:00", "2026-10-15T00:00:00+00:00"
+        cases = {
+            "no default branch": (repo(), None, []),
+            "quiet for a month": (
+                active(head_at="2026-09-21T11:00:00Z"),
+                None,
+                ["o/r:scan"],
+            ),
+            "fork": (active(fork=True), None, []),
+            "head not moved": (active(), last_scan(old, head="h1"), []),
+            "scanned this week": (active(), last_scan(recent), []),
+            "due again": (active(), last_scan(old), ["o/r:scan"]),
+        }
+        for name, (r, last, expected) in cases.items():
+            with self.subTest(name):
+                L = empty()
+                if last:
+                    L["scans"] = {"o/r": last}
+                self.assertEqual(keys(plan(cands(r), L, NOW)), expected)
+
+    def test_scans_rank_last_and_run_one_at_a_time(self):
+        c = cands(active("b/y"), active("a/x"), repo(prs=[pr(1)]))
+        L = empty()
+        self.assertEqual(keys(plan(c, L, NOW)), ["o/r#1", "a/x:scan"])
+        self.assertEqual(keys(plan(c, L, NOW)), [])
+        self.assertEqual(
+            keys(plan(c, empty(), NOW, busy=frozenset({"a/x:scan"}))), ["o/r#1"]
+        )
+
+    def test_a_dormant_repo_gets_its_first_scan_before_any_repo_gets_a_second(self):
+        dormant = active("a/x", head_at="2026-09-21T11:00:00Z")
+        month_to_the_hour = active("a/x", head_at="2026-09-21T12:00:00Z")
+        L = empty()
+        L["scans"] = {"b/y": last_scan("2026-10-13T00:00:00+00:00")}
+        self.assertEqual(
+            keys(plan(cands(dormant, active("b/y")), L, NOW)), ["a/x:scan"]
+        )
+        for first, expected in ((dormant, "b/y:scan"), (month_to_the_hour, "a/x:scan")):
+            c = cands(first, active("b/y"))
+            self.assertEqual(keys(plan(c, empty(), NOW)), [expected])
+        failed = scanned("a/x:scan", "failed")
+        self.assertEqual(
+            keys(plan(cands(dormant, active("b/y")), failed, NOW)), ["a/x:scan"]
+        )
+        failed = scanned("a/x:scan", "failed")
+        failed["scans"] = {"a/x": last_scan("2026-10-13T00:00:00+00:00")}
+        self.assertEqual(
+            keys(plan(cands(dormant, active("b/y")), failed, NOW)), ["a/x:scan"]
+        )
+
+    def test_a_dormant_repo_waits_no_longer_than_others_for_its_next_scan(self):
+        L = empty()
+        L["scans"] = {
+            "a/x": last_scan("2026-10-13T00:00:00+00:00"),
+            "b/y": last_scan("2026-08-01T00:00:00+00:00"),
+        }
+        c = cands(active("a/x"), active("b/y", head_at="2026-09-20T12:00:00Z"))
+        self.assertEqual(keys(plan(c, L, NOW)), ["b/y:scan"])
+
+    def test_the_repo_scanned_longest_ago_goes_first(self):
+        c = cands(active("a/x"), active("b/y"), active("c/z"))
+        L = empty()
+        L["scans"] = {
+            "a/x": last_scan("2026-10-10T00:00:00+00:00"),
+            "b/y": last_scan("2026-10-01T00:00:00+00:00"),
+        }
+        self.assertEqual(keys(plan(c, L, NOW)), ["c/z:scan"])
+        L["scans"]["c/z"] = last_scan(NOW.isoformat())
+        L["tasks"].clear()
+        self.assertEqual(keys(plan(c, L, NOW)), ["b/y:scan"])
+
+    def test_scans_stop_while_three_findings_wait_for_the_owner(self):
+        waiting = snap(
+            active(issues=[found(1), issue(2)]),
+            active("a/x", issues=[found(3), found(4)]),
+            cards=[
+                card(1, "In Review"),
+                card(3, "In Review", repo="a/x"),
+                card(3, "Canceled", repo="a/x", type="pr"),
+                card(4, "Canceled", repo="a/x"),
+            ],
+        )
+        result = plan(waiting, empty(), NOW)
+        self.assertEqual(
+            [(t["key"], t["limit"]) for t in result["dispatch"]], [("a/x:scan", 1)]
+        )
+
+        full = cands(active(issues=[found(1), found(2), found(3)]), active("a/x"))
+        self.assertEqual(keys(plan(full, empty(), NOW)), [])
+
+        recarded = snap(
+            active(issues=[found(1), found(2), found(3)]),
+            active("a/x"),
+            cards=[card(1, "Canceled"), {**card(1, "In Review"), "id": "card-9"}],
+        )
+        self.assertEqual(keys(plan(recarded, empty(), NOW)), [])
+
+    def test_a_finished_scan_is_remembered_and_leaves_the_ledger(self):
+        L = scanned("o/r:scan", "done")
+        result = plan(cands(active()), L, NOW + timedelta(hours=49))
+        at = NOW.isoformat()
+        self.assertEqual(L["scans"], {"o/r": {"at": at, "until": at, "head": "h1"}})
+        self.assertEqual(L["tasks"], {})
+        self.assertEqual(
+            (result["dispatch"], result["resolved"], result["newly_blocked"]),
+            ([], [], []),
+        )
+
+    def test_a_commit_that_landed_while_the_scan_ran_is_scanned_next_time(self):
+        L = scanned("o/r:scan", "done", took=timedelta(hours=3))
+        later = NOW + timedelta(days=6)
+        moved_on = taken(
+            cands(active(head="h2", head_at="2026-10-21T12:30:00Z")), later
+        )
+        self.assertEqual(keys(plan(moved_on, L, later)), [])
+        self.assertEqual(keys(plan(moved_on, L, NOW + timedelta(days=7))), ["o/r:scan"])
+
+    def test_a_blocked_scan_stays_on_the_board_until_the_owner_closes_its_card(self):
+        L = scanned("o/r:scan", "blocked")
+        result = plan(snap(active(), active("a/x")), L, NOW)
+        self.assertEqual(
+            ops_of(result, "create"),
+            [
+                {
+                    "op": "create",
+                    "link": None,
+                    "title": "o/r:scan — note",
+                    "status": "Needs info",
+                    "labels": ["kind: dependency", "repo: r"],
+                }
+            ],
+        )
+        self.assertEqual(keys(result), ["a/x:scan"])
+
+        cases = {
+            "open card": (parked("Needs info"), "h2", True, []),
+            "card from an earlier time": (
+                parked("Canceled", created_at="2026-10-01T00:00:00Z"),
+                "h1",
+                True,
+                ["create"],
+            ),
+            "another task's closed card": (
+                parked("Canceled", title="o/r:add-ci — note"),
+                "h1",
+                True,
+                ["create"],
+            ),
+            "a closed card of another kind": (
+                parked("Canceled", kind="kind: pr"),
+                "h1",
+                True,
+                ["create"],
+            ),
+            "closed card": (parked("Canceled"), "h1", False, []),
+        }
+        for name, (c, head, kept, ops) in cases.items():
+            with self.subTest(name):
+                L = scanned("o/r:scan", "blocked")
+                result = plan(snap(active(head=head), cards=[c]), L, NOW)
+                self.assertEqual("o/r:scan" in L["tasks"], kept)
+                self.assertEqual("o/r" in L["scans"], not kept)
+                self.assertEqual([op["op"] for op in result["card_ops"]], ops)
+                self.assertEqual(keys(result), [])
+
+    def test_a_profile_pull_request_gets_its_own_card_beside_a_blocked_scan(self):
+        L = scanned("o/r:scan", "blocked")
+        L["tasks"]["o/r:scan"]["note"] = "held back; https://github.com/o/n/pull/9"
+        profile = other_pr(9, labels=["needs-review"])
+        c = snap(active(), backlog_repo(name="o/n", other_prs=[profile]))
+        self.assertEqual(
+            sorted(
+                (op["status"], op["labels"][0])
+                for op in ops_of(plan(c, L, NOW), "create")
+            ),
+            [("In Review", "kind: pr"), ("Needs info", "kind: dependency")],
+        )
+
+    def test_no_profile_pull_request_while_the_review_cap_is_full(self):
+        full = plan(cands(active(), needs_review_open=5), empty(), NOW)
+        self.assertEqual(
+            [(t["key"], t["profile"]) for t in full["dispatch"]], [("o/r:scan", False)]
+        )
+
+    def test_a_run_that_could_not_read_the_board_leaves_a_blocked_scan_alone(self):
+        for status in ("blocked", "failed"):
+            with self.subTest(status):
+                L = scanned("o/r:scan", "failed")
+                plan(cands(active()), L, NOW)
+                finish(L, "o/r:scan", status, "note", NOW)
+                plan({**cands(active()), "owner": OWNER}, L, NOW)
+                entry = L["tasks"]["o/r:scan"]
+                self.assertEqual((entry["status"], entry["attempts"]), ("blocked", 2))
+                self.assertEqual(L["scans"], {})
+
+    def test_a_scan_that_failed_twice_is_tried_again_once_the_owner_closes_its_card(
+        self,
+    ):
+        L = scanned("o/r:scan", "failed")
+        c = snap(active())
+        result = plan(c, L, NOW)
+        self.assertEqual(
+            [(t["key"], t["attempt"]) for t in result["dispatch"]], [("o/r:scan", 2)]
+        )
+        self.assertEqual(finish(L, "o/r:scan", "failed", "again", NOW), "blocked")
+        self.assertEqual(keys(plan(c, L, NOW)), [])
+        self.assertEqual(L["tasks"]["o/r:scan"]["status"], "blocked")
+
+        closed = snap(active(head="h2"), cards=[parked("Canceled")])
+        result = plan(closed, L, NOW)
+        self.assertEqual(
+            [(t["key"], t["attempt"]) for t in result["dispatch"]], [("o/r:scan", 1)]
+        )
+        self.assertEqual(L["scans"], {})
+
+    def test_a_repo_that_left_scope_is_forgotten(self):
+        L = scanned("gone/r:scan", "failed")
+        L["scans"] = {"gone/r": last_scan(NOW.isoformat())}
+        L["found"] = ["gone/r#1", "o/r#9"]
+        plan(cands(repo()), L, NOW)
+        self.assertEqual((L["tasks"], L["scans"], L["found"]), ({}, {}, []))
+
+    def test_an_alert_for_a_package_named_scan_is_not_a_scan(self):
+        L = scanned("o/r:dep:pip:scan", "done")
+        plan(cands(repo(alerts=[alert(package="scan")])), L, NOW)
+        self.assertEqual(L["tasks"]["o/r:dep:pip:scan"]["status"], "done")
+        self.assertEqual(L["scans"], {})
+
+    def test_a_scan_never_pushes_a_repo_past_the_issues_collect_reads(self):
+        crowded = active(issues=[issue(n) for n in range(98)])
+        self.assertEqual(keys(plan(cands(crowded), empty(), NOW)), [])
+        roomy = active(issues=[issue(n) for n in range(97)])
+        self.assertEqual(keys(plan(cands(roomy), empty(), NOW)), ["o/r:scan"])
+
+    def test_no_scan_starts_from_a_snapshot_older_than_the_last_scan(self):
+        L = scanned("o/r:scan", "done", at=NOW + timedelta(minutes=5))
+        stale, later = cands(active(), active("a/x")), NOW + timedelta(minutes=10)
+        for _ in range(2):
+            self.assertEqual(keys(plan(stale, L, later)), [])
+            self.assertEqual((list(L["tasks"]), L["scans"]), (["o/r:scan"], {}))
+        self.assertEqual(keys(plan(taken(stale, later), L, later)), ["a/x:scan"])
+        self.assertEqual(list(L["scans"]), ["o/r"])
+
+        L = empty()
+        L["scans"] = {"o/r": last_scan(later.isoformat(), "h1")}
+        L["found"] = ["o/r#7"]
+        self.assertEqual(keys(plan(stale, L, later)), [])
+        self.assertEqual(L["found"], ["o/r#7"])
+
+        L = scanned(
+            "o/r:scan",
+            "done",
+            at=NOW - timedelta(minutes=10),
+            took=timedelta(minutes=20),
+        )
+        plan(taken(cands(active()), later), L, later)
+        L["found"] = ["o/r#7"]
+        plan(cands(active()), L, later)
+        self.assertEqual(L["found"], ["o/r#7"])
+
+    def test_an_owner_issue_filed_while_a_scan_ran_counts_as_a_finding(self):
+        ten = datetime(2026, 10, 21, 10, tzinfo=UTC)
+        during = issue(1, created_at="2026-10-21T11:00:00Z")
+        before = issue(1, created_at="2026-10-21T09:00:00Z")
+
+        def running():
+            L = empty()
+            start(L, "o/r:scan", "t", ten)
+            L["tasks"]["o/r:scan"]["head"] = "h1"
+            return L
+
+        def planned(first, ledger, name="o/r"):
+            c = snap(
+                active(),
+                active(name, issues=[first, issue(2)]),
+                cards=[card(1, repo=name), card(2, "Needs approval", repo=name)],
+            )
+            return picked(plan(c, ledger, NOW))
+
+        L = running()
+        self.assertEqual(planned(during, L), [])
+        self.assertEqual(L["found"], ["o/r#1"])
+        finish(L, "o/r:scan", "done", "x", NOW)
+        self.assertEqual(planned(during, L), [])
+        self.assertEqual(planned(during, L), [])
+
+        self.assertEqual(planned(before, running()), [(1, "triage", "owner")])
+        over = running()
+        finish(over, "o/r:scan", "done", "x", ten + timedelta(minutes=30))
+        self.assertEqual(planned(during, over), [(1, "triage", "owner")])
+        self.assertEqual(planned(during, running(), "a/x"), [(1, "triage", "owner")])
+
+    def test_an_issue_from_a_failed_attempt_is_still_a_finding_after_the_retry(self):
+        L = scanned(
+            "o/r:scan",
+            "failed",
+            at=datetime(2026, 10, 21, 9, tzinfo=UTC),
+            took=timedelta(hours=1),
+        )
+        c = snap(
+            active(issues=[issue(1, created_at="2026-10-21T09:30:00Z"), issue(2)]),
+            cards=[card(1), card(2, "Needs approval")],
+        )
+        self.assertEqual(
+            [(t["key"], t["limit"]) for t in plan(c, L, NOW)["dispatch"]],
+            [("o/r:scan", 2)],
+        )
+        self.assertEqual(keys(plan(c, L, NOW + timedelta(minutes=30))), [])
+
+    def test_only_the_owners_issues_from_a_scan_count_toward_the_limit(self):
+        def limits(author):
+            L = scanned("o/r:scan", "done", at=NOW - timedelta(hours=2))
+            filed = issue(1, author=author, created_at="2026-10-21T10:00:00Z")
+            c = snap(active(issues=[filed]), active("a/x"))
+            result = plan(c, L, NOW)
+            return L["found"], [(t["key"], t["limit"]) for t in result["dispatch"]]
+
+        self.assertEqual(limits(OWNER), (["o/r#1"], [("a/x:scan", 2)]))
+        self.assertEqual(limits("eve"), ([], [("a/x:scan", 3)]))
+
+    def test_only_the_owners_issue_starting_with_the_marker_is_the_agents(self):
+        def by_agent(body, author=OWNER):
+            node = {
+                "number": 1,
+                "title": "t",
+                "body": body,
+                "createdAt": "2026-10-01T00:00:00Z",
+                "author": {"login": author},
+                "labels": {"nodes": []},
+                "comments": {"nodes": []},
+            }
+            return backlog.issue_record(node, OWNER)["by_agent"]
+
+        self.assertTrue(by_agent("<!-- backlog-agent -->\nx"))
+        self.assertTrue(by_agent("\n <!-- backlog-agent -->\nx"))
+        self.assertFalse(by_agent("see <!-- backlog-agent -->"))
+        self.assertFalse(by_agent("<!-- backlog-agent -->\nx", author="mallory"))
+
+    def test_sweep_keeps_the_clone_of_a_task_on_a_repo_with_a_dot_in_its_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            work, key = Path(d), "o/o.github.io:scan"
+            entry = {"thread_id": "", "task_id": "", "started": NOW.isoformat()}
+            backlog.write_lock(work, key, entry)
+            clone = work / "o-o.github.io-scan"
+            clone.mkdir()
+            busy, _ = backlog.sweep_locks(work, NOW)
+            self.assertEqual((busy, clone.is_dir()), ({key}, True))
 
 
 def other_pr(number, draft=False, linked_issues=(), linked_refs=(), labels=()):
