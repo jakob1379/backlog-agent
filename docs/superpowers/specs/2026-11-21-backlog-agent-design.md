@@ -443,9 +443,11 @@ whether work is moving.
   narrowed it: its one move, closing JGA-200 to Done, went through, and the
   first of its 24 creates failed with the same error. So the limit refuses new
   cards, not moves. It does not stop the sync: the sync made three cards that
-  evening, while the agent's create for nix-config#157 still failed with it. Its
-  exact cause is unknown. The agent can't read the workspace's limits, so the
-  error goes under **Needs you** for the owner to check.
+  evening, while the agent's create for nix-config#157 still failed with it. The
+  owner then upgraded the workspace's Linear plan, and the next `apply` created
+  that card, JGA-298, with no error. So the limit was the old plan's. The agent
+  can't read the workspace's limits, so if the error comes back it goes under
+  **Needs you** for the owner to check.
 - **No card is lost, and none is doubled.** Every run, `plan` takes the open
   cards that link the same in-scope issue or pull request and keeps one: the one
   the owner has moved out of Backlog, then one with its GitHub link attached,
