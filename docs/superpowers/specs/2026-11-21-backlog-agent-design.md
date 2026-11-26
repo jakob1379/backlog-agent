@@ -370,9 +370,12 @@ whether work is moving.
   one op, a create for nix-config#154, failed with the GraphQL error
   `usage limit exceeded`. It is not a 429, so it was not retried: `apply`
   stopped there and the op stayed pending. The next `plan` emits it again, so
-  each run hits the same error until its cause is gone. The cause is unknown.
-  The agent can't read the workspace's limits, so the error goes under **Needs
-  you** for the owner to check.
+  each run hits the same error until its cause is gone. A later run that day
+  narrowed it: its one move, closing JGA-200 to Done, went through, and the
+  first of its 24 creates failed with the same error. So the limit refuses new
+  cards, not moves. Its exact cause is unknown. The agent can't read the
+  workspace's limits, so the error goes under **Needs you** for the owner to
+  check.
 - **No card is lost, and none is doubled.** Every run, `plan` takes the open
   cards that link the same in-scope issue or pull request and keeps one: the one
   the owner has moved out of Backlog, then one with its GitHub link attached,
