@@ -6,7 +6,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nix-config = {
-      url = "github:jakob1379/nix-config/feat/agent-skills-package";
+      url = "github:jakob1379/nix-config";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.git-hooks.follows = "git-hooks";
     };
