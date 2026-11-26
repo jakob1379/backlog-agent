@@ -536,8 +536,12 @@ profile.
      untrue.
    - `git add` that file, run `nix fmt` in the clone with the sandbox off, as
      for any repo's checks, and `git add` the file again. `nix fmt` exits
-     non-zero when it rewrote a file: run it once more, and only a second
-     non-zero exit is a failure. Then undo what it did to any other file with
+     non-zero when it rewrote any file, and on nix-config's default branch it
+     rewrites other files on every run (`.github/workflows/nix-cache.yml` and
+     the skill's `agents/openai.yaml`, nix-config#157). So run it once more and
+     judge only your file: the step fails only when
+     `git --no-pager diff --no-ext-diff --quiet -- <your file>` fails after the
+     second run. Then undo what it did to any other file with
      `git checkout -- <those files>`. Commit as
      `feat(skills): add a <stack> profile to aggregate-code-quality-report`, or
      `fix(skills): …` for feedback.
