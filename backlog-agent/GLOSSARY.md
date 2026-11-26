@@ -72,8 +72,9 @@ code in that repo. A repo is due a scan when its default branch has moved since
 the last scan and the last scan started at least a week ago. A dormant repo, one
 whose newest commit is over 30 days old, is scanned too: its first scan comes
 after the first scan of every repo that is not dormant, and before any repo is
-scanned a second time. A repo's first scan reviews everything; later ones review
-what changed since. Forks are never scanned. _Avoid_: audit, review, quality run
+scanned a second time. A scan that failed is retried before all of these. A
+repo's first scan reviews everything; later ones review what changed since.
+Forks are never scanned. _Avoid_: audit, review, quality run
 
 **Finding**: One problem a scan found, with an id that survives edits to the
 code. A scan files its worst findings as backlog issues, and no id is filed

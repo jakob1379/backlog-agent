@@ -564,10 +564,13 @@ def scan_tasks(
     candidates: dict, ledger: dict, now: datetime, busy: frozenset
 ) -> list[dict]:
     entries = {scan_repo(k): e for k, e in ledger["tasks"].items() if scan_repo(k)}
-    rejected = {
-        (c["link"]["repo"], c["link"]["number"])
+    issue_cards = [
+        ((c["link"]["repo"], c["link"]["number"]), c["status"])
         for c in candidates.get("board", {}).get("cards", [])
-        if c["link"] and c["link"]["type"] == "issue" and c["status"] == "Canceled"
+        if c["link"] and c["link"]["type"] == "issue"
+    ]
+    rejected = {ref for ref, status in issue_cards if status == "Canceled"} - {
+        ref for ref, status in issue_cards if status not in CLOSED_STATUSES
     }
     limit = SCAN_OPEN_LIMIT - sum(
         scan_filed(ledger, f"{r['repo']}#{i['number']}", i)

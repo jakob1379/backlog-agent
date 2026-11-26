@@ -14,11 +14,11 @@ It handles four kinds of work:
 - **The backlog.** Every open issue gets a card. The agent reproduces and
   diagnoses an issue, then proposes a plan for one small part of it. Once I
   approve the plan, it builds exactly that and opens a pull request.
-- **Scans.** For work nobody filed, it reviews each repo whose default branch
-  moved since its last scan, at most once a week, and files up to three findings
-  as issues. They wait in the backlog like any other issue, and it stops
-  scanning while three wait for me. A repo nobody has touched for a month gets
-  one scan too.
+- **Scans.** For work nobody filed, it reviews each of my repos that is not a
+  fork, and again when its default branch has moved, at most once a week. It
+  files up to three findings as issues. They wait in the backlog like any other
+  issue, and it stops scanning while three are open. A repo nobody has touched
+  for a month gets one scan too.
 - **Its own docs.** After any hour with something to report, a steward runs last
   and fixes the spec, the glossary and the prompts wherever they no longer match
   what happened.
@@ -93,7 +93,7 @@ plans wait for my approval.
 - A scan changes no code in the repo it reviews. It only files issues, and each
   one is marked as the agent's, so it can never start a run the way an issue I
   wrote does. When it drafts a tool profile for a stack the skill doesn't know,
-  it opens a pull request on nix-config for me to review.
+  it may open a pull request on nix-config for me to review.
 - Children never write to Linear. Only `backlog.py` writes, through the agent's
   own OAuth app, so a card's history always shows who moved it.
 - Build PRs are labeled `needs-review`, assigned to me, and never auto-merge.

@@ -983,6 +983,13 @@ class ScanPlanTest(unittest.TestCase):
         full = cands(active(issues=[found(1), found(2), found(3)]), active("a/x"))
         self.assertEqual(keys(plan(full, empty(), NOW)), [])
 
+        recarded = snap(
+            active(issues=[found(1), found(2), found(3)]),
+            active("a/x"),
+            cards=[card(1, "Canceled"), {**card(1, "In Review"), "id": "card-9"}],
+        )
+        self.assertEqual(keys(plan(recarded, empty(), NOW)), [])
+
     def test_a_finished_scan_is_remembered_and_leaves_the_ledger(self):
         L = scanned("o/r:scan", "done")
         result = plan(cands(active()), L, NOW + timedelta(hours=49))
@@ -1189,7 +1196,10 @@ class ScanPlanTest(unittest.TestCase):
             active(issues=[issue(1, created_at="2026-10-21T09:30:00Z"), issue(2)]),
             cards=[card(1), card(2, "Needs approval")],
         )
-        self.assertEqual(keys(plan(c, L, NOW)), ["o/r:scan"])
+        self.assertEqual(
+            [(t["key"], t["limit"]) for t in plan(c, L, NOW)["dispatch"]],
+            [("o/r:scan", 2)],
+        )
         self.assertEqual(keys(plan(c, L, NOW + timedelta(minutes=30))), [])
 
     def test_only_the_owners_issues_from_a_scan_count_toward_the_limit(self):

@@ -281,7 +281,8 @@ whether work is moving.
 - **Task kinds and keys.** Two new ledger task kinds join the four from
   dependency work: `owner/repo#<issue>:triage` and `owner/repo#<issue>:build`.
   They use the same `start`, `finish`, lockfile, retry and daily-cap rules. In
-  the tier order they rank after add-CI.
+  the tier order they rank after add-CI. Scans add a seventh kind,
+  `owner/repo:scan`, described under Scans.
 - **Child result contract.** A triage or build child ends with
   `RESULT: <outcome> — <note>`. The outcome is one of `fix-pending`,
   `needs-approval`, `needs-repro`, `unable-to-fix` or `not-actionable`, and the

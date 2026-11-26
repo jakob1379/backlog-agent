@@ -262,8 +262,8 @@ result shows one of its rules is wrong. The steward follows these rules too:
   with `allowed_domains: ["github.com", "api.github.com"]`.
 - Never switch branches, rebase or force-push. Never loosen the guardrails in
   `CHILD.md` (no `--admin`, no alert dismissal, no settings changes, sandbox
-  stays on except for `nix` checks and the three commands a scan may run). Those
-  changes need the owner.
+  stays on except for `nix` checks and the three kinds of command a scan may
+  run). Those changes need the owner.
 
 ## Wake-ups
 

@@ -55,9 +55,9 @@ and the vocabulary in
    them from your `work/<slug>/` checkout to build or check the repo, with
    `nix develop -c` wrapping only the repo's own check commands (never `gh`,
    `git push` or `curl`). Outside the sandbox `$TMPDIR` is a different
-   directory, so pass literal paths. Every other command stays in the sandbox.
-   To build one of nix-config's vicinae extensions without the whole home
-   config,
+   directory, so pass literal paths. Every other command stays in the sandbox. A
+   scan has three more exceptions, listed in its own section. To build one of
+   nix-config's vicinae extensions without the whole home config,
    `nix build --impure --expr 'builtins.head (builtins.filter (e: (e.name or "") == "<name>") (builtins.getFlake "git+file://<clone>").homeConfigurations."<cfg>".config.programs.vicinae.extensions)'`;
    they build with `importNpmLock`, so a lockfile change needs no hash update.
    For a nixpkgs bump that can break the flake's pre-commit hooks, read each
@@ -467,23 +467,26 @@ profile.
    - The skill forbids sending findings anywhere and opening a PR. Filing the
      issues below and the profile pull request in step 7 are the only
      exceptions.
-4. Copy `.scanner-report-artifacts/findings.json` and
-   `scanner-aggregate-report.html` to `$S`, replacing the last ones: `$CLONE` is
-   deleted when you finish. Do this even when you stopped at the two-hour mark:
-   `findings.json` records the lanes that finished, and the next scan runs the
-   others in full.
+4. Save the scan under the repo's name, replacing the last one, because `$CLONE`
+   is deleted when you finish:
+   `mkdir -p /home/jsg/Documents/jsg/backlog-agent/work/.scans && cp "$CLONE/.scanner-report-artifacts/findings.json" "/home/jsg/Documents/jsg/backlog-agent/work/.scans/<repo name>.json" && cp "$CLONE/scanner-aggregate-report.html" "/home/jsg/Documents/jsg/backlog-agent/work/.scans/<repo name>.html"`.
+   Do this even when you stopped at the two-hour mark: `findings.json` records
+   the lanes that finished, and the next scan of this repo runs the others in
+   full. That scan comes only after the repo's default branch moves.
 5. List the ids earlier scans filed here, open and closed:
-   `gh issue list --repo <repo> --state all --author @me --limit 1000 --json number,state,body --jq '.[] | select(.body | test("^\\s*<!-- backlog-agent -->")) | "\(.number) \(.state) \((.body | capture("\\*\\*Id:\\*\\* (?<id>[^\r\n]+)") | .id) // "-")"'`.
-   Never file a finding whose id is in that list.
+   `gh issue list --repo <repo> --state all --author @me --limit 1000 --json number,state,body --jq '.[] | select(.body | test("\\*\\*Id:\\*\\*")) | "\(.number) \(.state) \(.body | capture("\\*\\*Id:\\*\\*\\s*(?<id>[^\r\n]+)") | .id)"'`.
+   It lists every issue of yours with an `**Id:**` line, with or without the
+   marker. Never file a finding whose id is in that list.
 6. File at most `limit` issues from `findings.json`, the most severe first: only
    `High` or `Medium`, and never one with status `fixed`. On a public repo
    (`gh repo view <repo> --json visibility`) never file a finding whose id
    starts with `security:`: it stays in the report, and the task ends `blocked`.
    File each issue as its own command,
-   `gh issue create --repo <repo> --title <title> --body-file <file>`, with no
-   labels and no assignee, from a file you wrote with the Write tool under
-   `$TMPDIR`. The body must start with the marker line, which is how
-   `backlog.py` knows the issue is not the owner's own:
+   `gh issue create --repo <repo> --title "$(cat <title file>)" --body-file <body file>`,
+   with no labels and no assignee, from two files you wrote with the Write tool
+   under `$TMPDIR`: the title alone in one, the body in the other. Never type a
+   finding's title into the command itself. The body must start with the marker
+   line, which is how `backlog.py` knows the issue is not the owner's own:
 
    ```
    <!-- backlog-agent -->
