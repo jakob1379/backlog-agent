@@ -467,6 +467,18 @@ profile.
    - The skill forbids sending findings anywhere and opening a PR. Filing the
      issues below and the profile pull request in step 7 are the only
      exceptions.
+   - The pinned Python profile's commands fail quietly in the sandbox (AMAS
+     scan, 2026-11-26). Point them at the repo's Python folders when there is no
+     `src/`. PySCN reports `no Python files found` when the repo has a
+     `pyproject.toml` without `[tool.pyscn]`: run
+     `pyscn init --config $TMPDIR/<slug>-pyscn.toml` and pass that file with
+     `-c`. `slop-detector --no-history` still writes to `~/.slop-detector` and
+     exits 0 with an error per file: add `--read-only`. `desloppify scan` writes
+     `scorecard.png` to the repo root: move it into
+     `.scanner-report-artifacts/`. Pin each `uvx` tool's version
+     (`uvx ruff@<ver>`) instead of parsing `--version`, which prints download
+     lines first when the tool isn't cached. A profile feedback draft for these
+     goes to nix-config through step 7.
 4. Save the scan under the repo's name, replacing the last one, because `$CLONE`
    is deleted when you finish:
    `mkdir -p /home/jsg/Documents/jsg/backlog-agent/work/.scans && cp "$CLONE/.scanner-report-artifacts/findings.json" "/home/jsg/Documents/jsg/backlog-agent/work/.scans/<repo name>.json" && cp "$CLONE/scanner-aggregate-report.html" "/home/jsg/Documents/jsg/backlog-agent/work/.scans/<repo name>.html"`.
