@@ -301,11 +301,13 @@ whether work is moving.
   isn't Dependabot's and isn't linked to a backlog issue. A draft gets `draft`
   too. It also creates a card, with `kind: dependency`, for dependency work that
   ended blocked (Needs info) or in the review lane (In Review). It closes these
-  cards once GitHub shows the item resolved. A dependency card's title starts
-  with its ledger key, which is how `plan` finds it again, because an alert, a
-  red default branch or missing CI has no GitHub URL to link. Only a Dependabot
-  pull request's card is linked. A dependency card the owner closed by hand
-  comes back while the work still needs the owner.
+  cards once GitHub shows the item resolved, to Done from whichever open lane
+  the card is in, so a `kind: pr` card the owner moved out of In Review still
+  closes when its pull request merges or closes. A dependency card's title
+  starts with its ledger key, which is how `plan` finds it again, because an
+  alert, a red default branch or missing CI has no GitHub URL to link. Only a
+  Dependabot pull request's card is linked. A dependency card the owner closed
+  by hand comes back while the work still needs the owner.
 - **A card for every backlog issue.** `plan` creates a Backlog card, with
   `kind: backlog` and its `repo` label, for every open issue in an in-scope repo
   that no card links, once the issue is an hour old. The sync only creates cards
