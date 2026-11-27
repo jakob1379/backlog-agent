@@ -237,9 +237,15 @@ whether work is moving.
     default-branch commit.
   - **Skills.** The skill comes from the owner's nix-config as the flake package
     `.#skills`. Each scan builds it with the nix-config input overridden to the
-    default branch's newest commit, so `flake.lock` holds no scan back. Plugin
-    skills its lanes call and the scanners it downloads are whatever the machine
-    has.
+    default branch's newest commit (`--refresh`, so no cached lookup is used).
+    When that build fails, the scan runs the older copy in `flake.lock` and says
+    so in its result: otherwise a broken nix-config would fail each due scan
+    twice and park its repo in Needs info. Accepted risk: nix-config's default
+    branch reaches a scan with no second look by the owner. The skill's text
+    steers the child, and a profile's commands run with the sandbox off. A
+    profile pull request is never auto-merged, so the owner's merge there is the
+    one review. Plugin skills its lanes call and the scanners it downloads are
+    whatever the machine has.
 - **Board.** The JGA team's statuses are Backlog, Needs triage, Needs approval,
   Approved, In Progress, In Review, Needs info, Done, Canceled and Duplicate.
   Needs triage, Needs approval, Approved and Needs info are new. In Review means

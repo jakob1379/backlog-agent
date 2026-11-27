@@ -465,7 +465,11 @@ sandbox, including any analyzer you try for a stack that has no profile.
 1. Build the skills from nix-config's newest default-branch commit, so a profile
    the owner merged is in use on the next scan:
    `nix build /home/jsg/Documents/jsg/backlog-agent#skills --override-input nix-config github:jakob1379/nix-config --refresh --no-link --print-out-paths`.
-   It leaves `flake.lock` unchanged.
+   It leaves `flake.lock` unchanged. If it fails, build the copy in `flake.lock`
+   (the same command without
+   `--override-input nix-config github:jakob1379/nix-config --refresh`) and say
+   in the `RESULT:` note that the scan ran the locked skills, with the error's
+   first line.
 2. `S=/home/jsg/Documents/jsg/backlog-agent/work/.scans` keeps each repo's last
    scan as `<repo name>.json` and `<repo name>.html`. If the `.json` exists,
    copy it to `$CLONE/.scanner-report-artifacts/baseline.json`: the scan then
