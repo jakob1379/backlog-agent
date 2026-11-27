@@ -124,12 +124,20 @@ and the vocabulary in
    exists, `curl https://hub.docker.com/v2/repositories/<ns>/<img>/tags/<tag>`
    with `hub.docker.com` declared (#2). Run Python checks under the version the
    workflow sets up: the sandbox's uv picks the newest (3.14), but
-   Canvas-Code-Correction's `Test` pins 3.13. Use `uv run --python <ver>` with
-   `UV_PROJECT_ENVIRONMENT=$TMPDIR/<slug>-venv`. Canvas-Code-Correction's `poe`
-   steps call Prefect's telemetry host `sens-o-matic.prefect.io`; the sandbox
-   refuses it and nothing breaks, so don't declare it (#233). No workflow there
-   reads `docker-compose.yml`, so a green `Test` checks nothing about an image
-   bump in it; say so in the PR comment (#232).
+   Canvas-Code-Correction's `Test` pins 3.13. When it sets up none, take the
+   floor of `requires-python` (ai-job-search-reflex: 3.14; 3.13 won't resolve).
+   Use `uv run --python <ver>` with
+   `UV_PROJECT_ENVIRONMENT=$TMPDIR/<slug>-venv`. A wheel that fails to import
+   with `libstdc++.so.6: cannot open shared object file` (greenlet) imports with
+   `LD_LIBRARY_PATH=$(ls -d /nix/store/*-gcc-*-lib/lib | head -1)` in front of
+   the command. `typst` isn't on PATH but is in the store: prepend
+   `$(ls -d /nix/store/*-typst-<ver>/bin | head -1)` with the version CI pins,
+   so Typst tests run instead of skipping; poppler is on PATH.
+   Canvas-Code-Correction's `poe` steps call Prefect's telemetry host
+   `sens-o-matic.prefect.io`; the sandbox refuses it and nothing breaks, so
+   don't declare it (#233). No workflow there reads `docker-compose.yml`, so a
+   green `Test` checks nothing about an image bump in it; say so in the PR
+   comment (#232).
 
 Done when: the clone exists and you can name the command that reproduces each
 required check.
