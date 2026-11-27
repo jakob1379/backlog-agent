@@ -229,15 +229,23 @@ whether work is moving.
     may still open its one. None when the scanned repo is private and nix-config
     is public, none for a draft whose trial failed or a fix for a broken profile
     with no command that ran, and none for a stack whose profile the owner
-    already has in review, merged or turned down; a fix is keyed on the pinned
-    profile's content, so it is offered once until the pin moves. The pull
+    already has in review, merged or turned down; a fix is keyed on the
+    profile's content, so it is offered once until the profile changes. The pull
     request quotes no finding from the scanned repo. It gets its own card like
     any pull request with no issue behind it. The agent picks a merged profile
-    up when `flake.lock` is next updated, which needs `flake.nix` to follow
-    nix-config's default branch.
-  - **Skills.** The skill comes from the owner's nix-config as the flake package
-    `.#skills`, so that copy changes only with `flake.lock`. Plugin skills its
-    lanes call and the scanners it downloads are not pinned.
+    up on its next scan, which builds the skills from nix-config's newest
+    default-branch commit.
+  - **Skills.** The skill comes from the owner's nix-config. Each scan builds
+    `github:jakob1379/nix-config#agent-skills`, the default branch's newest
+    commit (`--refresh`, so no cached lookup is used). When that build fails,
+    the scan runs the older copy this repo's flake holds as `.#skills` and says
+    so in its result: otherwise a broken nix-config would fail each due scan
+    twice and park its repo in Needs info. Accepted risk: nix-config's default
+    branch reaches a scan with no second look by the owner. The skill's text
+    steers the child, and a profile's commands run with the sandbox off. A
+    profile pull request is never auto-merged, so the owner's merge there is the
+    one review. Plugin skills its lanes call and the scanners it downloads are
+    whatever the machine has.
 - **Board.** The JGA team's statuses are Backlog, Needs triage, Needs approval,
   Approved, In Progress, In Review, Needs info, Done, Canceled and Duplicate.
   Needs triage, Needs approval, Approved and Needs info are new. In Review means
