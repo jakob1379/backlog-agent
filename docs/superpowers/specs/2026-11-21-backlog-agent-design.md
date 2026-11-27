@@ -235,10 +235,10 @@ whether work is moving.
     any pull request with no issue behind it. The agent picks a merged profile
     up on its next scan, which builds the skills from nix-config's newest
     default-branch commit.
-  - **Skills.** The skill comes from the owner's nix-config as the flake package
-    `.#skills`. Each scan builds it with the nix-config input overridden to the
-    default branch's newest commit (`--refresh`, so no cached lookup is used).
-    When that build fails, the scan runs the older copy in `flake.lock` and says
+  - **Skills.** The skill comes from the owner's nix-config. Each scan builds
+    `github:jakob1379/nix-config#agent-skills`, the default branch's newest
+    commit (`--refresh`, so no cached lookup is used). When that build fails,
+    the scan runs the older copy this repo's flake holds as `.#skills` and says
     so in its result: otherwise a broken nix-config would fail each due scan
     twice and park its repo in Needs info. Accepted risk: nix-config's default
     branch reaches a scan with no second look by the owner. The skill's text

@@ -84,12 +84,12 @@ most three wait at a time; one stops counting when its issue closes or its card
 is Canceled. _Avoid_: proposal, suggestion, scan issue
 
 **Scan skills**: The skills a scan builds from the owner's nix-config
-(`nix build .#skills --override-input nix-config github:jakob1379/nix-config --refresh`,
-which takes nix-config's newest default-branch commit): the quality-report skill
-and the skills packaged beside it. `flake.lock` holds an older copy, which a
-scan runs only when that build fails. The lanes it calls from plugins (ponytail,
-superpowers, mattpocock, open-code-review) and the scanners it downloads are
-whatever the machine has. _Avoid_: pinned skills
+(`nix build github:jakob1379/nix-config#agent-skills --refresh`, which takes
+nix-config's newest default-branch commit): the quality-report skill and the
+skills packaged beside it. This repo's flake holds an older copy as `.#skills`,
+which a scan runs only when that build fails. The lanes it calls from plugins
+(ponytail, superpowers, mattpocock, open-code-review) and the scanners it
+downloads are whatever the machine has. _Avoid_: pinned skills
 
 **Profile**: The skill's instructions for one stack's tools. When a scan meets a
 stack with no profile, or a profile that needs a fix, it drafts one and opens a
