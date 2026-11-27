@@ -392,7 +392,13 @@ Never close, edit or relabel the issue; the card's move does the rest.
    grep for the service or feature it names, and run `git log -S '<term>'` on
    the files it would change. Old issues are often done already: homelab#3's
    service had been on `main` for months, and jakob1379.github.io#6's change for
-   about 10. Reproduce and diagnose before proposing anything. For a bug, follow
+   about 10. Run `git log --oneline origin/<branch> -- <path>` on each file the
+   issue names: a rewrite can have removed it (ai-job-search-reflex#10's LaTeX
+   path went in f2ab34a). The default branch can lack the code altogether:
+   ai-job-search-reflex's app lives only on `feat/reflex-ui`, 289 commits ahead
+   of `master`. Then find the branch with `git log --all --oneline -S '<term>'`,
+   read it with `git show origin/<branch>:<path>`, and name that branch in your
+   comment. Reproduce and diagnose before proposing anything. For a bug, follow
    `mattpocock-skills:diagnosing-bugs` in `$CLONE`; the feedback loop is a
    command that shows the reported behaviour. For a feature, find the code it
    would change. Base what you post on how the code behaves, not on the issue's
