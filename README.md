@@ -123,10 +123,11 @@ backlog.
 The agent started with what had already been filed: dependency updates and the
 issues I've written. Scans are the first step past that. They run the
 `aggregate-code-quality-report` skill from my nix-config, which this repo's
-flake pins as `.#skills` (the plugin skills its lanes call are not pinned);
-`nix flake update nix-config` moves the agent to a newer copy. New kinds of work
-plug in the way triage and scans did: a task kind in `backlog.py`, a section in
-`CHILD.md`, and the same caps, ledger and approval gate.
+flake exposes as `.#skills`. Each scan builds it from nix-config's newest
+default-branch commit, so `flake.lock` holds no scan back (the plugin skills its
+lanes call are whatever the machine has). New kinds of work plug in the way
+triage and scans did: a task kind in `backlog.py`, a section in `CHILD.md`, and
+the same caps, ledger and approval gate.
 
 ## Working on it
 

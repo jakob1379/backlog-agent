@@ -67,14 +67,14 @@ Phase 2
 ## Scans
 
 **Scan**: One agent run that reviews an in-scope repo's default branch with the
-pinned quality-report skill and files the worst of what it finds. It changes no
-code in that repo. A repo is due a scan when its default branch has moved since
-the last scan and the last scan started at least a week ago. A dormant repo, one
-whose newest commit is over 30 days old, is scanned too: its first scan comes
-after the first scan of every repo that is not dormant, and before any repo is
-scanned a second time. A scan that failed is retried before all of these. A
-repo's first scan reviews everything; later ones review what changed since.
-Forks are never scanned. _Avoid_: audit, review, quality run
+quality-report skill and files the worst of what it finds. It changes no code in
+that repo. A repo is due a scan when its default branch has moved since the last
+scan and the last scan started at least a week ago. A dormant repo, one whose
+newest commit is over 30 days old, is scanned too: its first scan comes after
+the first scan of every repo that is not dormant, and before any repo is scanned
+a second time. A scan that failed is retried before all of these. A repo's first
+scan reviews everything; later ones review what changed since. Forks are never
+scanned. _Avoid_: audit, review, quality run
 
 **Finding**: One problem a scan found, with an id that survives edits to the
 code. A scan files its worst findings as backlog issues, and no id is filed
@@ -83,11 +83,12 @@ issue the owner wrote: it waits in Backlog for the top-up or for the owner. At
 most three wait at a time; one stops counting when its issue closes or its card
 is Canceled. _Avoid_: proposal, suggestion, scan issue
 
-**Pinned skills**: The skills this repo's flake takes from the owner's
-nix-config (`nix build .#skills`): the quality-report skill and the skills
-packaged beside it. That copy changes only when `flake.lock` does. The lanes it
-calls from plugins (ponytail, superpowers, mattpocock, open-code-review) and the
-scanners it downloads are whatever the machine has.
+**Scan skills**: The skills a scan builds from the owner's nix-config
+(`nix build .#skills`, with the nix-config input overridden to its newest
+default-branch commit): the quality-report skill and the skills packaged beside
+it. `flake.lock` holds an older copy that no scan runs. The lanes it calls from
+plugins (ponytail, superpowers, mattpocock, open-code-review) and the scanners
+it downloads are whatever the machine has. _Avoid_: pinned skills
 
 **Profile**: The skill's instructions for one stack's tools. When a scan meets a
 stack with no profile, or a profile that needs a fix, it drafts one and opens a
