@@ -635,7 +635,8 @@ whether work is moving.
     next plan decides again. Otherwise it stores the head on the entry as
     `tried`, records the landing with no merge commit and saves the ledger, so a
     command cut off during the merge still counts toward the daily limit and is
-    not tried again. It then runs
+    not tried again. The command reads the clock again for each pull request, so
+    a landing counts toward the day it is made. It then runs
     `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` once,
     with no retry, and reads the pull request once more. When the pull request
     is merged and its head is the verdict's head, the record gets the merge

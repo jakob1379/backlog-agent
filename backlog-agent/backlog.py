@@ -1943,7 +1943,12 @@ def locked(args: argparse.Namespace) -> None:
         try:
             for t in json.loads(args.plan.read_text())["lands"]:
                 outcome = land(
-                    candidates, ledger, t["repo"], t["pr"], t.get("head"), now
+                    candidates,
+                    ledger,
+                    t["repo"],
+                    t["pr"],
+                    t.get("head"),
+                    datetime.now(UTC),
                 )
                 result["refused" if "why" in outcome else "landed"].append(outcome)
                 save_ledger(LEDGER, ledger)

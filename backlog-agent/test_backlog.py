@@ -3720,7 +3720,7 @@ def fake_gh(replies):
         calls.append(line)
         for needle, reply in replies.items():
             if needle in line:
-                if isinstance(reply, list) and needle == PR_READ:
+                if isinstance(reply, list) and needle.startswith("-F number="):
                     reply = reply.pop(0) if len(reply) > 1 else reply[0]
                 if isinstance(reply, BaseException):
                     raise reply
@@ -4335,7 +4335,7 @@ GREEN_CHECKS = {
     MAIN_CHECKS: check_runs(),
     "check-runs": check_runs(),
     "/status": {"statuses": []},
-    "pulls/12/files": [{"filename": "a.py"}],
+    "/files": [{"filename": "a.py"}],
     REPO_READ: {"topics": [backlog.LAND_TOPIC], "default_branch": "main"},
 }
 STILL_OPEN = pull(headRefOid=HEAD)
@@ -4348,9 +4348,12 @@ def gh_error(text):
 
 
 def clock(at):
+    times = list(at) if isinstance(at, list) else [at]
+
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):
+            at = times.pop(0) if len(times) > 1 else times[0]
             return at or datetime.now(tz)
 
     return Clock
@@ -4871,6 +4874,25 @@ class LandCommandTest(unittest.TestCase):
         self.assertEqual(
             [t["pr"] for t in json.loads(self.out.getvalue())["landed"]], [12]
         )
+
+    def test_each_landing_counts_toward_the_day_it_is_made(self):
+        before = datetime(2026, 10, 22, 21, 59, tzinfo=UTC)
+        after = before + timedelta(minutes=2)
+        c, L = spread(12, 13), cleared(REVIEW, "o/r13#13:review")
+        decided = plan(c, L, DUE)
+        L["landed"] = [
+            landing(n, f"s{n}", at=before.isoformat(), repo="o/elsewhere")
+            for n in range(2)
+        ]
+        replies = {
+            PR_READ: [STILL_OPEN, NOW_MERGED],
+            "-F number=13": [STILL_OPEN, NOW_MERGED],
+            MERGE: "",
+        }
+        out = self.land(L, replies, c, decided, now=[before, before, after])
+        self.assertEqual(self.outcome(out), ([12, 13], []))
+        made = {e["pr"]: e["at"] for e in self.ledger()["landed"][2:]}
+        self.assertEqual(made, {12: before.isoformat(), 13: after.isoformat()})
 
     def test_a_daily_limit_reached_after_the_plan_is_refused(self):
         L = cleared()
