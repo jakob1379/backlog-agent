@@ -1001,7 +1001,7 @@ def land(
     sha = record["sha"] = (
         (after["mergeCommit"] or {}).get("oid") if after and merged else None
     )
-    if not merged and (after or merge.returncode):
+    if after and not merged:
         ledger["landed"].remove(record)
     if not merged:
         said = merge.stderr.strip().splitlines() or ["merge not made"]

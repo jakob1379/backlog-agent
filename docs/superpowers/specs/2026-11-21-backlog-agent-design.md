@@ -566,16 +566,16 @@ whether work is moving.
     runs `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>`
     once, with no retry, and reads the pull request once more. When the pull
     request is merged and its head is the verdict's head, the record gets the
-    merge commit. When that read fails, or its reply cannot be used, and the
-    merge command exited 0, the record stays with no merge commit, so the daily
-    limit and the pause still count it. Otherwise the merge was not made and the
-    record is removed. Anything but a confirmed merge is reported as refused
-    with the error's last line, and `tried` stays the head, so rule 17 holds the
-    pull request until it has a new head. A `land` that runs again with the same
-    plan is refused as `not offered`, since the first run cleared the offer. A
-    `land` command that never ran leaves `offered` set, so rule 17 holds the
-    pull request then too. The command saves the ledger after each pull request
-    and prints
+    merge commit. When that read fails, or its reply cannot be used, the outcome
+    is unknown whatever the merge command said, so the record stays with no
+    merge commit and the daily limit and the pause still count it. When the read
+    shows the pull request not merged, the record is removed. Anything but a
+    confirmed merge is reported as refused with the error's last line, and
+    `tried` stays the head, so rule 17 holds the pull request until it has a new
+    head. A `land` that runs again with the same plan is refused as
+    `not offered`, since the first run cleared the offer. A `land` command that
+    never ran leaves `offered` set, so rule 17 holds the pull request then too.
+    The command saves the ledger after each pull request and prints
     `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
   - **Why not auto-merge.** `gh pr merge --auto` merges at once when nothing
     required is pending, and an armed auto-merge survives later pushes, so it

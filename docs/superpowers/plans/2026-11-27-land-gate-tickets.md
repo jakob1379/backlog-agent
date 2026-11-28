@@ -296,17 +296,17 @@ so the next plan decides again. Otherwise store the head on the entry as
 plain `subprocess.run`, with no retry and no reading of its output, then read
 the pull request once more. When its `state` is `MERGED` and its head is the
 verdict's head, set the record's merge commit. When that read fails (the error
-kinds in `UNREAD`) and the merge command exited 0, keep the record with no merge
-commit, so the daily limit and the pause still count it, and report it as
-refused. Otherwise remove the record. `tried` stays the head in every case, so
-rule 17 holds the pull request until a new head. A second `land` with the same
-plan is refused as `not offered`. Report anything but a confirmed merge as
-refused with the error's last line. Save the ledger after each pull request.
-Tests through `plan`, one per rule of the gate, and the CLI with `gh` faked: a
-head that moved after the plan is refused, a card, a land topic, a default
-branch or a revert that changed after the plan is refused too, a failed merge is
-not tried again by the next plan or by a second `land` with the same plan, and a
-`land` that never ran leaves the pull request held.
+kinds in `UNREAD`), whatever the merge command's exit, keep the record with no
+merge commit, so the daily limit and the pause still count it, and report it as
+refused. When the read shows it not merged, remove the record. `tried` stays the
+head in every case, so rule 17 holds the pull request until a new head. A second
+`land` with the same plan is refused as `not offered`. Report anything but a
+confirmed merge as refused with the error's last line. Save the ledger after
+each pull request. Tests through `plan`, one per rule of the gate, and the CLI
+with `gh` faked: a head that moved after the plan is refused, a card, a land
+topic, a default branch or a revert that changed after the plan is refused too,
+a failed merge is not tried again by the next plan or by a second `land` with
+the same plan, and a `land` that never ran leaves the pull request held.
 
 ### T4 child-prompt: the `review` section of `CHILD.md`
 

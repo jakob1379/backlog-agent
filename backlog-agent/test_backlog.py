@@ -4200,17 +4200,18 @@ class LandCommandTest(unittest.TestCase):
         self.assertEqual(self.merges(), [])
 
     def test_a_merge_that_cannot_be_read_back_is_not_offered_again(self):
-        for name, after in [
-            ("gh fails", gh_error("HTTP 502: Bad Gateway")),
-            ("gh prints no JSON", "not json"),
+        for name, after, merge, said in [
+            ("gh fails", gh_error("HTTP 502: Bad Gateway"), "", "merge not made"),
+            ("gh prints no JSON", "not json", "", "merge not made"),
+            ("the merge reply was lost too", "not json", gh_error("EOF"), "EOF"),
         ]:
             with self.subTest(name):
-                out = self.land(cleared(), {PR_READ: [STILL_OPEN, after], MERGE: ""})
+                out = self.land(cleared(), {PR_READ: [STILL_OPEN, after], MERGE: merge})
                 self.assertEqual(
                     out,
                     {
                         "landed": [],
-                        "refused": [{"repo": "o/r", "pr": 12, "why": "merge not made"}],
+                        "refused": [{"repo": "o/r", "pr": 12, "why": said}],
                     },
                 )
                 self.assertEqual(len(self.merges()), 1)
