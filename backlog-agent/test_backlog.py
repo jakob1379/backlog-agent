@@ -1505,6 +1505,856 @@ class OwnerCardsPlanTest(unittest.TestCase):
         self.assertEqual(plan(c, L, NOW)["card_ops"], [])
 
 
+HEAD = "a" * 40
+REVIEW = "o/r#12:review"
+LATER = NOW + timedelta(hours=2)
+
+
+def agent_pr(
+    number=12, issues=(1,), head=HEAD, draft=False, labels=(), linked_refs=(), **review
+):
+    return {
+        **other_pr(number, draft, issues, linked_refs, labels),
+        "head": head,
+        "branch": AGENT_BRANCH,
+        "state": "OPEN",
+        "merge_state": "CLEAN",
+        "merge_commit": None,
+        "review": {
+            "checks": "green",
+            "pushed_at": "2026-10-21T10:00:00Z",
+            "files": ["a.py"],
+            "changed_files": 1,
+            "lines": 7,
+            "unresolved": 0,
+            "feedback_at": None,
+            "owner_feedback_at": None,
+            **review,
+        },
+    }
+
+
+def reviewable(*prs, cards=None):
+    prs = prs or (agent_pr(),)
+    numbers = sorted({n for p in prs for n in p["linked_issues"]})
+    return snap(
+        backlog_repo(*map(issue, numbers), other_prs=prs),
+        cards=[card(n, "In Review") for n in numbers] if cards is None else cards,
+    )
+
+
+def reviewed(
+    status="no-land", note=f"not_trivial {HEAD}", runs=1, took=timedelta(minutes=20)
+):
+    L = empty()
+    for _ in range(runs):
+        start(L, REVIEW, "t", NOW)
+        finish(L, REVIEW, status, note, NOW + took)
+    return L
+
+
+def rounds(result):
+    return [(t["key"], t["round"]) for t in result["dispatch"]]
+
+
+def without(record, field):
+    return {k: v for k, v in record.items() if k != field}
+
+
+class ReviewPlanTest(unittest.TestCase):
+    def test_an_agent_pull_request_whose_card_is_in_review_gets_a_review_run(self):
+        L = empty()
+        result = plan(reviewable(), L, NOW)
+        self.assertEqual(
+            result["dispatch"],
+            [
+                {
+                    "key": REVIEW,
+                    "kind": "review",
+                    "repo": "o/r",
+                    "pr": 12,
+                    "head": HEAD,
+                    "round": 1,
+                    "attempt": 1,
+                }
+            ],
+        )
+        self.assertEqual(result["card_ops"], [])
+        self.assertEqual(L["tasks"][REVIEW]["status"], "running")
+
+    def test_a_pull_request_the_agent_did_not_open_gets_no_review(self):
+        c = reviewable(other_pr(12, linked_issues=[1]))
+        self.assertEqual(keys(plan(c, empty(), NOW)), [])
+
+    def test_a_reviewed_head_is_not_reviewed_again(self):
+        for status, note in [
+            ("no-land", f"not_trivial {HEAD}"),
+            ("land", f"clean {HEAD}"),
+        ]:
+            with self.subTest(status):
+                L = reviewed(status, note)
+                self.assertEqual(keys(plan(reviewable(), L, LATER)), [])
+
+    def test_a_failed_review_is_run_again(self):
+        L = reviewed("failed", f"review_error {HEAD}")
+        self.assertEqual(rounds(plan(reviewable(), L, LATER)), [(REVIEW, 2)])
+
+    def test_a_new_head_is_reviewed(self):
+        c = reviewable(agent_pr(head="b" * 40))
+        self.assertEqual(rounds(plan(c, reviewed(), LATER)), [(REVIEW, 2)])
+
+    def test_feedback_given_after_a_review_started_starts_another(self):
+        for at, expected in [
+            ("2026-10-21T11:00:00Z", []),
+            ("2026-10-21T12:10:00Z", [(REVIEW, 2)]),
+            ("2026-10-21T13:00:00Z", [(REVIEW, 2)]),
+        ]:
+            with self.subTest(at):
+                c = reviewable(agent_pr(feedback_at=at))
+                self.assertEqual(rounds(plan(c, reviewed(), LATER)), expected)
+
+    def test_red_checks_on_a_push_made_after_a_review_started_start_another(self):
+        for checks, pushed_at, expected in [
+            ("red", "2026-10-21T13:00:00Z", [(REVIEW, 2)]),
+            ("red", "2026-10-21T12:10:00Z", [(REVIEW, 2)]),
+            ("red", "2026-10-21T11:00:00Z", []),
+            ("green", "2026-10-21T13:00:00Z", []),
+        ]:
+            with self.subTest(checks=checks, pushed_at=pushed_at):
+                c = reviewable(agent_pr(checks=checks, pushed_at=pushed_at))
+                self.assertEqual(rounds(plan(c, reviewed(), LATER)), expected)
+
+    def test_without_a_board_no_review_starts(self):
+        c = without(reviewable(), "board")
+        self.assertEqual(keys(plan(c, empty(), NOW)), [])
+
+    def test_no_review_starts_until_every_linked_issue_has_a_card_in_review(self):
+        both = agent_pr(issues=[1, 2])
+        far = agent_pr(linked_refs=["o/x#5"])
+        cases = {
+            "no card": (agent_pr(), []),
+            "in progress": (agent_pr(), [card(1, "In Progress")]),
+            "done": (agent_pr(), [card(1, "Done")]),
+            "a pull request card": (agent_pr(), [card(1, "In Review", type="pr")]),
+            "one of two": (both, [card(1, "In Review"), card(2, "Needs approval")]),
+            "an issue of another repo": (far, [card(1, "In Review")]),
+        }
+        for name, (p, cards) in cases.items():
+            with self.subTest(name):
+                c = reviewable(p, cards=cards)
+                self.assertEqual(keys(plan(c, empty(), NOW)), [])
+        c = reviewable(
+            far, cards=[card(1, "In Review"), card(5, "In Review", repo="o/x")]
+        )
+        self.assertEqual(keys(plan(c, empty(), NOW)), [REVIEW])
+
+    def test_a_pull_request_the_owner_holds_gets_no_review(self):
+        for p, expected in [
+            (agent_pr(draft=True), []),
+            (agent_pr(labels=["agent:hold"]), []),
+            (agent_pr(labels=["agent:blocked"]), []),
+            (agent_pr(labels=["needs-review"]), [REVIEW]),
+        ]:
+            with self.subTest(draft=p["draft"], labels=p["labels"]):
+                self.assertEqual(keys(plan(reviewable(p), empty(), NOW)), expected)
+
+    def test_a_review_waits_while_the_checks_are_pending(self):
+        for checks, expected in [
+            ("pending", []),
+            ("green", [REVIEW]),
+            ("red", [REVIEW]),
+            (None, [REVIEW]),
+        ]:
+            with self.subTest(checks):
+                c = reviewable(agent_pr(checks=checks))
+                self.assertEqual(keys(plan(c, empty(), NOW)), expected)
+
+    def test_a_review_waits_half_an_hour_after_the_last_push_or_feedback(self):
+        for p, expected in [
+            (agent_pr(pushed_at="2026-10-21T11:45:00Z"), []),
+            (agent_pr(pushed_at="2026-10-21T11:31:00Z"), []),
+            (agent_pr(feedback_at="2026-10-21T11:45:00Z"), []),
+            (
+                agent_pr(
+                    pushed_at="2026-10-21T11:45:00Z", feedback_at="2026-10-21T11:00:00Z"
+                ),
+                [],
+            ),
+            (
+                agent_pr(
+                    pushed_at="2026-10-21T11:30:00Z", feedback_at="2026-10-21T11:00:00Z"
+                ),
+                [REVIEW],
+            ),
+        ]:
+            with self.subTest(p["review"]):
+                self.assertEqual(keys(plan(reviewable(p), empty(), NOW)), expected)
+
+    def test_a_review_waits_for_the_triage_and_build_runs_of_its_issue(self):
+        for kind in ("triage", "build"):
+            for status in ("running", "failed"):
+                with self.subTest(kind=kind, status=status):
+                    L = empty()
+                    start(L, f"o/r#1:{kind}", "t", NOW)
+                    if status == "failed":
+                        finish(L, f"o/r#1:{kind}", "failed", "boom", NOW)
+                    self.assertEqual(keys(plan(reviewable(), L, NOW)), [])
+
+    def test_one_review_runs_at_a_time(self):
+        c = reviewable(agent_pr(12), agent_pr(13, issues=[2]))
+        L = empty()
+        result = plan(c, L, NOW)
+        self.assertEqual((keys(result), result["queued"]), ([REVIEW], []))
+        self.assertEqual(keys(plan(c, L, NOW)), [])
+        claimed = frozenset({REVIEW})
+        self.assertEqual(keys(plan(c, empty(), NOW, busy=claimed)), [])
+
+    def test_the_pull_request_that_waited_longest_is_reviewed_first(self):
+        c = reviewable(
+            agent_pr(
+                12, pushed_at="2026-10-21T09:00:00Z", feedback_at="2026-10-21T11:00:00Z"
+            ),
+            agent_pr(13, issues=[2], pushed_at="2026-10-21T10:00:00Z"),
+        )
+        self.assertEqual(keys(plan(c, empty(), NOW)), ["o/r#13:review"])
+
+    def test_a_pull_request_gets_three_review_runs(self):
+        c = reviewable(agent_pr(head="b" * 40))
+        self.assertEqual(rounds(plan(c, reviewed(runs=2), LATER)), [(REVIEW, 3)])
+        self.assertEqual(keys(plan(c, reviewed(runs=3), LATER)), [])
+        failed = reviewed("failed", f"review_error {HEAD}", runs=3)
+        self.assertEqual(keys(plan(reviewable(), failed, LATER)), [])
+        red = reviewable(agent_pr(checks="red", pushed_at="2026-10-21T13:00:00Z"))
+        self.assertEqual(keys(plan(red, reviewed(runs=3), LATER)), [])
+
+    def test_the_owners_feedback_after_the_last_review_ended_buys_another_run(self):
+        during, after = "2026-10-21T12:10:00Z", "2026-10-21T12:30:00Z"
+        cases = {
+            "the owner, after it ended": (after, after, [(REVIEW, 4)]),
+            "the owner, while it ran": (during, during, []),
+            "a bot, after it ended": (after, during, []),
+        }
+        for name, (feedback_at, owner_feedback_at, expected) in cases.items():
+            with self.subTest(name):
+                p = agent_pr(
+                    feedback_at=feedback_at, owner_feedback_at=owner_feedback_at
+                )
+                L = reviewed(runs=3, took=timedelta(minutes=20))
+                self.assertEqual(rounds(plan(reviewable(p), L, LATER)), expected)
+
+    def test_a_review_runs_after_dependency_work_and_before_builds_and_triage(self):
+        approved = card(6, "Approved", [moved("Needs approval", "Approved", "owner")])
+        c = snap(
+            backlog_repo(
+                issue(1), issue(5), issue(6), prs=[pr(7)], other_prs=[agent_pr()]
+            ),
+            cards=[card(1, "In Review"), asked(5), approved],
+        )
+        result = plan(c, empty(), NOW)
+        self.assertEqual(keys(result), ["o/r#7", REVIEW, "o/r#6:build"])
+        self.assertEqual(result["queued"], ["o/r#5:triage"])
+
+    def test_a_review_counts_against_the_daily_cap(self):
+        L = empty()
+        plan(reviewable(), L, NOW)
+        self.assertEqual(used_today(L, NOW), 1)
+        L = empty()
+        L["starts"] = [NOW.isoformat()] * backlog.DAILY_CAP
+        result = plan(reviewable(), L, NOW)
+        self.assertEqual((keys(result), result["queued"]), ([], [REVIEW]))
+
+    def test_a_review_entry_lives_as_long_as_its_pull_request_is_open(self):
+        L = reviewed("land", f"clean {HEAD}")
+        plan(reviewable(), L, LATER)
+        self.assertEqual(L["tasks"][REVIEW]["status"], "land")
+        closed = snap(backlog_repo(issue(1)), cards=[card(1, "In Review")])
+        result = plan(closed, L, LATER)
+        self.assertEqual((L["tasks"], result["resolved"]), ({}, []))
+
+    def test_a_review_entry_is_dropped_once_the_pull_request_is_no_agent_pull_request(
+        self,
+    ):
+        L = reviewed()
+        plan(reviewable(other_pr(12, linked_issues=[1])), L, LATER)
+        self.assertEqual(L["tasks"], {})
+
+    def test_a_pull_request_with_a_value_missing_gets_no_review(self):
+        whole = agent_pr()
+        cases = {
+            "head": without(whole, "head"),
+            "draft": without(whole, "draft"),
+            "labels": without(whole, "labels"),
+            "pushed_at": {**whole, "review": without(whole["review"], "pushed_at")},
+            "checks": {**whole, "review": without(whole["review"], "checks")},
+            "linked issue": agent_pr(issues=[]),
+        }
+        for name, p in cases.items():
+            with self.subTest(name):
+                self.assertEqual(keys(plan(reviewable(p), empty(), NOW)), [])
+
+    def test_a_land_verdict_is_kept_only_with_the_clean_reason_and_the_head(self):
+        url = "https://github.com/o/r/pull/12"
+        for status, note, stored, head in [
+            ("land", f"clean {HEAD} {url}; converged", "land", HEAD),
+            ("land", f"not_trivial {HEAD} {url}", "no-land", HEAD),
+            ("land", f"clean; head {HEAD}", "no-land", HEAD),
+            ("land", f"clean but see below {HEAD}", "no-land", HEAD),
+            ("land", f"not clean {HEAD}", "no-land", HEAD),
+            ("land", f"clean {HEAD}0", "no-land", None),
+            ("land", "clean", "no-land", None),
+            ("no-land", f"off_plan {HEAD} {url}; too wide", "no-land", HEAD),
+        ]:
+            with self.subTest(status=status, note=note):
+                L = empty()
+                start(L, REVIEW, "t", NOW)
+                self.assertEqual(finish(L, REVIEW, status, note, NOW), stored)
+                entry = L["tasks"][REVIEW]
+                self.assertEqual((entry["status"], entry["head"]), (stored, head))
+
+    def test_a_later_no_land_takes_back_a_land_already_recorded(self):
+        L = reviewed("land", f"clean {HEAD}")
+        self.assertEqual(
+            finish(L, REVIEW, "no-land", f"not_trivial {HEAD}", NOW), "no-land"
+        )
+        self.assertEqual(L["tasks"][REVIEW]["status"], "no-land")
+        with self.assertRaises(SystemExit):
+            finish(L, REVIEW, "land", f"clean {HEAD}", NOW)
+
+    def test_a_finished_build_does_not_stop_a_review(self):
+        L = empty()
+        start(L, "o/r#1:build", "t", NOW)
+        finish(L, "o/r#1:build", "fix-pending", "x", NOW)
+        self.assertEqual(keys(plan(reviewable(), L, NOW)), [REVIEW])
+
+    def test_a_running_build_of_a_second_linked_issue_stops_a_review(self):
+        L = empty()
+        start(L, "o/r#2:build", "t", NOW)
+        c = reviewable(agent_pr(issues=[1, 2]))
+        self.assertNotIn(REVIEW, keys(plan(c, L, NOW)))
+
+    def test_running_work_that_is_no_review_does_not_stop_a_review(self):
+        c = snap(
+            backlog_repo(issue(1), prs=[pr(7)], other_prs=[agent_pr()]),
+            cards=[card(1, "In Review")],
+        )
+        L = empty()
+        start(L, "o/r#7", "t", NOW)
+        self.assertEqual(keys(plan(c, L, NOW)), [REVIEW])
+
+    def test_a_review_that_keeps_failing_is_never_blocked(self):
+        L = empty()
+        for status in ("failed", "blocked", "done", "fix-pending"):
+            start(L, REVIEW, "t", NOW)
+            self.assertEqual(finish(L, REVIEW, status, "boom", NOW), "failed")
+        self.assertEqual(L["tasks"][REVIEW]["status"], "failed")
+
+    def test_a_review_that_is_not_running_takes_no_verdict(self):
+        L = reviewed()
+        for ledger in (L, empty()):
+            with self.assertRaises(SystemExit):
+                finish(ledger, REVIEW, "land", f"clean {HEAD}", NOW)
+        self.assertEqual(L["tasks"][REVIEW]["status"], "no-land")
+
+    def test_a_review_entry_never_gets_a_card(self):
+        note = f"clean {HEAD} https://github.com/o/r/pull/12"
+        c = reviewable(agent_pr(labels=["needs-review"]))
+        for status in ("land", "no-land", "failed"):
+            with self.subTest(status):
+                self.assertEqual(plan(c, reviewed(status, note), NOW)["card_ops"], [])
+
+    def test_a_review_entry_an_older_ledger_left_blocked_is_not_dependency_work(self):
+        far = agent_pr(issues=[], linked_refs=["o/x#5"], labels=["needs-review"])
+        L = reviewed("land", f"clean {HEAD} https://github.com/o/r/pull/12")
+        L["tasks"][REVIEW]["status"] = "blocked"
+        self.assertEqual(
+            plan(reviewable(far), L, NOW)["card_ops"],
+            [
+                {
+                    "op": "create",
+                    "link": {"repo": "o/r", "number": 12, "type": "pr"},
+                    "title": "PR 12",
+                    "status": "In Review",
+                    "labels": ["kind: pr", "repo: r"],
+                }
+            ],
+        )
+
+
+DUE = NOW + backlog.LAND_DELAY
+
+
+PROTECTED_PATHS = """
+.github/workflows/ci.yml a/b/.github/x.yml .gitlab-ci.yml .pre-commit-config.yaml
+CODEOWNERS docs/CODEOWNERS
+.claude/settings.json .agents/x.md .cursor/rules/a.mdc .cursorrules .mcp.json
+CLAUDE.md sub/CLAUDE.local.md AGENTS.md GEMINI.md skills/x/SKILL.md
+pyproject.toml sub/pyproject.toml setup.py setup.cfg requirements.txt
+requirements-dev.txt tox.ini noxfile.py pytest.ini tests/conftest.py .coveragerc
+codecov.yml codecov.yaml package.json tsconfig.json tsconfig.build.json
+jest.config.js vitest.config.ts playwright.config.ts Cargo.toml go.mod go.sum
+uv.lock Cargo.lock flake.lock package-lock.json pnpm-lock.yaml flake.nix
+nix/shell.nix Makefile justfile Dockerfile Dockerfile.dev compose.yml
+docker-compose.prod.yaml ruff.toml .ruff.toml mypy.ini biome.json biome.jsonc
+eslint.config.mjs .eslintrc .eslintrc.json
+scripts/run.py tools/scripts/run.py install.sh bin/x.sh .env .env.local
+config/.envrc
+makefile dockerfile claude.md .GitHub/workflows/ci.yml
+"""
+FREE_PATHS = """
+src/app/main.py docs/guide.md tests/test_x.py README.md src/environment.py
+src/lockfile.py docs/makefile-tips.md src/scripts.py composer.py src/github/api.py
+src/nix.py shell.py tsconfig-docs/schema.json
+tests/test_setup.py src/mypackage.json notscripts/a.py
+"""
+
+
+def cleared(*keys, head=HEAD):
+    L, keys = empty(), keys or (REVIEW,)
+    for n, key in enumerate(keys):
+        at = NOW - timedelta(minutes=len(keys) - 1 - n)
+        start(L, key, "t", at - timedelta(minutes=20))
+        finish(L, key, "land", f"clean {head}", at)
+    return L
+
+
+def spread(*numbers):
+    names = {n: "o/r" if i == 0 else f"o/r{n}" for i, n in enumerate(numbers)}
+    repos = [
+        {**backlog_repo(issue(1), name=name, other_prs=[agent_pr(n)]), "land": True}
+        for n, name in names.items()
+    ]
+    cards = [card(1, "In Review", repo=name) for name in names.values()]
+    return snap(*repos, cards=cards)
+
+
+def landable(*prs, cards=None, **fields):
+    c = reviewable(*prs, cards=cards)
+    c["repos"][0].update({"land": True, **fields})
+    return c
+
+
+def lands(result):
+    return [t["pr"] for t in result["lands"]]
+
+
+def why(result):
+    return [(g["pr"], g["why"]) for g in result["greenlit"]]
+
+
+def scene(passing):
+    def ok(rule):
+        return rule <= passing
+
+    p = agent_pr(
+        head=HEAD if ok(2) else "b" * 40,
+        draft=not ok(4),
+        checks="green" if ok(9) else "red",
+        unresolved=0 if ok(11) else 1,
+        lines=7 if ok(12) else 301,
+        files=["a.py"] if ok(13) else [".github/x.yml"],
+    )
+    p["state"] = "OPEN" if ok(3) else "CLOSED"
+    p["merge_state"] = "CLEAN" if ok(8) else "BLOCKED"
+    r = {
+        **backlog_repo(
+            issue(1, author=OWNER if ok(5) else "eve"),
+            other_prs=[p] if ok(7) else [p, agent_pr(13)],
+        ),
+        "main": "green" if ok(10) else "red",
+        # A repo without the topic forgets its reverts, so rule 14 shows only with it.
+        "land": ok(15) or not ok(14),
+    }
+    c = snap(r, cards=[card(1, "In Review" if ok(6) else "In Progress")])
+    now = DUE if ok(18) else DUE - timedelta(hours=1)
+    L = cleared()
+    L["tasks"][REVIEW]["offered"] = None if ok(16) else HEAD
+    L["landed"] = [] if ok(14) else [{**landing(9, "s9"), "reverted": True}]
+    if not ok(17):
+        L["landed"] += [
+            landing(n, f"s{n}", at=now.isoformat(), repo="o/elsewhere")
+            for n in range(3)
+        ]
+    return c, L, now
+
+
+class LandGatePlanTest(unittest.TestCase):
+    def holds(self, expected, c, L=None, now=DUE):
+        result = plan(c, cleared() if L is None else L, now)
+        self.assertEqual((lands(result), why(result)), ([], [(12, expected)]))
+
+    def test_a_cleared_pull_request_lands_a_day_after_its_verdict(self):
+        L = cleared()
+        result = plan(landable(), L, DUE)
+        self.assertEqual(
+            result["lands"], [{"key": REVIEW, "repo": "o/r", "pr": 12, "head": HEAD}]
+        )
+        self.assertEqual((result["greenlit"], result["dispatch"]), ([], []))
+        self.assertEqual(L["tasks"][REVIEW]["offered"], HEAD)
+
+    def test_a_plan_without_a_land_verdict_lands_nothing(self):
+        result = plan(cands(repo()), empty(), NOW)
+        self.assertEqual((result["lands"], result["greenlit"]), ([], []))
+        for status, note in [
+            ("no-land", f"not_trivial {HEAD}"),
+            ("failed", "boom"),
+            ("land", f"not_trivial {HEAD}"),
+        ]:
+            with self.subTest(status=status, note=note):
+                result = plan(landable(), reviewed(status, note), DUE)
+                self.assertEqual((result["lands"], result["greenlit"]), ([], []))
+
+    def test_the_first_rule_that_holds_a_pull_request_is_the_one_reported(self):
+        reasons = [
+            "verdict is stale",
+            "not open",
+            "held by the owner",
+            "issue not the owner's",
+            "card in progress",
+            "split across pull requests",
+            "merge state blocked",
+            "checks red",
+            "default branch red",
+            "open feedback",
+            "too large",
+            "protected path .github/x.yml",
+            "paused after a revert",
+            "shadow",
+            "merge not made",
+            "daily limit",
+            "lands 2026-10-22T12:00:00+00:00",
+        ]
+        for passing, expected in enumerate(reasons, 1):
+            with self.subTest(expected):
+                c, L, now = scene(passing)
+                self.holds(expected, c, L, now)
+        c, L, now = scene(18)
+        self.assertEqual(lands(plan(c, L, now)), [12])
+
+    def test_a_verdict_on_another_head_lands_nothing(self):
+        for name, p in [
+            ("a newer head", agent_pr(head="b" * 40)),
+            ("no head", without(agent_pr(), "head")),
+        ]:
+            with self.subTest(name):
+                self.holds("verdict is stale", landable(p))
+        L = cleared()
+        del L["tasks"][REVIEW]["head"]
+        self.holds("verdict is stale", landable(without(agent_pr(), "head")), L)
+
+    def test_a_pull_request_that_is_not_open_lands_nothing(self):
+        for name, p in [
+            ("closed", {**agent_pr(), "state": "CLOSED"}),
+            ("merged", {**agent_pr(), "state": "MERGED"}),
+            ("no state", without(agent_pr(), "state")),
+        ]:
+            with self.subTest(name):
+                self.holds("not open", landable(p))
+
+    def test_a_pull_request_the_owner_holds_lands_nothing(self):
+        for name, p in [
+            ("a draft", agent_pr(draft=True)),
+            ("agent:hold", agent_pr(labels=["agent:hold"])),
+            ("agent:blocked", agent_pr(labels=["agent:blocked"])),
+            ("no draft flag", without(agent_pr(), "draft")),
+            ("no labels", without(agent_pr(), "labels")),
+        ]:
+            with self.subTest(name):
+                self.holds("held by the owner", landable(p))
+        c = landable(agent_pr(labels=["needs-review"]))
+        self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
+
+    def test_every_linked_issue_must_be_open_and_written_by_the_owner(self):
+        strangers, closed = landable(), landable()
+        strangers["repos"][0]["issues"] = [issue(1, author="eve")]
+        closed["repos"][0]["issues"] = []
+        far = agent_pr(linked_refs=["o/x#5"])
+        cases = {
+            "someone else's issue": strangers,
+            "a closed issue": closed,
+            "an issue in a repo out of scope": landable(
+                far, cards=[card(1, "In Review"), card(5, "In Review", repo="o/x")]
+            ),
+            "no linked issue": landable(agent_pr(issues=[])),
+            "no owner in the snapshot": without(landable(), "owner"),
+            "no owner and a closed issue": without(closed, "owner"),
+        }
+        for name, c in cases.items():
+            with self.subTest(name):
+                self.holds("issue not the owner's", c)
+
+    def test_every_linked_issue_needs_a_card_in_review(self):
+        both = agent_pr(issues=[1, 2])
+        cases = {
+            "no card": (landable(cards=[]), "card none"),
+            "in progress": (
+                landable(cards=[card(1, "In Progress")]),
+                "card in progress",
+            ),
+            "needs info": (landable(cards=[card(1, "Needs info")]), "card needs info"),
+            "done": (landable(cards=[card(1, "Done")]), "card done"),
+            "a pull request card": (
+                landable(cards=[card(1, "In Review", type="pr")]),
+                "card none",
+            ),
+            "one of two": (
+                landable(both, cards=[card(1, "In Review"), card(2, "Needs approval")]),
+                "card needs approval",
+            ),
+            "no board": (without(landable(), "board"), "card none"),
+        }
+        for name, (c, expected) in cases.items():
+            with self.subTest(name):
+                self.holds(expected, c)
+        c = landable(both)
+        self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
+
+    def test_an_issue_split_across_agent_pull_requests_lands_nothing(self):
+        self.holds("split across pull requests", landable(agent_pr(12), agent_pr(13)))
+        far = ["o/x#5"]
+        c = landable(
+            agent_pr(12, linked_refs=far),
+            agent_pr(13, issues=[], linked_refs=far),
+            cards=[card(1, "In Review"), card(5, "In Review", repo="o/x")],
+        )
+        c["repos"].append(backlog_repo(issue(5), name="o/x"))
+        self.holds("split across pull requests", c)
+        c = landable()
+        c["repos"].append(
+            backlog_repo(
+                name="o/x", other_prs=[agent_pr(12, issues=[], linked_refs=["o/r#1"])]
+            )
+        )
+        self.holds("split across pull requests", c)
+        c = landable(agent_pr(12), other_pr(13, linked_issues=[1]))
+        self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
+
+    def test_only_a_clean_merge_state_lands(self):
+        for state in ("BLOCKED", "BEHIND", "DIRTY", "UNSTABLE", "UNKNOWN", "DRAFT"):
+            with self.subTest(state):
+                c = landable({**agent_pr(), "merge_state": state})
+                self.holds(f"merge state {state.lower()}", c)
+        c = landable(without(agent_pr(), "merge_state"))
+        self.holds("merge state none", c)
+        c = landable({**agent_pr(), "merge_state": "HAS_HOOKS"})
+        self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
+
+    def test_only_green_required_checks_land(self):
+        whole = agent_pr()
+        cases = {
+            "red": (agent_pr(checks="red"), "checks red"),
+            "pending": (agent_pr(checks="pending"), "checks pending"),
+            "none required": (agent_pr(checks=None), "checks none"),
+            "not read": (
+                {**whole, "review": without(whole["review"], "checks")},
+                "checks none",
+            ),
+        }
+        for name, (p, expected) in cases.items():
+            with self.subTest(name):
+                self.holds(expected, landable(p))
+
+    def test_only_a_green_default_branch_lands(self):
+        for main in ("red", "pending", None):
+            with self.subTest(main):
+                c = landable(main=main, has_ci=bool(main))
+                self.holds(f"default branch {main or 'none'}", c)
+
+    def test_open_feedback_lands_nothing(self):
+        whole = agent_pr()
+        cases = {
+            "an unresolved thread": agent_pr(unresolved=1),
+            "feedback after the review started": agent_pr(
+                feedback_at="2026-10-21T13:00:00Z"
+            ),
+            "threads not read": {
+                **whole,
+                "review": without(whole["review"], "unresolved"),
+            },
+            "feedback not read": {
+                **whole,
+                "review": without(whole["review"], "feedback_at"),
+            },
+        }
+        for name, p in cases.items():
+            with self.subTest(name):
+                self.holds("open feedback", landable(p))
+        c = landable(agent_pr(feedback_at="2026-10-21T11:00:00Z"))
+        self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
+
+    def test_feedback_given_while_the_review_ran_lands_nothing(self):
+        L = reviewed("land", f"clean {HEAD}", took=timedelta(minutes=20))
+        c = landable(agent_pr(feedback_at="2026-10-21T12:10:00Z"))
+        self.holds("open feedback", c, L, DUE + timedelta(hours=1))
+
+    def test_a_change_past_ten_files_or_three_hundred_lines_lands_nothing(self):
+        names = [f"f{n}.py" for n in range(11)]
+        whole = agent_pr()
+        cases = {
+            "eleven files": agent_pr(changed_files=11, files=names),
+            "301 lines": agent_pr(lines=301),
+            "files not counted": {
+                **whole,
+                "review": without(whole["review"], "changed_files"),
+            },
+            "lines not counted": {
+                **whole,
+                "review": without(whole["review"], "lines"),
+            },
+        }
+        for name, p in cases.items():
+            with self.subTest(name):
+                self.holds("too large", landable(p))
+        c = landable(agent_pr(changed_files=10, files=names[:10], lines=300))
+        self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
+
+    def test_a_change_to_a_protected_path_lands_nothing(self):
+        protected, free = PROTECTED_PATHS.split(), FREE_PATHS.split()
+        for path in protected:
+            with self.subTest(path):
+                p = agent_pr(changed_files=2, files=[path, "a.py"])
+                self.holds(f"protected path {path}", landable(p))
+        for path in free:
+            with self.subTest(path):
+                c = landable(agent_pr(changed_files=2, files=["a.py", path]))
+                self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
+
+    def test_the_old_name_of_a_renamed_file_is_checked_too(self):
+        p = agent_pr(files=["docs/new.md", ".github/old.yml"])
+        self.holds("protected path .github/old.yml", landable(p))
+
+    def test_a_change_whose_file_names_were_not_all_read_lands_nothing(self):
+        whole = agent_pr()
+        for name, p in [
+            ("no names", {**whole, "review": without(whole["review"], "files")}),
+            ("fewer names than files", agent_pr(changed_files=2, files=["a.py"])),
+        ]:
+            with self.subTest(name):
+                self.holds("protected path none", landable(p))
+
+    def test_a_revert_pauses_the_repo_until_the_owner_takes_the_topic_off(self):
+        L = cleared()
+        L["landed"] = [landing(9, "abc")]
+        self.holds("paused after a revert", landable(reverted=[9]), L)
+        self.assertEqual(L["landed"], [{**landing(9, "abc"), "reverted": True}])
+        self.holds("paused after a revert", landable(), L)
+        self.holds("shadow", landable(land=False), L)
+        self.assertEqual(L["landed"], [])
+        self.assertEqual(lands(plan(landable(), L, DUE)), [12])
+
+    def test_a_reverted_landing_pauses_only_its_own_repo(self):
+        there = backlog_repo(issue(2), name="o/x", other_prs=[agent_pr(13, issues=[2])])
+        c = snap(
+            {**backlog_repo(issue(1), other_prs=[agent_pr()]), "land": True},
+            {**there, "land": True, "reverted": [9]},
+            cards=[card(1, "In Review"), card(2, "In Review", repo="o/x")],
+        )
+        L = cleared(REVIEW, "o/x#13:review")
+        L["landed"] = [landing(9, "abc", repo="o/x"), landing(9, "def")]
+        result = plan(c, L, DUE)
+        self.assertEqual(
+            (lands(result), why(result)), ([12], [(13, "paused after a revert")])
+        )
+        self.assertEqual([e.get("reverted") for e in L["landed"]], [True, None])
+
+    def test_a_landing_is_forgotten_after_sixty_days_unless_it_was_reverted(self):
+        old = (DUE - timedelta(days=61)).isoformat()
+        recent = (DUE - timedelta(days=59)).isoformat()
+        L = cleared()
+        L["landed"] = [
+            landing(7, "s7", at=old, repo="o/x"),
+            {**landing(8, "s8", at=old), "reverted": True},
+            landing(9, "s9", at=recent, repo="o/x"),
+        ]
+        plan(landable(), L, DUE)
+        self.assertEqual([e["pr"] for e in L["landed"]], [8, 9])
+
+    def test_a_repo_without_the_land_topic_only_gets_shadow_verdicts(self):
+        own = "jakob1379/nix-config"
+        agents_own = snap(
+            {**backlog_repo(issue(1), name=own, other_prs=[agent_pr()]), "land": True},
+            cards=[card(1, "In Review", repo=own)],
+        )
+        cases = {
+            "no topic": (reviewable(), cleared()),
+            "topic off": (landable(land=False), cleared()),
+            "the agent's own repo": (agents_own, cleared(f"{own}#12:review")),
+        }
+        for name, (c, L) in cases.items():
+            with self.subTest(name):
+                self.holds("shadow", c, L)
+
+    def test_a_merge_that_was_offered_and_not_made_waits_for_a_new_head(self):
+        L, c = cleared(), landable()
+        self.assertEqual(lands(plan(c, L, DUE)), [12])
+        self.holds("merge not made", c, L)
+        again = "b" * 40
+        start(L, REVIEW, "t", DUE)
+        finish(L, REVIEW, "land", f"clean {again}", DUE)
+        result = plan(landable(agent_pr(head=again)), L, DUE + backlog.LAND_DELAY)
+        self.assertEqual(
+            result["lands"], [{"key": REVIEW, "repo": "o/r", "pr": 12, "head": again}]
+        )
+
+    def test_three_pull_requests_land_in_a_copenhagen_day_oldest_verdict_first(self):
+        c = spread(12, 13, 14)
+        last_night, today = "2026-10-21T22:30:00+00:00", "2026-10-22T08:00:00+00:00"
+        cases = {
+            "none today": ([], [13, 14, 12], []),
+            "one today": ([today], [13, 14], [12]),
+            "two since midnight in Copenhagen": ([last_night, today], [13], [14, 12]),
+            "three today": ([today] * 3, [], [13, 14, 12]),
+            "three yesterday": (["2026-10-21T21:59:00+00:00"] * 3, [13, 14, 12], []),
+        }
+        for name, (merged, landing_now, waiting) in cases.items():
+            with self.subTest(name):
+                L = cleared("o/r13#13:review", "o/r14#14:review", REVIEW)
+                L["tasks"] = dict(sorted(L["tasks"].items()))
+                L["landed"] = [
+                    landing(n, f"s{n}", at=at, repo="o/elsewhere")
+                    for n, at in enumerate(merged)
+                ]
+                result = plan(c, L, DUE)
+                self.assertEqual(
+                    (lands(result), why(result)),
+                    (landing_now, [(n, "daily limit") for n in waiting]),
+                )
+
+    def test_today_is_the_copenhagen_day_of_the_plan(self):
+        now = datetime(2026, 10, 22, 22, 30, tzinfo=UTC)
+        for at, expected in [
+            ("2026-10-22T10:00:00+00:00", ([12], [])),
+            ("2026-10-22T22:10:00+00:00", ([], [(12, "daily limit")])),
+        ]:
+            with self.subTest(at):
+                L = cleared()
+                L["landed"] = [
+                    landing(n, f"s{n}", at=at, repo="o/elsewhere") for n in range(3)
+                ]
+                result = plan(landable(), L, now)
+                self.assertEqual((lands(result), why(result)), expected)
+
+    def test_one_pull_request_lands_per_repo_in_a_plan(self):
+        c = landable(agent_pr(12), agent_pr(13, issues=[2]))
+        L = cleared("o/r#13:review", REVIEW)
+        result = plan(c, L, DUE)
+        self.assertEqual(
+            (lands(result), why(result)), ([13], [(12, "default branch pending")])
+        )
+        self.assertIsNone(L["tasks"][REVIEW].get("offered"))
+
+    def test_a_held_verdict_is_new_once(self):
+        L = cleared()
+        shadow = landable(land=False)
+        seen = [plan(shadow, L, DUE)["greenlit"][0]["new"] for _ in range(2)]
+        self.assertEqual(seen, [True, False])
+        (held,) = plan(landable(agent_pr(lines=5000)), L, DUE)["greenlit"]
+        self.assertEqual((held["why"], held["new"]), ("too large", True))
+
+    def test_a_pull_request_waits_a_day_after_its_verdict(self):
+        soon = DUE - timedelta(minutes=1)
+        self.holds("lands 2026-10-22T12:00:00+00:00", landable(), now=soon)
+
+
 def run(name, conclusion, started="2026-10-21T10:00:00Z", status="COMPLETED"):
     return {
         "__typename": "CheckRun",
@@ -1860,6 +2710,42 @@ class CliTest(unittest.TestCase):
                 },
             )
 
+    def test_a_review_verdict_is_planned_started_and_recorded(self):
+        url = "https://github.com/o/r/pull/12"
+        for status, note in [
+            ("land", f"clean {HEAD} {url}; converged"),
+            ("no-land", f"off_plan {HEAD} {url}; too wide"),
+        ]:
+            with self.subTest(status), tempfile.TemporaryDirectory() as d:
+                path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+                cpath.write_text(json.dumps(reviewable()))
+                out = json.loads(cli(path, "plan", str(cpath), "th"))
+                self.assertEqual(rounds(out), [(REVIEW, 1)])
+                self.assertTrue(Path(d, "work", "o-r-12-review.lock").exists())
+                cli(path, "start", REVIEW, "task-1")
+                self.assertEqual(
+                    cli(path, "finish", REVIEW, status, note).strip(), status
+                )
+                entry = json.loads(path.read_text())["tasks"][REVIEW]
+                self.assertEqual(
+                    (entry["status"], entry["head"], entry["note"]),
+                    (status, HEAD, note),
+                )
+                self.assertEqual(list(Path(d, "work").iterdir()), [])
+
+    def test_plan_prints_what_lands_and_saves_what_it_offered(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            path.write_text(json.dumps(cleared()))
+            cpath.write_text(json.dumps(landable()))
+            out = json.loads(cli(path, "plan", str(cpath), "th"))
+            self.assertEqual(
+                (out["lands"], out["greenlit"]),
+                ([{"key": REVIEW, "repo": "o/r", "pr": 12, "head": HEAD}], []),
+            )
+            entry = json.loads(path.read_text())["tasks"][REVIEW]
+            self.assertEqual(entry["offered"], HEAD)
+
 
 def linear_reply(body: dict):
     r = mock.MagicMock()
@@ -2107,6 +2993,773 @@ class GhRateLimitTest(unittest.TestCase):
         ):
             backlog.gh("api", "x")
         self.assertEqual(run.call_count, 1)
+
+
+ME = {"__typename": "User", "login": OWNER}
+BOT = {"__typename": "Bot", "login": "reviewbot"}
+EVE = {"__typename": "User", "login": "eve"}
+AGENT_BRANCH = "backlog-agent/o-r-1-build"
+PR_READ = "-F number=12"
+REPOS_READ = "viewer {"
+HISTORY_READ = "history("
+REQUIRES_CI = [
+    {
+        "type": "required_status_checks",
+        "parameters": {"required_status_checks": [{"context": "ci"}]},
+    }
+]
+
+
+def fake_gh(replies):
+    replies = dict(replies)
+    replies.setdefault("rules/branches", [])
+    replies.setdefault("rate_limit", "")
+    calls = []
+
+    def answer(cmd, **_):
+        line = " ".join(cmd)
+        calls.append(line)
+        for needle, reply in replies.items():
+            if needle in line:
+                if isinstance(reply, list) and needle == PR_READ:
+                    reply = reply.pop(0) if len(reply) > 1 else reply[0]
+                if isinstance(reply, subprocess.CompletedProcess):
+                    return reply
+                out = reply if isinstance(reply, str) else json.dumps(reply)
+                return subprocess.CompletedProcess(cmd, 0, out, "")
+        raise AssertionError(f"unexpected gh call: {line[:80]}")
+
+    return mock.patch("subprocess.run", side_effect=answer), calls
+
+
+def said(author, at="2026-10-21T10:00:00Z", body="please rename this"):
+    return {"author": author, "createdAt": at, "body": body}
+
+
+def thread(*comments, resolved=False):
+    return {"isResolved": resolved, "comments": {"nodes": list(comments)}}
+
+
+def pull(comments=(), reviews=(), threads=(), **kw):
+    node = {
+        "state": "OPEN",
+        "isDraft": False,
+        "mergeStateStatus": "CLEAN",
+        "headRefOid": "h1",
+        "headRefName": AGENT_BRANCH,
+        "baseRefName": "main",
+        "additions": 5,
+        "deletions": 2,
+        "changedFiles": 1,
+        "mergeCommit": None,
+        "labels": {"nodes": [{"name": "needs-review"}]},
+        "commits": {"nodes": [{"commit": {"committedDate": "2026-10-21T09:00:00Z"}}]},
+        "comments": {"nodes": list(comments)},
+        "reviews": {"nodes": list(reviews)},
+        "reviewThreads": {"totalCount": len(threads), "nodes": list(threads)},
+        **kw,
+    }
+    return {"data": {"repository": {"pullRequest": node}}}
+
+
+def detail(*pulls, files=({"filename": "a.py"},), **replies):
+    patched, calls = fake_gh(
+        {PR_READ: list(pulls), "pulls/12/files": list(files), **replies}
+    )
+    with patched, mock.patch("time.sleep") as sleep:
+        return backlog.pr_detail("o/r", 12, OWNER), calls, sleep
+
+
+def review_of(*pulls, **replies):
+    return detail(*pulls, **replies)[0]["review"]
+
+
+class PullRequestReadTest(unittest.TestCase):
+    def test_a_read_gives_the_state_the_size_and_the_required_checks_of_the_head(self):
+        checks = {
+            "rules/branches/main": REQUIRES_CI,
+            "commits/h1/check-runs": [
+                {
+                    "check_runs": [
+                        {
+                            "name": "ci",
+                            "status": "completed",
+                            "conclusion": "success",
+                            "started_at": "2026-10-21T09:05:00Z",
+                        }
+                    ]
+                }
+            ],
+            "commits/h1/status": {"statuses": []},
+        }
+        self.assertEqual(
+            detail(pull(), **checks)[0],
+            {
+                "state": "OPEN",
+                "head": "h1",
+                "branch": AGENT_BRANCH,
+                "draft": False,
+                "merge_state": "CLEAN",
+                "merge_commit": None,
+                "labels": ["needs-review"],
+                "review": {
+                    "checks": "green",
+                    "pushed_at": "2026-10-21T09:00:00Z",
+                    "files": ["a.py"],
+                    "changed_files": 1,
+                    "lines": 7,
+                    "unresolved": 0,
+                    "feedback_at": None,
+                    "owner_feedback_at": None,
+                },
+            },
+        )
+
+    def test_a_merged_pull_request_names_its_merge_commit(self):
+        merged = pull(state="MERGED", mergeCommit={"oid": "m9"})
+        got = detail(merged)[0]
+        self.assertEqual((got["state"], got["merge_commit"]), ("MERGED", "m9"))
+
+    def test_a_base_branch_that_requires_no_checks_gives_no_check_state(self):
+        got, calls, _ = detail(pull())
+        self.assertIsNone(got["review"]["checks"])
+        self.assertFalse([c for c in calls if "check-runs" in c])
+
+    def test_a_renamed_file_is_listed_under_both_names(self):
+        files = [
+            {"filename": "docs/new.md", "previous_filename": ".github/old.yml"},
+            {"filename": "a.py"},
+        ]
+        self.assertEqual(
+            review_of(pull(), files=files)["files"],
+            ["docs/new.md", ".github/old.yml", "a.py"],
+        )
+
+    def test_only_the_owner_and_a_bot_opening_a_thread_give_feedback(self):
+        at = "2026-10-21T10:00:00Z"
+        marked = "\n <!-- backlog-agent -->\nfixed"
+        cases = {
+            "the owner's comment": (pull(comments=[said(ME)]), at),
+            "the owner's review body": (pull(reviews=[said(ME)]), at),
+            "the owner's reply in a thread": (
+                pull(threads=[thread(said(EVE, "2026-10-21T08:00:00Z"), said(ME))]),
+                at,
+            ),
+            "a bot opening a thread": (pull(threads=[thread(said(BOT))]), at),
+            "a bot's comment": (pull(comments=[said(BOT)]), None),
+            "a bot's review body": (pull(reviews=[said(BOT)]), None),
+            "a bot's reply in a thread": (
+                pull(threads=[thread(said(EVE), said(BOT))]),
+                None,
+            ),
+            "a stranger's comment": (pull(comments=[said(EVE)]), None),
+            "a stranger's review body": (pull(reviews=[said(EVE)]), None),
+            "a stranger's thread": (pull(threads=[thread(said(EVE))]), None),
+            "a deleted account's comment": (pull(comments=[said(None)]), None),
+            "a comment by a bot named like the owner": (
+                pull(comments=[said({"__typename": "Bot", "login": OWNER})]),
+                None,
+            ),
+            "the agent's comment": (pull(comments=[said(ME, body=marked)]), None),
+            "the agent's thread reply": (
+                pull(threads=[thread(said(EVE), said(ME, body=marked))]),
+                None,
+            ),
+            "a bot's thread that starts with the marker": (
+                pull(threads=[thread(said(BOT, body=marked))]),
+                None,
+            ),
+            "the empty review a thread reply leaves": (
+                pull(reviews=[said(ME, body="")]),
+                None,
+            ),
+            "a review the owner has not submitted": (
+                pull(reviews=[said(ME, at=None)]),
+                None,
+            ),
+        }
+        for name, (node, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(review_of(node)["feedback_at"], expected)
+
+    def test_the_owners_newest_feedback_is_timed_apart_from_a_bots(self):
+        got = review_of(
+            pull(
+                comments=[
+                    said(ME, "2026-10-21T09:00:00Z"),
+                    said(ME, "2026-10-21T08:00:00Z"),
+                ],
+                threads=[thread(said(BOT, "2026-10-21T11:00:00Z"))],
+            )
+        )
+        self.assertEqual(
+            (got["feedback_at"], got["owner_feedback_at"]),
+            ("2026-10-21T11:00:00Z", "2026-10-21T09:00:00Z"),
+        )
+        self.assertIsNone(
+            review_of(pull(threads=[thread(said(BOT))]))["owner_feedback_at"]
+        )
+
+    def test_the_required_checks_are_those_of_the_base_branch(self):
+        green = {
+            "commits/h1/check-runs": [
+                {
+                    "check_runs": [
+                        {
+                            "name": "ci",
+                            "status": "completed",
+                            "conclusion": "success",
+                            "started_at": "2026-10-21T09:05:00Z",
+                        }
+                    ]
+                }
+            ],
+            "commits/h1/status": {"statuses": []},
+        }
+        node = pull(baseRefName="release")
+        on_main = {"rules/branches/main": REQUIRES_CI, **green}
+        on_release = {"rules/branches/release": REQUIRES_CI, **green}
+        self.assertIsNone(review_of(node, **on_main)["checks"])
+        self.assertEqual(review_of(node, **on_release)["checks"], "green")
+
+    def test_an_unresolved_thread_counts_when_feedback_opened_it(self):
+        marked = "<!-- backlog-agent -->\nwhy"
+        got = review_of(
+            pull(
+                threads=[
+                    thread(said(ME)),
+                    thread(said(BOT), said(ME, body=marked)),
+                    thread(said(BOT), resolved=True),
+                    thread(said(EVE), said(ME)),
+                    thread(said(ME, body=marked)),
+                ]
+            )
+        )
+        self.assertEqual(got["unresolved"], 2)
+
+    def test_a_thread_past_the_page_read_counts_as_unresolved(self):
+        threads = {"totalCount": 101, "nodes": [thread(said(BOT), resolved=True)]}
+        self.assertEqual(review_of(pull(reviewThreads=threads))["unresolved"], 100)
+
+    def test_a_merge_state_github_is_still_computing_is_read_once_more(self):
+        unknown = pull(mergeStateStatus="UNKNOWN")
+        got, calls, sleep = detail(unknown, pull())
+        self.assertEqual(got["merge_state"], "CLEAN")
+        sleep.assert_called_once()
+
+        got, calls, sleep = detail(unknown, unknown, pull())
+        self.assertEqual(got["merge_state"], "UNKNOWN")
+        self.assertEqual(len([c for c in calls if PR_READ in c]), 2)
+
+        merged = pull(state="MERGED", mergeStateStatus="UNKNOWN")
+        self.assertEqual(len([c for c in detail(merged)[1] if PR_READ in c]), 1)
+
+
+def pr_node(number=12, author=OWNER, branch=AGENT_BRANCH, fork=False, closes=(1,)):
+    return {
+        "number": number,
+        "title": f"PR {number}",
+        "body": "",
+        "createdAt": "2026-10-01T00:00:00Z",
+        "isDraft": False,
+        "mergeable": "MERGEABLE",
+        "headRefOid": "h0",
+        "headRefName": branch,
+        "isCrossRepository": fork,
+        "author": {"login": author},
+        "labels": {"nodes": []},
+        "closingIssuesReferences": {
+            "nodes": [
+                {"number": n, "repository": {"nameWithOwner": "o/r"}} for n in closes
+            ]
+        },
+        "autoMergeRequest": None,
+    }
+
+
+def repo_node(name="o/r", topics=(), prs=()):
+    return {
+        "nameWithOwner": name,
+        "isFork": False,
+        "owner": {"login": name.split("/")[0]},
+        "repositoryTopics": {"nodes": [{"topic": {"name": t}} for t in topics]},
+        "defaultBranchRef": {
+            "name": "main",
+            "target": {"oid": "m1", "committedDate": "2026-10-20T00:00:00Z"},
+        },
+        "pullRequests": {"nodes": list(prs)},
+        "issues": {"nodes": []},
+        "vulnerabilityAlerts": {"nodes": []},
+    }
+
+
+def viewer(*repos, login=OWNER):
+    return [
+        {"data": {"viewer": {"login": login, "repositories": {"nodes": list(repos)}}}}
+    ]
+
+
+def commit(message, branch=None):
+    prs = [{"headRefName": branch}] if branch else []
+    return {"message": message, "associatedPullRequests": {"nodes": prs}}
+
+
+def history(*commits):
+    target = {"history": {"nodes": list(commits)}}
+    return {"data": {"repository": {"defaultBranchRef": {"target": target}}}}
+
+
+def landing(pr, sha, at="2026-10-20T12:00:00+00:00", repo="o/r"):
+    return {"repo": repo, "pr": pr, "head": f"h{pr}", "sha": sha, "at": at}
+
+
+def collected(replies, *args):
+    patched, calls = fake_gh(replies)
+    with patched:
+        return backlog.collect(*args), calls
+
+
+class CollectTest(unittest.TestCase):
+    def test_the_owners_issue_linked_pull_request_on_an_agent_branch_is_read_in_full(
+        self,
+    ):
+        replies = {
+            REPOS_READ: viewer(repo_node(prs=[pr_node()])),
+            PR_READ: [pull(labels={"nodes": [{"name": "agent:hold"}]})],
+            "pulls/12/files": [{"filename": "a.py"}],
+        }
+        snapshot, _ = collected(replies)
+        self.assertEqual(
+            snapshot["repos"][0]["other_prs"],
+            [
+                {
+                    "number": 12,
+                    "title": "PR 12",
+                    "author": OWNER,
+                    "draft": False,
+                    "created_at": "2026-10-01T00:00:00Z",
+                    "labels": ["agent:hold"],
+                    "linked_issues": [1],
+                    "linked_refs": [],
+                    "head": "h1",
+                    "branch": AGENT_BRANCH,
+                    "state": "OPEN",
+                    "merge_state": "CLEAN",
+                    "merge_commit": None,
+                    "review": {
+                        "checks": None,
+                        "pushed_at": "2026-10-21T09:00:00Z",
+                        "files": ["a.py"],
+                        "changed_files": 1,
+                        "lines": 7,
+                        "unresolved": 0,
+                        "feedback_at": None,
+                        "owner_feedback_at": None,
+                    },
+                }
+            ],
+        )
+
+    def test_an_agent_pull_request_that_cannot_be_read_keeps_its_place_and_cannot_land(
+        self,
+    ):
+        replies = {
+            REPOS_READ: viewer(repo_node(prs=[pr_node()])),
+            PR_READ: gh_error("HTTP 502: Bad Gateway"),
+        }
+        with mock.patch("sys.stderr", io.StringIO()) as err:
+            snapshot, _ = collected(replies)
+        (pr,) = snapshot["repos"][0]["other_prs"]
+        self.assertEqual(pr["review"], {})
+        self.assertIn("o/r#12 not read", err.getvalue())
+        L = cleared()
+        L["tasks"][REVIEW]["head"] = pr["head"]
+        result = plan({**landable(), "repos": snapshot["repos"]}, L, DUE)
+        self.assertNotIn(REVIEW, keys(result))
+        self.assertEqual((lands(result), why(result)), ([], [(12, "not open")]))
+        self.assertEqual(L["tasks"][REVIEW]["status"], "land")
+
+    def test_any_other_pull_request_gets_its_head_and_branch_and_no_review(self):
+        others = {
+            "someone else's": pr_node(author="eve"),
+            "from a fork": pr_node(fork=True),
+            "on the owner's own branch": pr_node(branch="fix/typo"),
+            "on a branch that only starts like the agent's": pr_node(
+                branch=AGENT_BRANCH + "-2"
+            ),
+            "without an issue": pr_node(closes=()),
+        }
+        for name, node in others.items():
+            with self.subTest(name):
+                snapshot, _ = collected({REPOS_READ: viewer(repo_node(prs=[node]))})
+                (got,) = snapshot["repos"][0]["other_prs"]
+                self.assertEqual(
+                    (got["head"], got["branch"], "review" in got),
+                    ("h0", node["headRefName"], False),
+                )
+
+    def test_a_pull_request_that_only_mentions_an_issue_of_another_repo_is_the_agents(
+        self,
+    ):
+        node = {**pr_node(closes=()), "body": "Part of o/other#3"}
+        replies = {
+            REPOS_READ: viewer(repo_node(prs=[node])),
+            PR_READ: [pull()],
+            "pulls/12/files": [],
+        }
+        (got,) = collected(replies)[0]["repos"][0]["other_prs"]
+        self.assertIn("review", got)
+
+    def test_a_repo_lands_only_with_the_topic_and_never_the_agents_own_repos(self):
+        topics = ["backlog-agent-land"]
+        replies = {
+            REPOS_READ: viewer(
+                repo_node("jakob1379/x", topics),
+                repo_node("jakob1379/y", ["backlog-agent"]),
+                repo_node("jakob1379/backlog-agent", topics),
+                repo_node("jakob1379/nix-config", topics),
+                repo_node("jakob1379/converge-review", topics),
+                login="jakob1379",
+            )
+        }
+        snapshot, _ = collected(replies)
+        self.assertEqual(
+            {r["repo"].split("/")[1]: r["land"] for r in snapshot["repos"]},
+            {
+                "x": True,
+                "y": False,
+                "backlog-agent": False,
+                "nix-config": False,
+                "converge-review": False,
+            },
+        )
+
+    def test_a_landing_is_reverted_by_a_revert_commit_or_a_revert_pull_request(self):
+        landed = [
+            landing(12, "abc123"),
+            landing(14, "def456", at="2026-10-19T12:00:00+00:00"),
+            landing(15, "fed789"),
+            landing(16, "aaa111", repo="o/elsewhere"),
+        ]
+        replies = {
+            REPOS_READ: viewer(repo_node()),
+            "since=2026-10-19T12:00:00+00:00": history(
+                commit('Revert "fix"\n\nThis reverts commit abc123.'),
+                commit('Revert "feat" (#20)', "revert-14-backlog-agent/o-r-2-build"),
+                commit("Mentions fed789 and aaa111", "revert-150-x"),
+                commit("feat: more"),
+            ),
+        }
+        snapshot, calls = collected(replies, landed)
+        self.assertEqual(snapshot["repos"][0]["reverted"], [12, 14])
+        self.assertEqual(len([c for c in calls if HISTORY_READ in c]), 1)
+
+    def test_a_repo_without_a_landing_costs_no_history_read(self):
+        replies = {REPOS_READ: viewer(repo_node("o/r"), repo_node("o/quiet"))}
+        for args in ((), ([landing(16, "aaa111", repo="o/elsewhere")],)):
+            snapshot, calls = collected(replies, *args)
+            self.assertEqual([r["reverted"] for r in snapshot["repos"]], [[], []])
+            self.assertFalse([c for c in calls if HISTORY_READ in c])
+
+    def test_the_collect_command_reads_the_landings_from_the_ledger(self):
+        replies = {
+            REPOS_READ: viewer(repo_node()),
+            HISTORY_READ: history(commit("This reverts commit abc123.")),
+        }
+        patched, _ = fake_gh(replies)
+        with tempfile.TemporaryDirectory() as d:
+            ledger = Path(d, "ledger.json")
+            ledger.write_text(
+                json.dumps({**empty(), "landed": [landing(12, "abc123")]})
+            )
+            with (
+                patched,
+                mock.patch.object(backlog, "LEDGER", ledger),
+                mock.patch.object(linear, "CLIENT", Path(d, "no-client")),
+                mock.patch.object(sys, "argv", ["backlog.py", "collect"]),
+                mock.patch("sys.stdout", new_callable=io.StringIO) as out,
+            ):
+                backlog.main()
+        self.assertEqual(json.loads(out.getvalue())["repos"][0]["reverted"], [12])
+
+    def test_an_issue_comment_starting_with_the_marker_after_whitespace_is_the_agents(
+        self,
+    ):
+        def by_agent(body):
+            node = {
+                "number": 1,
+                "title": "t",
+                "body": "",
+                "createdAt": "2026-10-01T00:00:00Z",
+                "author": {"login": OWNER},
+                "labels": {"nodes": []},
+                "comments": {
+                    "nodes": [
+                        {
+                            "author": {"login": OWNER},
+                            "createdAt": "2026-10-02T00:00:00Z",
+                            "body": body,
+                        }
+                    ]
+                },
+            }
+            return backlog.issue_record(node, OWNER)["comments"][0]["by_agent"]
+
+        self.assertTrue(by_agent("<!-- backlog-agent -->\nx"))
+        self.assertTrue(by_agent("\n <!-- backlog-agent -->\nx"))
+        self.assertFalse(by_agent("see <!-- backlog-agent -->"))
+
+
+GREEN_CHECKS = {
+    "rules/branches": REQUIRES_CI,
+    "check-runs": [
+        {
+            "check_runs": [
+                {
+                    "name": "ci",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "started_at": "2026-10-21T09:05:00Z",
+                }
+            ]
+        }
+    ],
+    "/status": {"statuses": []},
+    "pulls/12/files": [{"filename": "a.py"}],
+}
+STILL_OPEN = pull(headRefOid=HEAD)
+NOW_MERGED = pull(headRefOid=HEAD, state="MERGED", mergeCommit={"oid": "m9"})
+MERGE = "pr merge"
+
+
+def gh_error(text):
+    return subprocess.CompletedProcess([], 1, "", text)
+
+
+class LandCommandTest(unittest.TestCase):
+    def setUp(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        self.dir = Path(d.name)
+
+    def land(self, L, replies, c=None, decided=None):
+        c = c or landable()
+        decided = decided or plan(c, L, DUE)
+        paths = [self.dir / n for n in ("ledger.json", "c.json", "plan.json")]
+        for path, content in zip(paths, (L, c, decided)):
+            path.write_text(json.dumps(content))
+        patched, self.calls = fake_gh({**GREEN_CHECKS, **replies})
+        self.out = io.StringIO()
+        with (
+            patched,
+            mock.patch("time.sleep"),
+            mock.patch.object(backlog, "LEDGER", paths[0]),
+            mock.patch.object(
+                sys, "argv", ["backlog.py", "land", *map(str, paths[1:])]
+            ),
+            mock.patch("sys.stdout", self.out),
+        ):
+            backlog.main()
+        return json.loads(self.out.getvalue())
+
+    def ledger(self):
+        return json.loads((self.dir / "ledger.json").read_text())
+
+    def merges(self):
+        return [c for c in self.calls if MERGE in c]
+
+    def test_a_merge_that_succeeds_is_recorded_with_its_merge_commit(self):
+        out = self.land(cleared(), {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""})
+        self.assertEqual(
+            out, {"landed": [{"repo": "o/r", "pr": 12, "sha": "m9"}], "refused": []}
+        )
+        self.assertEqual(
+            self.merges(),
+            [f"gh pr merge 12 --repo o/r --squash --match-head-commit {HEAD}"],
+        )
+        (entry,) = self.ledger()["landed"]
+        self.assertEqual(
+            without(entry, "at"), {"repo": "o/r", "pr": 12, "head": HEAD, "sha": "m9"}
+        )
+        self.assertLess(
+            datetime.now(UTC) - datetime.fromisoformat(entry["at"]),
+            timedelta(minutes=1),
+        )
+
+    def test_what_changed_after_the_plan_is_refused_and_nothing_is_merged(self):
+        cases = {
+            "the head moved": (pull(headRefOid="b" * 40), "verdict is stale"),
+            "the owner closed it": (pull(headRefOid=HEAD, state="CLOSED"), "not open"),
+            "the owner held it": (
+                pull(headRefOid=HEAD, labels={"nodes": [{"name": "agent:hold"}]}),
+                "held by the owner",
+            ),
+            "a check went red": (
+                pull(headRefOid=HEAD, mergeStateStatus="UNSTABLE"),
+                "merge state unstable",
+            ),
+            "the owner opened a thread": (
+                pull(headRefOid=HEAD, threads=[thread(said(ME))]),
+                "open feedback",
+            ),
+        }
+        for name, (fresh, expected) in cases.items():
+            with self.subTest(name):
+                out = self.land(cleared(), {PR_READ: [fresh]})
+                self.assertEqual(
+                    out,
+                    {
+                        "landed": [],
+                        "refused": [{"repo": "o/r", "pr": 12, "why": expected}],
+                    },
+                )
+                self.assertEqual(self.merges(), [])
+                self.assertEqual(self.ledger().get("landed", []), [])
+                self.assertEqual(lands(plan(landable(), self.ledger(), DUE)), [12])
+
+    def test_a_pull_request_whose_verdict_is_gone_is_refused(self):
+        L = cleared()
+        decided = plan(landable(), L, DUE)
+        start(L, REVIEW, "t", DUE)
+        for name, ledger in [("a review is running", L), ("no entry", empty())]:
+            with self.subTest(name):
+                out = self.land(ledger, {PR_READ: [STILL_OPEN]}, decided=decided)
+                self.assertEqual(
+                    out["refused"], [{"repo": "o/r", "pr": 12, "why": "no verdict"}]
+                )
+                self.assertEqual(self.merges(), [])
+
+    def test_a_verdict_with_a_value_missing_is_refused(self):
+        for field, expected in [
+            ("head", "verdict is stale"),
+            ("started", "open feedback"),
+            ("finished", "lands none"),
+        ]:
+            with self.subTest(field):
+                L = cleared()
+                decided = plan(landable(), L, DUE)
+                del L["tasks"][REVIEW][field]
+                out = self.land(L, {PR_READ: [STILL_OPEN]}, decided=decided)
+                self.assertEqual(
+                    out["refused"], [{"repo": "o/r", "pr": 12, "why": expected}]
+                )
+                self.assertEqual(self.merges(), [])
+
+    def test_a_pull_request_the_snapshot_does_not_list_is_refused(self):
+        L = cleared()
+        decided = plan(landable(), L, DUE)
+        out = self.land(L, {PR_READ: [STILL_OPEN]}, cands(repo()), decided)
+        self.assertEqual(
+            out["refused"],
+            [{"repo": "o/r", "pr": 12, "why": "issue not the owner's"}],
+        )
+        self.assertEqual(self.merges(), [])
+
+    def test_a_merge_that_was_not_made_is_not_offered_again(self):
+        refusal = "GraphQL: Pull request is not mergeable (mergePullRequest)"
+        moved_on = pull(headRefOid="b" * 40, state="MERGED", mergeCommit={"oid": "m9"})
+        cases = {
+            "the merge command failed": (
+                gh_error(f"X Pull request o/r#12 is not mergeable\n{refusal}\n"),
+                STILL_OPEN,
+                refusal,
+            ),
+            "the merge command said nothing and merged nothing": (
+                "",
+                STILL_OPEN,
+                "merge not made",
+            ),
+            "another head was merged": ("", moved_on, "merge not made"),
+        }
+        for name, (merge, after, expected) in cases.items():
+            with self.subTest(name):
+                replies = {PR_READ: [STILL_OPEN, after], MERGE: merge}
+                out = self.land(cleared(), replies)
+                self.assertEqual(
+                    out,
+                    {
+                        "landed": [],
+                        "refused": [{"repo": "o/r", "pr": 12, "why": expected}],
+                    },
+                )
+                self.assertEqual(len(self.merges()), 1)
+                self.assertEqual(self.ledger().get("landed", []), [])
+                result = plan(landable(), self.ledger(), DUE)
+                self.assertEqual(
+                    (lands(result), why(result)), ([], [(12, "merge not made")])
+                )
+
+    def test_a_pull_request_that_cannot_be_read_is_refused_and_decided_again(self):
+        c = spread(12, 13)
+        replies = {
+            PR_READ: [STILL_OPEN, NOW_MERGED],
+            MERGE: "",
+            "-F number=13": gh_error("HTTP 502: Bad Gateway"),
+        }
+        out = self.land(cleared(REVIEW, "o/r13#13:review"), replies, c)
+        self.assertEqual(
+            out,
+            {
+                "landed": [{"repo": "o/r", "pr": 12, "sha": "m9"}],
+                "refused": [
+                    {
+                        "repo": "o/r13",
+                        "pr": 13,
+                        "why": "gh api graphql: HTTP 502: Bad Gateway",
+                    }
+                ],
+            },
+        )
+        self.assertEqual([e["pr"] for e in self.ledger()["landed"]], [12])
+        self.assertEqual(lands(plan(spread(13), self.ledger(), DUE)), [])
+        left = spread(12, 13)
+        left["repos"] = left["repos"][1:]
+        self.assertEqual(lands(plan(left, self.ledger(), DUE)), [13])
+
+    def test_a_crash_on_the_second_keeps_the_first_landing(self):
+        replies = {
+            PR_READ: [STILL_OPEN, NOW_MERGED],
+            MERGE: "",
+            "-F number=13": "not json",
+        }
+        with self.assertRaises(ValueError):
+            self.land(cleared(REVIEW, "o/r13#13:review"), replies, spread(12, 13))
+        self.assertEqual([e["pr"] for e in self.ledger().get("landed", [])], [12])
+        self.assertEqual(
+            [t["pr"] for t in json.loads(self.out.getvalue())["landed"]], [12]
+        )
+
+    def test_a_daily_limit_reached_after_the_plan_is_refused(self):
+        L = cleared()
+        decided = plan(landable(), L, DUE)
+        today = datetime.now(UTC).isoformat()
+        L["landed"] = [
+            landing(n, f"s{n}", at=today, repo="o/elsewhere") for n in range(3)
+        ]
+        out = self.land(L, {PR_READ: [STILL_OPEN]}, decided=decided)
+        self.assertEqual(
+            out["refused"], [{"repo": "o/r", "pr": 12, "why": "daily limit"}]
+        )
+        self.assertEqual(self.merges(), [])
+
+    def test_a_merge_that_cannot_be_read_back_is_not_offered_again(self):
+        replies = {
+            PR_READ: [STILL_OPEN, gh_error("HTTP 502: Bad Gateway")],
+            MERGE: "",
+        }
+        out = self.land(cleared(), replies)
+        self.assertEqual(
+            out,
+            {
+                "landed": [],
+                "refused": [{"repo": "o/r", "pr": 12, "why": "merge not made"}],
+            },
+        )
+        self.assertEqual(len(self.merges()), 1)
+        (unconfirmed,) = self.ledger()["landed"]
+        self.assertEqual((unconfirmed["pr"], unconfirmed["sha"]), (12, None))
+        result = plan(landable(), self.ledger(), DUE)
+        self.assertEqual((lands(result), why(result)), ([], [(12, "merge not made")]))
 
 
 if __name__ == "__main__":
