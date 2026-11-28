@@ -2,7 +2,7 @@
 
 Date: 2026-11-21. Owner: jakob1379. Supersedes the phased design of 2026-10-20,
 which stays as the record of how dependency work was built. Vocabulary:
-`backlog-agent/GLOSSARY.md`. Decisions: `docs/adr/0001` and `docs/adr/0002`.
+`backlog-agent/GLOSSARY.md`. Decisions: `docs/adr/0001` to `docs/adr/0003`.
 
 ## Problem Statement
 
