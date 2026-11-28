@@ -458,13 +458,17 @@ branch and files findings as backlog issues. It changes no code in `<repo>`. Its
 only PR is a profile for the skill itself, on nix-config (step 7).
 
 A scan may run three more kinds of command with the sandbox off: the skills
-build in step 1, a tool that a stack profile in the pinned skill runs with
-`nix run`, and `nix fmt` in the nix-config clone in step 7. Everything else
-stays in the sandbox, including any analyzer you try for a stack that has no
-profile.
+build in step 1, a tool that a stack profile in the skill runs with `nix run`,
+and `nix fmt` in the nix-config clone in step 7. Everything else stays in the
+sandbox, including any analyzer you try for a stack that has no profile.
 
-1. Build the skills this agent pins:
-   `nix build /home/jsg/Documents/jsg/backlog-agent#skills --no-link --print-out-paths`.
+1. Build the skills from nix-config's newest default-branch commit, so a profile
+   the owner merged is in use on the next scan:
+   `nix build github:jakob1379/nix-config#agent-skills --refresh --no-link --print-out-paths`.
+   If it fails, build the older copy this repo's `flake.lock` holds,
+   `nix build /home/jsg/Documents/jsg/backlog-agent#skills --no-link --print-out-paths`,
+   and say in the `RESULT:` note that the scan ran the locked skills, with the
+   error's first line.
 2. `S=/home/jsg/Documents/jsg/backlog-agent/work/.scans` keeps each repo's last
    scan as `<repo name>.json` and `<repo name>.html`. If the `.json` exists,
    copy it to `$CLONE/.scanner-report-artifacts/baseline.json`: the scan then
@@ -481,8 +485,8 @@ profile.
    - The skill forbids sending findings anywhere and opening a PR. Filing the
      issues below and the profile pull request in step 7 are the only
      exceptions.
-   - The pinned Python profile's commands fail quietly in the sandbox (AMAS
-     scan, 2026-11-26). Point them at the repo's Python folders when there is no
+   - The Python profile's commands fail quietly in the sandbox (AMAS scan,
+     2026-11-26). Point them at the repo's Python folders when there is no
      `src/`. PySCN reports `no Python files found` when the repo has a
      `pyproject.toml` without `[tool.pyscn]`: run
      `pyscn init --config $TMPDIR/<slug>-pyscn.toml` and pass that file with
@@ -546,11 +550,11 @@ profile.
      `gh pr list --repo jakob1379/nix-config --state all --head backlog-agent/profile-<stack>-fix-<id> --json number --jq length`
      is not 0, or when
      `gh pr list --repo jakob1379/nix-config --state open --limit 1000 --json headRefName --jq '[.[] | select(.headRefName | startswith("backlog-agent/profile-<stack>-fix-"))] | length'`
-     is not 0. The id names the pinned profile, so a profile gets one fix until
-     the pin moves. After cloning, skip it too when
+     is not 0. The id names the profile's content, so a profile gets one fix
+     until it changes. After cloning, skip it too when
      `git rev-parse origin/HEAD:dotfiles/skills/aggregate-code-quality-report/references/stacks/<stack>.md`
      in the clone does not start with `<id>`: the owner has changed the profile
-     on the default branch since the pin.
+     on the default branch since this build.
    - Delete `$TMPDIR/<slug>-nix-config` if an earlier attempt left it, clone
      nix-config there (literal path), never into `work/`, and check out the
      branch. If the branch already exists on GitHub with no pull request,
