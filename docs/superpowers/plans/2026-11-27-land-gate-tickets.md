@@ -64,16 +64,16 @@ and review bodies, and a bot's replies inside a thread.
 - repo: `"land": bool`, true when the repo has `LAND_TOPIC` and is not in
   `NEVER_LAND_REPOS`; `"reverted": [int]`, the numbers of this repo's landed
   pull requests (from the ledger's `landed`) that a commit on the default branch
-  reverts.
+  reverts; `"default_branch": str|None`, the default branch's name.
 - every other PR: `"head"` (head commit) and `"branch"` (head branch name).
 - an agent pull request also gets everything `pr_detail` returns.
 
 `pr_detail(repo, number, owner) -> dict` reads one pull request and returns
 
 ```
-{"state": "OPEN"|"CLOSED"|"MERGED", "head": sha, "branch": name, "draft": bool,
- "merge_state": GraphQL mergeStateStatus, "merge_commit": sha|None,
- "labels": [name],
+{"state": "OPEN"|"CLOSED"|"MERGED", "head": sha, "branch": name, "base": name,
+ "draft": bool, "merge_state": GraphQL mergeStateStatus,
+ "merge_commit": sha|None, "labels": [name],
  "review": {"checks": "green"|"red"|"pending"|None, "pushed_at": iso,
             "files": [path], "changed_files": int, "lines": int,
             "unresolved": int, "feedback_at": iso|None,
@@ -84,10 +84,14 @@ and review bodies, and a bot's replies inside a thread.
 commit, `None` when that branch requires none. `files` holds each changed file's
 name and, for a rename, its previous name too. `lines` is additions plus
 deletions. `unresolved` counts unresolved review threads whose first comment is
-feedback. `feedback_at` is the time of the newest feedback, `owner_feedback_at`
-of the newest by the owner. `collect` calls `pr_detail` for each agent pull
-request, and `land` calls it again just before a merge. Any other PR has no
-`review` key.
+feedback, plus the feedback the read could not hold in one page: each review
+thread past the first 100, and one each for conversation comments past the
+newest 100, for reviews past the newest 100, and for each thread with more than
+100 comments. So a truncated read holds the pull request as `open feedback`, and
+nothing is paged. `base` is the pull request's base branch. `feedback_at` is the
+time of the newest feedback, `owner_feedback_at` of the newest by the owner.
+`collect` calls `pr_detail` for each agent pull request, and `land` calls it
+again just before a merge. Any other PR has no `review` key.
 
 **Ledger additions**:
 
@@ -97,10 +101,13 @@ request, and `land` calls it again just before a merge. Any other PR has no
   `offered`: the head it last put in `lands`. Its `attempts` is the number of
   review runs the pull request has had.
 - `landed`: a list of `{"repo", "pr", "head", "sha", "at"}`, one per merge the
-  gate made, `sha` being the merge commit, with `"reverted": true` once a revert
-  is seen. An entry older than `LAND_RECORD` is dropped unless it is reverted. A
-  repo's reverted entries are dropped once the repo's `land` is false, so taking
-  the topic off for one run and putting it back ends the pause.
+  gate made, `sha` being the merge commit, or `None` for a landing recorded with
+  no merge commit, with `"reverted": true` once a revert is seen. `plan` sets a
+  reverted entry's `reverted` to false once the repo's `land` is false, so
+  taking the topic off for one run and putting it back ends the pause. That
+  entry still counts toward the daily limit of its day, and the same revert does
+  not pause the repo again. An entry is kept while `reverted` is true, and any
+  other entry is dropped once it is older than `LAND_RECORD`.
 
 **Task object**:
 `{"key": "o/r#12:review", "kind": "review", "repo": "o/r", "pr": 12, "head": "<head commit>", "round": 1}`.
@@ -123,34 +130,40 @@ takes the repo's record, the pull request's record and its review entry, and
 returns the first reason the pull request may not land, in this order, or
 `None`:
 
-| #   | Rule                                                                | `why`                        |
-| --- | ------------------------------------------------------------------- | ---------------------------- |
-| 1   | the entry's status is `land`                                        | `no verdict`                 |
-| 2   | the entry's `head` is the pull request's `head`                     | `verdict is stale`           |
-| 3   | `state` is `OPEN`                                                   | `not open`                   |
-| 4   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label              | `held by the owner`          |
-| 5   | every linked issue is open in the snapshot and written by the owner | `issue not the owner's`      |
-| 6   | every linked issue has a card in In Review                          | `card <status>`              |
-| 7   | no other open agent pull request shares a linked issue              | `split across pull requests` |
-| 8   | `merge_state` is `CLEAN` or `HAS_HOOKS`                             | `merge state <state>`        |
-| 9   | `review.checks` is `green`                                          | `checks <state>`             |
-| 10  | the repo's `main` is `green`                                        | `default branch <state>`     |
-| 11  | `unresolved` is 0 and no feedback is newer than the run's start     | `open feedback`              |
-| 12  | `changed_files` and `lines` are within the limits                   | `too large`                  |
-| 13  | no name in `files` matches `PROTECTED`                              | `protected path <path>`      |
-| 14  | no landed pull request of the repo is marked reverted               | `paused after a revert`      |
-| 15  | the repo's `land` is true                                           | `shadow`                     |
-| 16  | the entry's `offered` is not the pull request's `head`              | `merge not made`             |
-| 17  | fewer than `LAND_DAILY_CAP` merges today, `taken` included          | `daily limit`                |
-| 18  | `LAND_DELAY` has passed since the entry finished                    | `lands <iso time>`           |
+| #   | Rule                                                                | `why`                         |
+| --- | ------------------------------------------------------------------- | ----------------------------- |
+| 1   | the entry's status is `land`                                        | `no verdict`                  |
+| 2   | the entry's `head` is the pull request's `head`                     | `verdict is stale`            |
+| 3   | `state` is `OPEN`                                                   | `not open`                    |
+| 4   | `base` is set and is the repo's `default_branch`                    | `base not the default branch` |
+| 5   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label              | `held by the owner`           |
+| 6   | every linked issue is open in the snapshot and written by the owner | `issue not the owner's`       |
+| 7   | every linked issue has a card in In Review                          | `card <status>`               |
+| 8   | no other open agent pull request shares a linked issue              | `split across pull requests`  |
+| 9   | `merge_state` is `CLEAN` or `HAS_HOOKS`                             | `merge state <state>`         |
+| 10  | `review.checks` is `green`                                          | `checks <state>`              |
+| 11  | the repo's `main` is `green`                                        | `default branch <state>`      |
+| 12  | `unresolved` is 0 and no feedback is newer than the run's start     | `open feedback`               |
+| 13  | `changed_files` and `lines` are within the limits                   | `too large`                   |
+| 14  | no name in `files` matches `PROTECTED`                              | `protected path <path>`       |
+| 15  | no landed pull request of the repo is marked reverted               | `paused after a revert`       |
+| 16  | the repo's `land` is true                                           | `shadow`                      |
+| 17  | the entry's `offered` is not the pull request's `head`              | `merge not made`              |
+| 18  | fewer than `LAND_DAILY_CAP` merges today, `taken` included          | `daily limit`                 |
+| 19  | `LAND_DELAY` has passed since the entry finished                    | `lands <iso time>`            |
 
 A missing value fails its rule: no board, no card and no `review` all hold the
 pull request. `<state>` and `<status>` print lower case, and `none` for a
 missing one. `CLEAN` means every check passed, required or not, so one red job
 holds the pull request.
 
-**CLI**: `finish` accepts `land` and `no-land`. `land <candidates> <plan>`
-merges each entry of the plan's `lands` and prints
+**CLI**: `finish` accepts `land` and `no-land`, and an optional
+`--task <task_id>`. For a review key whose entry is running, a `--task` value
+that is not the entry's `task_id` exits non-zero with
+`<key> is run by another task, so this result is dropped`, before the entry
+changes and before the lock is released. A missing `--task` counts as the empty
+string, which matches a claim that was never started. Other keys are unchanged.
+`land <candidates> <plan>` merges each entry of the plan's `lands` and prints
 `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
 
 **Child result**:
@@ -178,16 +191,18 @@ branch through the existing `required_checks` and `sha_state`. When
 after a few seconds. `collect` merges `pr_detail` into each agent pull request's
 record. `collect` takes the ledger's `landed` list (`main` reads the ledger
 without the lock, since it only reads) and, for each repo with a landing, reads
-the default branch's commits since the oldest one with one GraphQL
-`history(since:)` that also gives each commit's
-`associatedPullRequests(first: 1) { nodes { headRefName } }`. A landed pull
-request is reverted when a message holds `This reverts commit <its merge sha>`
-or a commit's pull request branch starts with `revert-<its number>-`. Set each
-repo's `land`. The marker test strips leading whitespace, for issue comments
-too. Tests fake `gh` at `subprocess.run`, as `GhRateLimitTest` does: feedback by
-the owner, a bot opening a thread, a bot's review body, a bot's reply, a
-stranger and the agent's marker; unresolved threads; a rename; a revert found
-both ways.
+the default branch's commits since the oldest one whose `reverted` is not true,
+with a GraphQL `history(since:)`, paged as `QUERY` is, that also gives each
+commit's `associatedPullRequests(first: 1) { nodes { headRefName } }`. A landed
+pull request is reverted when a message holds
+`This reverts commit <its merge sha>` or a commit's pull request branch starts
+with `revert-<its number>-`. A landing with no `sha` gets it read from the
+merged pull request for the scan, with no ledger write, and the message is
+matched only when a `sha` is known. Set each repo's `land`. The marker test
+strips leading whitespace, for issue comments too. Tests fake `gh` at
+`subprocess.run`, as `GhRateLimitTest` does: feedback by the owner, a bot
+opening a thread, a bot's review body, a bot's reply, a stranger and the agent's
+marker; unresolved threads; a rename; a revert found both ways.
 
 ### T2 review-runs: `plan` starts review runs and records verdicts
 
@@ -202,6 +217,7 @@ entry's start. None starts:
 
 - without a board, or while a linked issue has no card in In Review;
 - while the pull request is a draft or carries `HOLD_LABEL` or `agent:blocked`;
+- while its `base` is missing or is not the repo's `default_branch`;
 - while its checks are pending;
 - within `REVIEW_QUIET` of the later of `pushed_at` and `feedback_at`;
 - while a triage or build entry of a linked issue is running or failed;
@@ -243,22 +259,30 @@ directories or its file name is one of these:
 ledger contract says, walks the review entries with status `land` oldest verdict
 first, stores `offered` on each one it puts in `lands`, and returns `lands` and
 `greenlit`. Add the `land` command, under the ledger lock. For each entry of
-`lands`: clear the entry's `offered`, read the pull request again with
-`pr_detail`, and run `land_block` on the fresh record. When the gate now holds
-it, report it as refused with that reason and leave `offered` cleared, so the
-next plan decides again. Otherwise run
+`lands`: clear the entry's `offered`, then read again what the gate reads
+outside the pull request, on a copy of the repo's record: the board
+(`linear.board()`), the repo's topics and default branch (`repos/<repo>`) for
+`land` and `default_branch`, the default branch's required checks for `main`,
+and `reverted_prs` for the repo's landings, marking the ones it returns as
+reverted in the ledger. Read the pull request last with `pr_detail`, and run
+`land_block` on the fresh records. The linked issues and the other open pull
+requests stay those of the snapshot. When a read fails, merge nothing for that
+pull request and report it as refused with the error's last line. When the gate
+now holds it, report it as refused with that reason. Both leave `offered`
+cleared, so the next plan decides again. Otherwise run
 `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` as one
 plain `subprocess.run`, with no retry and no reading of its output, then read
 the pull request once more. When its `state` is `MERGED` and its head is the
 verdict's head, append to `landed` with its merge commit. When that read fails
 and the merge command exited 0, append to `landed` with no merge commit, so the
 daily limit and the pause still count it, and report it as refused. `offered`
-stays the head in every case, so rule 16 holds the pull request until a new
+stays the head in every case, so rule 17 holds the pull request until a new
 head. Report anything but a confirmed merge as refused with the error's last
 line. Save the ledger after each pull request. Tests through `plan`, one per
 rule of the gate, and the CLI with `gh` faked: a head that moved after the plan
-is refused, a failed merge is not offered again, and a `land` that never ran
-leaves the pull request held.
+is refused, a card, a land topic, a default branch or a revert that changed
+after the plan is refused too, a failed merge is not offered again, and a `land`
+that never ran leaves the pull request held.
 
 ### T4 child-prompt: the `review` section of `CHILD.md`
 

@@ -390,14 +390,17 @@ whether work is moving.
   - **When.** A review run is due when the pull request has no review entry,
     when its entry failed, when its head commit is not the one the entry
     records, when feedback is newer than the entry's start, or when its required
-    checks are red and its last push is newer than the entry's start.
+    checks are red and its head commit's date is newer than the entry's start.
   - **When not.** No review run starts without a board, or while a linked issue
     has no card in In Review. None starts while the pull request is a draft or
     carries the `agent:hold` or `agent:blocked` label, while its checks are
-    pending, or within 30 minutes (`REVIEW_QUIET`) of the later of its last push
-    and its newest feedback. None starts while a triage or build entry of a
-    linked issue is running or failed. One review run runs at a time: none
-    starts while any review entry is running or its lockfile is held.
+    pending, or within 30 minutes (`REVIEW_QUIET`) of the later of its head
+    commit's date and its newest feedback. The head commit's date stands in for
+    the push time, which GitHub does not give on this read. None starts for a
+    pull request whose base is not the repo's default branch. None starts while
+    a triage or build entry of a linked issue is running or failed. One review
+    run runs at a time: none starts while any review entry is running or its
+    lockfile is held.
   - **Rounds.** A pull request gets at most three review runs (`REVIEW_ROUNDS`).
     The entry's attempts count them, and the task carries `round`, the attempts
     plus one. After the third, another starts only when feedback by the owner is
@@ -432,39 +435,54 @@ whether work is moving.
     therefore covers one head commit, and a push after it makes it stale. A
     verdict that is not `land`, given for an entry that already holds a `land`,
     turns it into `no-land`: a late run can take a landing back, never give one.
+    `finish` takes an optional `--task <task id>`, and the dispatcher passes it
+    for every review key. For a review key whose entry is running, `finish`
+    exits non-zero with
+    `<key> is run by another task, so this result is dropped` when that id is
+    not the entry's task id, before the entry changes and before the lock is
+    released: a newer review run owns the key, and the result of the run it
+    replaced is dropped. A missing `--task` counts as the empty id, which
+    matches a claim that was never started.
 - **The land gate.** The land gate is the rule in `plan` that decides which
   agent pull requests land, and `backlog.py land` makes the merge (ADR 0004).
   `land_block` checks the rules below in this order and returns the first one
   that fails as the reason the pull request is held. A pull request lands only
-  when all 18 hold:
+  when all 19 hold:
 
-  | #   | The pull request lands only when                                                         | Held as                      |
-  | --- | ---------------------------------------------------------------------------------------- | ---------------------------- |
-  | 1   | its review entry's status is `land`                                                      | `no verdict`                 |
-  | 2   | the entry's head commit is the pull request's head commit                                | `verdict is stale`           |
-  | 3   | it is open                                                                               | `not open`                   |
-  | 4   | it is not a draft and has neither the `agent:hold` nor the `agent:blocked` label         | `held by the owner`          |
-  | 5   | every linked issue is open in the snapshot and written by the owner                      | `issue not the owner's`      |
-  | 6   | every linked issue has a card in In Review                                               | `card <status>`              |
-  | 7   | no other open agent pull request shares a linked issue                                   | `split across pull requests` |
-  | 8   | GitHub's `mergeStateStatus` is `CLEAN` or `HAS_HOOKS`                                    | `merge state <state>`        |
-  | 9   | its required checks are green                                                            | `checks <state>`             |
-  | 10  | the repo's default branch is green                                                       | `default branch <state>`     |
-  | 11  | no thread of feedback is unresolved and no feedback is newer than the review run's start | `open feedback`              |
-  | 12  | it changes at most 10 files and 300 lines                                                | `too large`                  |
-  | 13  | no changed file is on a protected path                                                   | `protected path <path>`      |
-  | 14  | no landed pull request of the repo is marked reverted                                    | `paused after a revert`      |
-  | 15  | the repo has the land topic and is not a repo that never lands                           | `shadow`                     |
-  | 16  | the gate has not already offered this head commit for a merge                            | `merge not made`             |
-  | 17  | fewer than 3 landings were made today, those this plan offers included                   | `daily limit`                |
-  | 18  | 24 hours have passed since the review entry finished                                     | `lands <iso time>`           |
+  | #   | The pull request lands only when                                                         | Held as                       |
+  | --- | ---------------------------------------------------------------------------------------- | ----------------------------- |
+  | 1   | its review entry's status is `land`                                                      | `no verdict`                  |
+  | 2   | the entry's head commit is the pull request's head commit                                | `verdict is stale`            |
+  | 3   | it is open                                                                               | `not open`                    |
+  | 4   | its base is the repo's default branch                                                    | `base not the default branch` |
+  | 5   | it is not a draft and has neither the `agent:hold` nor the `agent:blocked` label         | `held by the owner`           |
+  | 6   | every linked issue is open in the snapshot and written by the owner                      | `issue not the owner's`       |
+  | 7   | every linked issue has a card in In Review                                               | `card <status>`               |
+  | 8   | no other open agent pull request shares a linked issue                                   | `split across pull requests`  |
+  | 9   | GitHub's `mergeStateStatus` is `CLEAN` or `HAS_HOOKS`                                    | `merge state <state>`         |
+  | 10  | its required checks are green                                                            | `checks <state>`              |
+  | 11  | the repo's default branch is green                                                       | `default branch <state>`      |
+  | 12  | no thread of feedback is unresolved and no feedback is newer than the review run's start | `open feedback`               |
+  | 13  | it changes at most 10 files and 300 lines                                                | `too large`                   |
+  | 14  | no changed file is on a protected path                                                   | `protected path <path>`       |
+  | 15  | no landed pull request of the repo is marked reverted                                    | `paused after a revert`       |
+  | 16  | the repo has the land topic and is not a repo that never lands                           | `shadow`                      |
+  | 17  | the gate has not already offered this head commit for a merge                            | `merge not made`              |
+  | 18  | fewer than 3 landings were made today, those this plan offers included                   | `daily limit`                 |
+  | 19  | 24 hours have passed since the review entry finished                                     | `lands <iso time>`            |
 
   A missing value fails its rule: no board, no card and no review data all hold
   the pull request. `<state>` and `<status>` print in lower case, and `none` for
   a missing one, so a pull request whose base branch requires no checks is held
   as `checks none`. `CLEAN` means every check passed, required or not, so one
-  red job holds the pull request. Rule 7 means a change split across several
-  open pull requests waits for the owner.
+  red job holds the pull request. Rule 4 holds a pull request whose base is
+  missing or is another branch: a review run judged it against that base, while
+  rule 11 and the pause after a revert read the default branch. Rule 8 means a
+  change split across several open pull requests waits for the owner. Rule 12
+  also holds a pull request with feedback the read could not hold in one page:
+  more than 100 conversation comments, reviews or review threads, or a thread
+  with more than 100 comments. Such feedback counts as unresolved, and it is not
+  paged.
 
   - **Constants.** `REVIEW_ROUNDS` is 3, `REVIEW_QUIET` 30 minutes, `LAND_DELAY`
     24 hours, `LAND_MAX_FILES` 10, `LAND_MAX_LINES` 300, `LAND_DAILY_CAP` 3 and
@@ -507,19 +525,26 @@ whether work is moving.
   - **Landing.** After `apply`, the dispatcher runs
     `backlog.py land <candidates> <plan>` when `lands` is not empty. Under the
     ledger lock, and for each entry of `lands`, the command clears the entry's
-    `offered`, reads the pull request again and runs the gate on the fresh
-    record. When the gate now holds it, the command reports it as refused with
-    that reason and leaves `offered` cleared, so the next plan decides again.
-    Otherwise it runs
+    `offered` and reads again what the gate reads: the board, the repo's topics
+    and default branch, that branch's required checks, the reverts of the repo's
+    landings, and last the pull request. It runs the gate on those fresh reads,
+    so a card the owner moved, a land topic the owner removed, a default branch
+    that moved and a new revert all hold the pull request. A revert found here
+    is marked in the ledger, so the pause lasts. Only the linked issues and the
+    other open pull requests still come from the plan's snapshot. When one of
+    these reads fails, the command merges nothing for that pull request and
+    reports it as refused with the error's last line. When the gate now holds
+    it, the command reports it as refused with that reason. Both leave `offered`
+    cleared, so the next plan decides again. Otherwise it runs
     `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` once,
     with no retry, and reads the pull request once more. When the pull request
     is merged and its head is the verdict's head, the command records the
     landing. When that read fails and the merge command exited 0, it records the
     landing with no merge commit, so the daily limit and the pause still count
     it. Anything but a confirmed merge is reported as refused with the error's
-    last line, and `offered` stays the head, so rule 16 holds the pull request
+    last line, and `offered` stays the head, so rule 17 holds the pull request
     until it has a new head. A `land` command that never ran leaves `offered`
-    set, so rule 16 holds the pull request then too. The command saves the
+    set, so rule 17 holds the pull request then too. The command saves the
     ledger after each pull request and prints
     `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
   - **Why not auto-merge.** `gh pr merge --auto` merges at once when nothing
@@ -527,16 +552,24 @@ whether work is moving.
     can merge a head no verdict covers. The gate merges directly, pinned to the
     verdict's head.
   - **Ledger.** `landed` is a list of `{"repo", "pr", "head", "sha", "at"}`, one
-    per merge the gate made, where `sha` is the merge commit. An entry gets
-    `"reverted": true` once a revert is seen. An entry older than 60 days is
-    dropped unless it is reverted.
-  - **Pause after a revert.** `collect` reads the default branch's commits since
-    the repo's oldest landing. A landed pull request counts as reverted when a
-    commit message holds `This reverts commit <its merge sha>`, or when a
-    commit's pull request branch starts with `revert-<its number>-`. The repo
-    then lands nothing. A repo's reverted entries are dropped once the repo no
-    longer has the land topic, so the owner ends the pause by taking the topic
-    off for one run and putting it back.
+    per merge the gate made, where `sha` is the merge commit, or `null` for a
+    landing recorded with no merge commit. An entry gets `"reverted": true` once
+    a revert is seen, and `"reverted": false` once the owner lifts the pause. An
+    entry is kept while `reverted` is true. Any other entry is dropped once it
+    is older than 60 days.
+  - **Pause after a revert.** `collect` reads the default branch's commits,
+    every page of them, since the repo's oldest landing whose `reverted` is not
+    true. A landed pull request counts as reverted when a commit message holds
+    `This reverts commit <its merge sha>`, or when a commit's pull request
+    branch starts with `revert-<its number>-`. For a landing recorded with no
+    merge commit, the scan reads the merge commit from the merged pull request
+    and writes nothing to the ledger. The message is matched only when a merge
+    commit is known. The repo then lands nothing. The owner lifts the pause by
+    taking the topic off for one run and putting it back: when a repo with a
+    reverted landing no longer has the land topic, `plan` sets that landing's
+    `reverted` to false. The landing stays in the ledger and still counts toward
+    the daily limit of its day, and the same revert does not pause the repo
+    again.
   - **Stopping a landing.** The owner stops one pull request with the
     `agent:hold` label, a draft, a close, a card moved out of In Review, or a
     review thread left unresolved, since a child never resolves a thread the

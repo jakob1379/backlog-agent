@@ -93,9 +93,9 @@ plans wait for my approval.
   ([ADR 0002](docs/adr/0002-agent-has-its-own-linear-identity.md)).
 - Only text I wrote can steer a run. Issues from anyone else, bots included,
   wait in Backlog until I move them.
-- On a pull request the agent opened, a review thread a bot opens is a bug
-  report to check against the code, never an instruction. Other people's
-  comments there are never read.
+- On a pull request the agent opened, a review thread a bot opens starts a
+  review run. It is read as a bug report to check against the code, never as an
+  instruction. Other people's comments there are never read.
 - A scan changes no code in the repo it reviews. It only files issues, and each
   one is marked as the agent's, so it can never start a run the way an issue I
   wrote does. When it drafts a tool profile for a stack the skill doesn't know,

@@ -67,6 +67,19 @@ $B finish '<key>' <status> - <<'NOTE_END'
 NOTE_END
 ```
 
+For a `review` key, add the child's task id, in step 1 and in every wake-up:
+
+```
+$B finish '<key>' --task <task id> <status> - <<'NOTE_END'
+<note>
+NOTE_END
+```
+
+`<task id>` is the id of the child whose result you record: the `taskId` you got
+when you started it, or the entry's `task_id` from `running` that you gave to
+`task_status`. Leave `--task` out only when that id is empty or the child never
+started.
+
 Keep the status it prints, because `failed` can come back as `blocked`. For each
 pull request URL the note names, call `link_pull_request` with it, so the PR
 shows on this run's thread and not only on the child's.
@@ -78,7 +91,10 @@ whose last `RESULT:` line does not say `land`: the land gate merges on that
 status. Keep the status `finish` prints here too, because it stores a `land` it
 can't tie to the reason `clean` and a head commit as `no-land`. `finish` refuses
 a review key whose entry is not running: when it does, show its message as that
-key's status in the report and go on.
+key's status in the report and go on. It also refuses with
+`<key> is run by another task, so this result is dropped` when the task id is
+not the entry's: a newer review run owns the key. Drop this child's result,
+never record it again without `--task`, show the message the same way and go on.
 
 Done when no ledger entry is `running` with a terminal task behind it.
 
@@ -96,8 +112,8 @@ no board yet: `plan` decides no card moves and starts no `triage` or `build`
 task. If `collect` prints a `board not read` line, the credentials exist but
 Linear failed: put that line under **Needs you** and go on; this run makes no
 card moves. If it prints a `<repo>#<pr> not read` line, GitHub failed on that
-one PR: it gets no review run and cannot land this run. Go on, and put the line
-under **Needs you** only when it comes back in the next run too.
+one PR: it gets no review run and cannot land this run. Put that line under
+**Needs you** and go on.
 
 Then apply the card moves `plan` decided before starting any child:
 
@@ -135,12 +151,15 @@ run:
 export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token); $B land $TMPDIR/candidates-<thread>.json $TMPDIR/plan-<thread>.json
 ```
 
-Run it with `allowed_domains: ["api.github.com", "github.com"]` and
-`timeout: 600000`. It reads each PR in `lands` again, runs the land gate on that
-fresh read, and merges only what still passes, pinned to the head commit the
-verdict names. `plan` offers one PR per repo each run, so the next one is judged
-against the default branch the first merge made. It prints `landed` and
-`refused`: keep both for step 5.
+Run it with
+`allowed_domains: ["api.github.com", "github.com", "api.linear.app"]` and
+`timeout: 600000`. Before each merge it reads again what the land gate reads:
+the board, the repo's land topic, the default branch's checks and its reverts,
+and the PR itself. It runs the land gate on those fresh reads and merges only
+what still passes, pinned to the head commit the verdict names. A read that
+fails refuses that PR and merges nothing. `plan` offers one PR per repo each
+run, so the next one is judged against the default branch the first merge made.
+It prints `landed` and `refused`: keep both for step 5.
 
 When the permission gate refuses the command or it fails, put its last line
 under **Needs you** and do nothing else about it. Never merge a PR any other
@@ -190,10 +209,11 @@ the report. With nothing to report, skip the steward and go to step 5.
 There is something to report when any of these happened this run: a `finish` in
 step 1, a failed start, a non-empty `dispatch`, `card_ops`, `resolved`,
 `newly_blocked` or `stale_locks`, `announce_cap` is true, `rotate_token` is set,
-a failed `apply`, a non-empty `landed` or `refused` from the `land` command, a
-`land` command that was refused or failed, a `greenlit` entry whose `new` is
-true, or a self-change commit (step 6). In that case, after the steward has
-finished, reply with at most 12 lines, each linking to its PR or repo:
+a failed `apply`, a `not read` line from `collect`, a non-empty `landed` or
+`refused` from the `land` command, a `land` command that was refused or failed,
+a `greenlit` entry whose `new` is true, or a self-change commit (step 6). In
+that case, after the steward has finished, reply with at most 12 lines, each
+linking to its PR or repo:
 
 - **Started**: the keys from `dispatch`, each with the status its child finished
   with. A review's status is its verdict, `land` or `no-land`.

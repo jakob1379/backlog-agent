@@ -133,17 +133,19 @@ on, so the owner can judge a repo's verdicts before giving it the topic.
 _Avoid_: dry run, trial verdict
 
 **Land gate**: The rule in `plan` that decides whether an agent pull request
-lands. Code checks the verdict and its head commit, the checks, the size, the
-protected paths, the hold, the delay, the daily limit and the repo's land topic,
-and the first rule that fails leaves the pull request to the owner. _Avoid_:
-auto-merge, merge gate, risk gate
+lands. Code checks its rules in a fixed order, among them the verdict and its
+head commit, the hold, the linked issues and their cards, the merge state, the
+checks, open feedback, the size, the protected paths, a pause after a revert,
+the repo's land topic, the daily limit and the delay. The first rule that fails
+leaves the pull request to the owner. _Avoid_: auto-merge, merge gate, risk gate
 
 **Landing**: The merge `backlog.py land` makes of a pull request the land gate
 cleared, pinned to the commit the verdict names. To land is to be merged this
 way: a merge the owner makes is not a landing. _Avoid_: auto-merge, ship, deploy
 
 **Hold**: The owner's `agent:hold` label on a pull request. While it is there,
-no review run starts and the pull request does not land. _Avoid_: block, freeze,
+no review run starts and the pull request does not land. A draft pull request
+and one labeled `agent:blocked` are held the same way. _Avoid_: block, freeze,
 pause
 
 **Protected path**: A file path the land gate never lets land: CI and merge
