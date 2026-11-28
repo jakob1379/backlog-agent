@@ -112,6 +112,7 @@ def repo(name="o/r", has_ci=True, main="green", prs=(), alerts=()):
         "has_ci": has_ci,
         "main": main,
         "default_branch": "main",
+        "prs_cut": False,
         "prs": list(prs),
         "alerts": list(alerts),
     }
@@ -1804,6 +1805,12 @@ class ReviewPlanTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(keys(plan(c, empty(), NOW)), [])
 
+    def test_a_pull_request_closed_since_it_was_listed_gets_no_review(self):
+        for state in ("CLOSED", "MERGED"):
+            with self.subTest(state):
+                c = reviewable({**agent_pr(), "state": state})
+                self.assertEqual(keys(plan(c, empty(), NOW)), [])
+
     def test_a_land_verdict_is_kept_only_with_the_clean_reason_and_the_head(self):
         url = "https://github.com/o/r/pull/12"
         for status, note, stored, head in [
@@ -2159,6 +2166,14 @@ class LandGatePlanTest(unittest.TestCase):
             )
         )
         self.holds("split across pull requests", c)
+        for name, cut in [
+            ("list cut short", {**backlog_repo(name="o/x"), "prs_cut": True}),
+            ("list not counted", without(backlog_repo(name="o/x"), "prs_cut")),
+        ]:
+            with self.subTest(name):
+                c = landable()
+                c["repos"].append(cut)
+                self.holds("split across pull requests", c)
         c = landable(agent_pr(12), other_pr(13, linked_issues=[1]))
         self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
 
@@ -3155,6 +3170,8 @@ def fake_gh(replies):
             if needle in line:
                 if isinstance(reply, list) and needle == PR_READ:
                     reply = reply.pop(0) if len(reply) > 1 else reply[0]
+                if isinstance(reply, BaseException):
+                    raise reply
                 if isinstance(reply, subprocess.CompletedProcess):
                     return reply
                 out = reply if isinstance(reply, str) else json.dumps(reply)
@@ -3164,8 +3181,8 @@ def fake_gh(replies):
     return mock.patch("subprocess.run", side_effect=answer), calls
 
 
-def said(author, at="2026-10-21T10:00:00Z", body="please rename this"):
-    return {"author": author, "createdAt": at, "body": body}
+def said(author, at="2026-10-21T10:00:00Z", body="please rename this", edited=None):
+    return {"author": author, "createdAt": at, "lastEditedAt": edited, "body": body}
 
 
 def thread(*comments, resolved=False, more=False):
@@ -3332,6 +3349,22 @@ class PullRequestReadTest(unittest.TestCase):
             review_of(pull(threads=[thread(said(BOT))]))["owner_feedback_at"]
         )
 
+    def test_the_owners_edit_counts_as_new_feedback_and_a_bots_does_not(self):
+        edited = "2026-10-21T15:00:00Z"
+        got = review_of(
+            pull(
+                comments=[said(ME, "2026-10-21T09:00:00Z", edited=edited)],
+                threads=[thread(said(BOT, "2026-10-21T11:00:00Z", edited=edited))],
+            )
+        )
+        self.assertEqual(
+            (got["feedback_at"], got["owner_feedback_at"]), (edited, edited)
+        )
+        got = review_of(
+            pull(threads=[thread(said(BOT, "2026-10-21T11:00:00Z", edited=edited))])
+        )
+        self.assertEqual(got["feedback_at"], "2026-10-21T11:00:00Z")
+
     def test_the_required_checks_are_those_of_the_base_branch(self):
         green = {
             "commits/h1/check-runs": [
@@ -3409,7 +3442,7 @@ def pr_node(number=12, author=OWNER, branch=AGENT_BRANCH, fork=False, closes=(1,
     }
 
 
-def repo_node(name="o/r", topics=(), prs=(), issues=()):
+def repo_node(name="o/r", topics=(), prs=(), issues=(), more_prs=0):
     return {
         "nameWithOwner": name,
         "isFork": False,
@@ -3419,7 +3452,7 @@ def repo_node(name="o/r", topics=(), prs=(), issues=()):
             "name": "main",
             "target": {"oid": "m1", "committedDate": "2026-10-20T00:00:00Z"},
         },
-        "pullRequests": {"nodes": list(prs)},
+        "pullRequests": {"totalCount": more_prs + len(prs), "nodes": list(prs)},
         "issues": {"nodes": list(issues)},
         "vulnerabilityAlerts": {"nodes": []},
     }
@@ -3491,18 +3524,22 @@ class CollectTest(unittest.TestCase):
             ],
         )
 
+    def test_a_list_of_open_pull_requests_cut_short_is_marked(self):
+        for more, cut in ((0, False), (1, True)):
+            with self.subTest(more):
+                snapshot, _ = collected({REPOS_READ: viewer(repo_node(more_prs=more))})
+                self.assertIs(snapshot["repos"][0]["prs_cut"], cut)
+
     def test_an_agent_pull_request_that_cannot_be_read_keeps_its_place_and_cannot_land(
         self,
     ):
-        replies = {
-            REPOS_READ: viewer(repo_node(prs=[pr_node()])),
-            PR_READ: gh_error("HTTP 502: Bad Gateway"),
-        }
-        with mock.patch("sys.stderr", io.StringIO()) as err:
-            snapshot, _ = collected(replies)
-        (pr,) = snapshot["repos"][0]["other_prs"]
-        self.assertEqual(pr["review"], {})
-        self.assertIn("o/r#12 not read", err.getvalue())
+        for unread in (gh_error("HTTP 502: Bad Gateway"), "not json"):
+            replies = {REPOS_READ: viewer(repo_node(prs=[pr_node()])), PR_READ: unread}
+            with mock.patch("sys.stderr", io.StringIO()) as err:
+                snapshot, _ = collected(replies)
+            (pr,) = snapshot["repos"][0]["other_prs"]
+            self.assertEqual(pr["review"], {})
+            self.assertIn("o/r#12 not read", err.getvalue())
         L = cleared()
         L["tasks"][REVIEW]["head"] = pr["head"]
         result = plan({**landable(), "repos": snapshot["repos"]}, L, DUE)
@@ -3758,13 +3795,22 @@ def gh_error(text):
     return subprocess.CompletedProcess([], 1, "", text)
 
 
+def clock(at):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return at or datetime.now(tz)
+
+    return Clock
+
+
 class LandCommandTest(unittest.TestCase):
     def setUp(self):
         d = tempfile.TemporaryDirectory()
         self.addCleanup(d.cleanup)
         self.dir = Path(d.name)
 
-    def land(self, L, replies, c=None, decided=None, tracker=None):
+    def land(self, L, replies, c=None, decided=None, tracker=None, now=None):
         c = c or landable()
         tracker = tracker or FakeLinear(cards=c.get("board", {}).get("cards", []))
         decided = decided or plan(c, L, DUE)
@@ -3779,6 +3825,7 @@ class LandCommandTest(unittest.TestCase):
             mock.patch.object(linear, "_token", "t"),
             mock.patch("urllib.request.urlopen", side_effect=tracker),
             mock.patch.object(backlog, "LEDGER", paths[0]),
+            mock.patch.object(backlog, "datetime", clock(now)),
             mock.patch.object(
                 sys, "argv", ["backlog.py", "land", *map(str, paths[1:])]
             ),
@@ -3964,11 +4011,14 @@ class LandCommandTest(unittest.TestCase):
         L = cleared()
         decided = plan(landable(), L, DUE)
         start(L, REVIEW, "t", DUE)
-        for name, ledger in [("a review is running", L), ("no entry", empty())]:
+        for name, ledger, expected in [
+            ("a review is running", L, "no verdict"),
+            ("no entry", empty(), "not offered"),
+        ]:
             with self.subTest(name):
                 out = self.land(ledger, {PR_READ: [STILL_OPEN]}, decided=decided)
                 self.assertEqual(
-                    out["refused"], [{"repo": "o/r", "pr": 12, "why": "no verdict"}]
+                    out["refused"], [{"repo": "o/r", "pr": 12, "why": expected}]
                 )
                 self.assertEqual(self.merges(), [])
 
@@ -4043,12 +4093,38 @@ class LandCommandTest(unittest.TestCase):
             out,
             {
                 "landed": [],
-                "refused": [{"repo": "o/r", "pr": 12, "why": "merge not made"}],
+                "refused": [{"repo": "o/r", "pr": 12, "why": "not offered"}],
             },
         )
         self.assertEqual(self.merges(), [])
         entry = self.ledger()["tasks"][REVIEW]
         self.assertEqual((entry["offered"], entry["tried"]), (None, HEAD))
+        result = plan(c, self.ledger(), DUE)
+        self.assertEqual((lands(result), why(result)), ([], [(12, "merge not made")]))
+
+    def test_a_plan_that_offered_another_head_merges_nothing(self):
+        L, c = cleared(), landable()
+        decided = plan(c, L, DUE)
+        decided["lands"][0]["head"] = "0" * 40
+        out = self.land(L, {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""}, c, decided)
+        self.assertEqual(
+            out,
+            {
+                "landed": [],
+                "refused": [{"repo": "o/r", "pr": 12, "why": "not offered"}],
+            },
+        )
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.ledger()["tasks"][REVIEW]["offered"], HEAD)
+
+    def test_a_merge_cut_off_midway_is_already_on_record(self):
+        with self.assertRaises(KeyboardInterrupt):
+            self.land(cleared(), {PR_READ: [STILL_OPEN], MERGE: KeyboardInterrupt()})
+        (cut,) = self.ledger()["landed"]
+        self.assertEqual((cut["pr"], cut["sha"]), (12, None))
+        self.assertEqual(self.ledger()["tasks"][REVIEW]["tried"], HEAD)
+        result = plan(landable(), self.ledger(), DUE)
+        self.assertEqual((lands(result), why(result)), ([], [(12, "merge not made")]))
 
     def test_a_pull_request_that_cannot_be_read_is_refused_and_decided_again(self):
         cases = {
@@ -4096,11 +4172,11 @@ class LandCommandTest(unittest.TestCase):
     def test_a_daily_limit_reached_after_the_plan_is_refused(self):
         L = cleared()
         decided = plan(landable(), L, DUE)
-        today = datetime.now(UTC).isoformat()
         L["landed"] = [
-            landing(n, f"s{n}", at=today, repo="o/elsewhere") for n in range(3)
+            landing(n, f"s{n}", at=DUE.isoformat(), repo="o/elsewhere")
+            for n in range(3)
         ]
-        out = self.land(L, {PR_READ: [STILL_OPEN]}, decided=decided)
+        out = self.land(L, {PR_READ: [STILL_OPEN]}, decided=decided, now=DUE)
         self.assertEqual(
             out["refused"], [{"repo": "o/r", "pr": 12, "why": "daily limit"}]
         )

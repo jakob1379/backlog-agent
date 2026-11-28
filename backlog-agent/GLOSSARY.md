@@ -122,8 +122,9 @@ owner's conversation comments, review bodies and review thread comments, and the
 first comment of a review thread a bot opened. Text that starts with the agent's
 marker is never feedback. Neither is anything from another person, a bot's
 conversation comment or review body, or a bot's reply in a thread: those start
-nothing, block nothing and are never read. _Avoid_: review comments, comments,
-input
+nothing, block nothing and are never read. Only their number can matter: a pull
+request with more comments than one read holds is held. _Avoid_: review
+comments, comments, input
 
 **Verdict**: A review run's result for one head commit: land or no-land, with
 one reason. It is one input to the land gate, and it counts only while that

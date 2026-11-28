@@ -59,15 +59,19 @@ get review runs and only these can land.
   thread, and nothing else.
 
 Anything else is not feedback: it starts nothing, blocks nothing and never
-reaches a child. That covers every other person, a bot's conversation comments
-and review bodies, and a bot's replies inside a thread.
+reaches a child. Only its number can matter: a read that could not hold every
+comment holds the pull request, whoever wrote them. That covers every other
+person, a bot's conversation comments and review bodies, and a bot's replies
+inside a thread.
 
 **Snapshot additions** (`collect`):
 
 - repo: `"land": bool`, true when the repo has `LAND_TOPIC` and is not in
   `NEVER_LAND_REPOS`; `"reverted": [int]`, the numbers of this repo's landed
   pull requests (from the ledger's `landed`) that a commit on the default branch
-  reverts; `"default_branch": str|None`, the default branch's name.
+  reverts; `"default_branch": str|None`, the default branch's name;
+  `"prs_cut": bool`, true when the repo has more open pull requests than the 50
+  `collect` reads.
 - every other PR: `"head"` (head commit).
 - an agent pull request also gets everything `pr_detail` returns.
 
@@ -91,9 +95,10 @@ thread past the first 100, and one each for conversation comments past the
 newest 100, for reviews past the newest 100, and for each thread with more than
 100 comments. So a truncated read holds the pull request as `open feedback`, and
 nothing is paged. `base` is the pull request's base branch. `feedback_at` is the
-time of the newest feedback, `owner_feedback_at` of the newest by the owner.
-`collect` calls `pr_detail` for each agent pull request, and `land` calls it
-again just before a merge. Any other PR has no `review` key.
+time of the newest feedback, `owner_feedback_at` of the newest by the owner. The
+owner's feedback is timed by its last edit when it has one, a bot's by its
+creation only. `collect` calls `pr_detail` for each agent pull request, and
+`land` calls it again just before a merge. Any other PR has no `review` key.
 
 **Ledger additions**:
 
@@ -143,7 +148,7 @@ returns the first reason the pull request may not land, in this order, or
 | 5   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label                              | `held by the owner`           |
 | 6   | every linked issue is open in the snapshot, written by the owner and not `by_agent` | `issue not the owner's`       |
 | 7   | every linked issue has a card in In Review and no card in another open status       | `card <status>`               |
-| 8   | no other open agent pull request shares a linked issue                              | `split across pull requests`  |
+| 8   | no other open agent pull request shares a linked issue, and no repo's list is cut   | `split across pull requests`  |
 | 9   | `merge_state` is `CLEAN`                                                            | `merge state <state>`         |
 | 10  | `review.checks` is `green`                                                          | `checks <state>`              |
 | 11  | the repo's `main` is `green`                                                        | `default branch <state>`      |
@@ -227,6 +232,7 @@ entry's start. None starts:
 - without a board, or while a linked issue has no card in In Review;
 - while the pull request is a draft or carries `HOLD_LABEL` or `agent:blocked`;
 - while its `base` is missing or is not the repo's `default_branch`;
+- while its `state` is not `OPEN`;
 - while its checks are pending;
 - within `REVIEW_QUIET` of the later of `pushed_at` and `feedback_at`;
 - while a triage or build entry of a linked issue is running or failed;
@@ -270,7 +276,8 @@ directories or its file name is one of these:
 ledger contract says, walks the review entries with status `land` oldest verdict
 first, stores `offered` on each one it puts in `lands`, and returns `lands` and
 `greenlit`. Add the `land` command, under the ledger lock. For each entry of
-`lands`: clear the entry's `offered`, then read again what the gate reads
+`lands`: refuse it as `not offered` when its `head` is not the entry's
+`offered`, else clear the entry's `offered`, then read again what the gate reads
 outside the pull request, on a copy of the repo's record: the board
 (`linear.board()`), the repo's topics and default branch (`repos/<repo>`) for
 `land` and `default_branch`, the default branch's required checks for `main`,
@@ -282,22 +289,23 @@ fails or its reply cannot be used (the error kinds in `UNREAD`, or
 `SystemExit`), merge nothing for that pull request, report it as refused with
 the error's last line and go on to the next one. When the gate now holds it,
 report it as refused with that reason. Both leave `offered` cleared, so the next
-plan decides again. Otherwise store the head on the entry as `tried` and run
+plan decides again. Otherwise store the head on the entry as `tried`, append to
+`landed` with no merge commit and save the ledger, then run
 `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` as one
 plain `subprocess.run`, with no retry and no reading of its output, then read
 the pull request once more. When its `state` is `MERGED` and its head is the
-verdict's head, append to `landed` with its merge commit. When that read fails
-(the error kinds in `UNREAD`) and the merge command exited 0, append to `landed`
-with no merge commit, so the daily limit and the pause still count it, and
-report it as refused. `tried` stays the head in every case, so rule 17 holds the
-pull request until a new head, also in a second `land` with the same plan.
-Report anything but a confirmed merge as refused with the error's last line.
-Save the ledger after each pull request. Tests through `plan`, one per rule of
-the gate, and the CLI with `gh` faked: a head that moved after the plan is
-refused, a card, a land topic, a default branch or a revert that changed after
-the plan is refused too, a failed merge is not tried again by the next plan or
-by a second `land` with the same plan, and a `land` that never ran leaves the
-pull request held.
+verdict's head, set the record's merge commit. When that read fails (the error
+kinds in `UNREAD`) and the merge command exited 0, keep the record with no merge
+commit, so the daily limit and the pause still count it, and report it as
+refused. Otherwise remove the record. `tried` stays the head in every case, so
+rule 17 holds the pull request until a new head, also in a second `land` with
+the same plan. Report anything but a confirmed merge as refused with the error's
+last line. Save the ledger after each pull request. Tests through `plan`, one
+per rule of the gate, and the CLI with `gh` faked: a head that moved after the
+plan is refused, a card, a land topic, a default branch or a revert that changed
+after the plan is refused too, a failed merge is not tried again by the next
+plan or by a second `land` with the same plan, and a `land` that never ran
+leaves the pull request held.
 
 ### T4 child-prompt: the `review` section of `CHILD.md`
 

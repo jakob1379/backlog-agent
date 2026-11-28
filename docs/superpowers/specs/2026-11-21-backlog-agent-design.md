@@ -384,7 +384,10 @@ whether work is moving.
     the owner: a conversation comment, a review body or a review thread comment.
     By a bot, an author GitHub's GraphQL API types as `Bot`: the first comment
     of a review thread, and nothing else. Anything else is not feedback: it
-    starts nothing, blocks nothing and never reaches a child. That covers every
+    starts nothing, blocks nothing and never reaches a child. Only its number
+    can matter: a pull request with more comments than one read holds is held,
+    whoever wrote them. The owner's edit of their own comment counts as new
+    feedback from the time of the edit. A bot's edit does not. That covers every
     other person, a bot's conversation comments and review bodies, and a bot's
     replies inside a thread. Every comment and thread reply a child posts on a
     pull request starts with the marker, so the agent's own text is never
@@ -401,10 +404,10 @@ whether work is moving.
     pending, or within 30 minutes (`REVIEW_QUIET`) of the later of its head
     commit's date and its newest feedback. The head commit's date stands in for
     the push time, which GitHub does not give on this read. None starts for a
-    pull request whose base is not the repo's default branch. None starts while
-    a triage or build entry of a linked issue is running or failed. One review
-    run runs at a time: none starts while any review entry is running or its
-    lockfile is held.
+    pull request whose base is not the repo's default branch, or that is no
+    longer open when it is read. None starts while a triage or build entry of a
+    linked issue is running or failed. One review run runs at a time: none
+    starts while any review entry is running or its lockfile is held.
   - **Rounds.** A pull request gets at most three review runs (`REVIEW_ROUNDS`).
     The entry's attempts count them, and the task carries `round`, the attempts
     plus one. After the third, another starts only when feedback by the owner is
@@ -491,11 +494,13 @@ whether work is moving.
   request is held when the issue has no card in In Review, and when any of its
   cards is in an open status other than In Review. `<status>` is the status of
   the card that holds it. Rule 8 means a change split across several open pull
-  requests waits for the owner. Rule 12 also holds a pull request with feedback
-  the read could not hold in one page: more than 100 conversation comments,
-  reviews or review threads, or a thread with more than 100 comments. Such
-  feedback counts as unresolved, and it is not paged. Rule 17 holds a head
-  commit the entry records as `offered` or as `tried`.
+  requests waits for the owner. It also holds every pull request while a repo
+  has more open pull requests than the 50 `collect` reads, since a sibling could
+  be past the cut. Rule 12 also holds a pull request with feedback the read
+  could not hold in one page: more than 100 conversation comments, reviews or
+  review threads, or a thread with more than 100 comments. Such feedback counts
+  as unresolved, and it is not paged. Rule 17 holds a head commit the entry
+  records as `offered` or as `tried`.
 
   - **Constants.** `REVIEW_ROUNDS` is 3, `REVIEW_QUIET` 30 minutes, `LAND_DELAY`
     24 hours, `LAND_MAX_FILES` 10, `LAND_MAX_LINES` 300, `LAND_DAILY_CAP` 3 and
@@ -539,7 +544,10 @@ whether work is moving.
     show once. The run report shows both: what landed and what lands next.
   - **Landing.** After `apply`, the dispatcher runs
     `backlog.py land <candidates> <plan>` when `lands` is not empty. Under the
-    ledger lock, and for each entry of `lands`, the command clears the entry's
+    ledger lock, and for each entry of `lands`, the command first checks that
+    the entry's head is the head the ledger holds as `offered`. If not, the plan
+    is not the one that made the offer, and the pull request is refused as
+    `not offered` with nothing read. The command then clears the entry's
     `offered` and reads again what the gate reads: the board, the repo's topics
     and default branch, that branch's required checks, the reverts of the repo's
     landings, and last the pull request. It runs the gate on those fresh reads,
@@ -551,18 +559,22 @@ whether work is moving.
     for that pull request, reports it as refused with the error's last line and
     goes on to the next one. When the gate now holds it, the command reports it
     as refused with that reason. Both leave `offered` cleared, so the next plan
-    decides again. Otherwise it stores the head on the entry as `tried`, runs
+    decides again. Otherwise it stores the head on the entry as `tried`, records
+    the landing with no merge commit and saves the ledger, so a command cut off
+    during the merge still counts toward the daily limit and is not tried again.
+    It then runs
     `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` once,
     with no retry, and reads the pull request once more. When the pull request
-    is merged and its head is the verdict's head, the command records the
-    landing. When that read fails, or its reply cannot be used, and the merge
-    command exited 0, it records the landing with no merge commit, so the daily
-    limit and the pause still count it. Anything but a confirmed merge is
-    reported as refused with the error's last line, and `tried` stays the head,
-    so rule 17 holds the pull request until it has a new head, also when `land`
-    runs again with the same plan. A `land` command that never ran leaves
-    `offered` set, so rule 17 holds the pull request then too. The command saves
-    the ledger after each pull request and prints
+    is merged and its head is the verdict's head, the record gets the merge
+    commit. When that read fails, or its reply cannot be used, and the merge
+    command exited 0, the record stays with no merge commit, so the daily limit
+    and the pause still count it. Otherwise the merge was not made and the
+    record is removed. Anything but a confirmed merge is reported as refused
+    with the error's last line, and `tried` stays the head, so rule 17 holds the
+    pull request until it has a new head, also when `land` runs again with the
+    same plan. A `land` command that never ran leaves `offered` set, so rule 17
+    holds the pull request then too. The command saves the ledger after each
+    pull request and prints
     `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
   - **Why not auto-merge.** `gh pr merge --auto` merges at once when nothing
     required is pending, and an armed auto-merge survives later pushes, so it

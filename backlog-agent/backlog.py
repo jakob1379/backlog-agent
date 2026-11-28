@@ -756,6 +756,7 @@ def review_tasks(
             pushed = review.get("pushed_at")
             if (
                 not (p.get("head") and pushed and refs)
+                or p.get("state") != "OPEN"
                 or not p.get("base")
                 or p["base"] != r.get("default_branch")
                 or not in_review.issuperset(refs)
@@ -840,7 +841,7 @@ def land_block(
         and set(refs) & set(issue_links(r["repo"], other))
         for r in candidates["repos"]
         for other in r.get("other_prs", [])
-    ):
+    ) or any(r.get("prs_cut", True) for r in candidates["repos"]):
         return "split across pull requests"
     if pr.get("merge_state") != "CLEAN":
         return f"merge state {lower(pr.get('merge_state'))}"
@@ -937,11 +938,14 @@ def land_work(
     return lands, greenlit
 
 
-def land(candidates: dict, ledger: dict, name: str, number: int, now: datetime) -> dict:
+def land(
+    candidates: dict, ledger: dict, name: str, number: int, head: str, now: datetime
+) -> dict:
     task = {"repo": name, "pr": number}
     entry = ledger["tasks"].get(f"{name}#{number}:review")
-    if entry:
-        entry["offered"] = None
+    if not entry or entry.get("offered") != head:
+        return {**task, "why": "not offered"}
+    entry["offered"] = None
     owner = candidates.get("owner", "")
     repo, known = snapshot_pr(candidates, name, number)
     try:
@@ -969,7 +973,10 @@ def land(candidates: dict, ledger: dict, name: str, number: int, now: datetime) 
     why = land_block(candidates, repo, pr, entry, ledger, now, 0)
     if why:
         return {**task, "why": why}
-    head = entry["tried"] = entry["head"]
+    entry["tried"] = head
+    record = {**task, "head": head, "sha": None, "at": now.isoformat()}
+    ledger.setdefault("landed", []).append(record)
+    save_ledger(LEDGER, ledger)
     merge = subprocess.run(
         [
             "gh",
@@ -991,11 +998,11 @@ def land(candidates: dict, ledger: dict, name: str, number: int, now: datetime) 
     except UNREAD:
         after = None
     merged = bool(after and after["state"] == "MERGED" and after["headRefOid"] == head)
-    sha = (after["mergeCommit"] or {}).get("oid") if after and merged else None
-    if merged or (after is None and not merge.returncode):
-        ledger.setdefault("landed", []).append(
-            {**task, "head": head, "sha": sha, "at": now.isoformat()}
-        )
+    sha = record["sha"] = (
+        (after["mergeCommit"] or {}).get("oid") if after and merged else None
+    )
+    if not merged and (after or merge.returncode):
+        ledger["landed"].remove(record)
     if not merged:
         said = merge.stderr.strip().splitlines() or ["merge not made"]
         return {**task, "why": said[-1]}
@@ -1368,7 +1375,7 @@ QUERY = """query($endCursor: String) { viewer { login
       nameWithOwner isFork owner { login }
       repositoryTopics(first: 20) { nodes { topic { name } } }
       defaultBranchRef { name target { oid ... on Commit { committedDate } } }
-      pullRequests(states: OPEN, first: 50) { nodes {
+      pullRequests(states: OPEN, first: 50) { totalCount nodes {
         number title body createdAt isDraft mergeable headRefOid headRefName
         isCrossRepository author { login }
         labels(first: 20) { nodes { name } }
@@ -1514,12 +1521,12 @@ PR_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
     labels(first: 100) { nodes { name } }
     commits(last: 1) { nodes { commit { committedDate } } }
     comments(last: 100) { pageInfo { hasPreviousPage } nodes {
-      body createdAt author { __typename login } } }
+      body createdAt lastEditedAt author { __typename login } } }
     reviews(last: 100) { pageInfo { hasPreviousPage } nodes {
-      body createdAt: submittedAt author { __typename login } } }
+      body createdAt: submittedAt lastEditedAt author { __typename login } } }
     reviewThreads(first: 100) { totalCount nodes { isResolved
       comments(first: 100) { pageInfo { hasNextPage } nodes {
-        body createdAt author { __typename login } } } } } } } }"""
+        body createdAt lastEditedAt author { __typename login } } } } } } } }"""
 
 
 def is_feedback(c: dict, owner: str, opens_thread: bool = False) -> bool:
@@ -1568,7 +1575,11 @@ def pr_detail(repo: str, number: int, owner: str) -> dict:
         + p["reviews"]["nodes"]
         + [c for t in threads for c in t["comments"]["nodes"]]
     )
-    by_owner = [c for c in spoken if is_feedback(c, owner)]
+    by_owner = [
+        {"createdAt": c["lastEditedAt"] or c["createdAt"]}
+        for c in spoken
+        if is_feedback(c, owner)
+    ]
     opened = [t for t in threads if is_feedback(t["comments"]["nodes"][0], owner, True)]
     commits = p["commits"]["nodes"]
     files = gh("api", f"repos/{repo}/pulls/{number}/files?per_page=100")
@@ -1708,7 +1719,7 @@ def collect(landed: list[dict] | tuple = ()) -> dict:
             if is_agent_pr(name, p, o, owner):
                 try:
                     o.update(pr_detail(name, p["number"], owner))
-                except RuntimeError as e:
+                except UNREAD as e:
                     o["review"] = {}
                     print(
                         f"{name}#{p['number']} not read, so no review run and no"
@@ -1732,6 +1743,7 @@ def collect(landed: list[dict] | tuple = ()) -> dict:
                 if branch
                 else None,
                 "default_branch": branch["name"] if branch else None,
+                "prs_cut": node["pullRequests"]["totalCount"] > len(all_prs),
                 "prs": [
                     {
                         "number": p["number"],
@@ -1856,7 +1868,7 @@ def locked(args: argparse.Namespace) -> None:
         result = {"landed": [], "refused": []}
         try:
             for t in json.loads(args.plan.read_text())["lands"]:
-                outcome = land(candidates, ledger, t["repo"], t["pr"], now)
+                outcome = land(candidates, ledger, t["repo"], t["pr"], t["head"], now)
                 result["refused" if "why" in outcome else "landed"].append(outcome)
                 save_ledger(LEDGER, ledger)
         finally:
