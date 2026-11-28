@@ -140,27 +140,27 @@ takes the repo's record, the pull request's record and its review entry, and
 returns the first reason the pull request may not land, in this order, or
 `None`:
 
-| #   | Rule                                                                                | `why`                         |
-| --- | ----------------------------------------------------------------------------------- | ----------------------------- |
-| 1   | the entry's status is `land`                                                        | `no verdict`                  |
-| 2   | the entry's `head` is the pull request's `head`                                     | `verdict is stale`            |
-| 3   | `state` is `OPEN`                                                                   | `not open`                    |
-| 4   | `base` is set and is the repo's `default_branch`                                    | `base not the default branch` |
-| 5   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label                              | `held by the owner`           |
-| 6   | every linked issue is open in the snapshot, written by the owner and not `by_agent` | `issue not the owner's`       |
-| 7   | every linked issue has a card in In Review and no card in another open status       | `card <status>`               |
-| 8   | no other open agent pull request shares a linked issue                              | `split across pull requests`  |
-| 9   | `merge_state` is `CLEAN`                                                            | `merge state <state>`         |
-| 10  | `review.checks` is `green`                                                          | `checks <state>`              |
-| 11  | the repo's `main` is `green`                                                        | `default branch <state>`      |
-| 12  | `unresolved` is 0 and no feedback is newer than the run's start                     | `open feedback`               |
-| 13  | `changed_files` and `lines` are within the limits                                   | `too large`                   |
-| 14  | no name in `files` matches `PROTECTED`                                              | `protected path <path>`       |
-| 15  | no landed pull request of the repo is marked reverted                               | `paused after a revert`       |
-| 16  | the repo's `land` is true                                                           | `shadow`                      |
-| 17  | neither the entry's `offered` nor its `tried` is the pull request's `head`          | `merge not made`              |
-| 18  | fewer than `LAND_DAILY_CAP` merges today, `taken` included                          | `daily limit`                 |
-| 19  | `LAND_DELAY` has passed since the entry finished                                    | `lands <iso time>`            |
+| #   | Rule                                                                                                      | `why`                                                         |
+| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | the entry's status is `land`                                                                              | `no verdict`                                                  |
+| 2   | the entry's `head` is the pull request's `head`                                                           | `verdict is stale`                                            |
+| 3   | `state` is `OPEN`                                                                                         | `not open`                                                    |
+| 4   | `base` is set and is the repo's `default_branch`                                                          | `base not the default branch`                                 |
+| 5   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label                                                    | `held by the owner`                                           |
+| 6   | every linked issue is open in the snapshot, written by the owner and not `by_agent`                       | `issue not the owner's`                                       |
+| 7   | every linked issue has a card in In Review and no card in another open status                             | `card <status>`                                               |
+| 8   | no other open agent pull request shares a linked issue, and every repo's open pull requests were all read | `split across pull requests`, or `pull requests not all read` |
+| 9   | `merge_state` is `CLEAN`                                                                                  | `merge state <state>`                                         |
+| 10  | `review.checks` is `green`                                                                                | `checks <state>`                                              |
+| 11  | the repo's `main` is `green`                                                                              | `default branch <state>`                                      |
+| 12  | `unresolved` is 0 and no feedback is newer than the run's start                                           | `open feedback`                                               |
+| 13  | `changed_files` and `lines` are within the limits                                                         | `too large`                                                   |
+| 14  | no name in `files` matches `PROTECTED`                                                                    | `protected path <path>`                                       |
+| 15  | no landed pull request of the repo is marked reverted                                                     | `paused after a revert`                                       |
+| 16  | the repo's `land` is true                                                                                 | `shadow`                                                      |
+| 17  | neither the entry's `offered` nor its `tried` is the pull request's `head`                                | `merge not made`                                              |
+| 18  | fewer than `LAND_DAILY_CAP` merges today, `taken` included                                                | `daily limit`                                                 |
+| 19  | `LAND_DELAY` has passed since the entry finished                                                          | `lands <iso time>`                                            |
 
 A missing value fails its rule: no board, no card and no `review` all hold the
 pull request. `<state>` and `<status>` print lower case, and `none` for a
