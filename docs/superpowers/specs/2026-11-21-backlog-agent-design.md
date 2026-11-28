@@ -485,16 +485,17 @@ whether work is moving.
   missing or is another branch: a review run judged it against that base, while
   rule 11 and the pause after a revert read the default branch. Rule 6 does not
   count an issue a scan filed as the owner's: an issue whose body starts with
-  the marker holds the pull request. Rule 7 reads every card of a linked issue,
-  since an issue can have two cards until `apply` drops one. The pull request is
-  held when the issue has no card in In Review, and when any of its cards is in
-  an open status other than In Review. `<status>` is the status of the card that
-  holds it. Rule 8 means a change split across several open pull requests waits
-  for the owner. Rule 12 also holds a pull request with feedback the read could
-  not hold in one page: more than 100 conversation comments, reviews or review
-  threads, or a thread with more than 100 comments. Such feedback counts as
-  unresolved, and it is not paged. Rule 17 holds a head commit the entry records
-  as `offered` or as `tried`.
+  the marker, or that the ledger lists as found by a scan, holds the pull
+  request. Rule 7 reads every card of a linked issue, before `plan` tidies the
+  board, since an issue can have two cards until `apply` drops one. The pull
+  request is held when the issue has no card in In Review, and when any of its
+  cards is in an open status other than In Review. `<status>` is the status of
+  the card that holds it. Rule 8 means a change split across several open pull
+  requests waits for the owner. Rule 12 also holds a pull request with feedback
+  the read could not hold in one page: more than 100 conversation comments,
+  reviews or review threads, or a thread with more than 100 comments. Such
+  feedback counts as unresolved, and it is not paged. Rule 17 holds a head
+  commit the entry records as `offered` or as `tried`.
 
   - **Constants.** `REVIEW_ROUNDS` is 3, `REVIEW_QUIET` 30 minutes, `LAND_DELAY`
     24 hours, `LAND_MAX_FILES` 10, `LAND_MAX_LINES` 300, `LAND_DAILY_CAP` 3 and
@@ -546,22 +547,22 @@ whether work is moving.
     that moved and a new revert all hold the pull request. A revert found here
     is marked in the ledger, so the pause lasts. Only the linked issues and the
     other open pull requests still come from the plan's snapshot. When one of
-    these reads fails, whatever the error, the command merges nothing for that
-    pull request, reports it as refused with the error's last line and goes on
-    to the next one. When the gate now holds it, the command reports it as
-    refused with that reason. Both leave `offered` cleared, so the next plan
+    these reads fails, or its reply cannot be used, the command merges nothing
+    for that pull request, reports it as refused with the error's last line and
+    goes on to the next one. When the gate now holds it, the command reports it
+    as refused with that reason. Both leave `offered` cleared, so the next plan
     decides again. Otherwise it stores the head on the entry as `tried`, runs
     `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` once,
     with no retry, and reads the pull request once more. When the pull request
     is merged and its head is the verdict's head, the command records the
-    landing. When that read fails, whatever the error, and the merge command
-    exited 0, it records the landing with no merge commit, so the daily limit
-    and the pause still count it. Anything but a confirmed merge is reported as
-    refused with the error's last line, and `tried` stays the head, so rule 17
-    holds the pull request until it has a new head, also when `land` runs again
-    with the same plan. A `land` command that never ran leaves `offered` set, so
-    rule 17 holds the pull request then too. The command saves the ledger after
-    each pull request and prints
+    landing. When that read fails, or its reply cannot be used, and the merge
+    command exited 0, it records the landing with no merge commit, so the daily
+    limit and the pause still count it. Anything but a confirmed merge is
+    reported as refused with the error's last line, and `tried` stays the head,
+    so rule 17 holds the pull request until it has a new head, also when `land`
+    runs again with the same plan. A `land` command that never ran leaves
+    `offered` set, so rule 17 holds the pull request then too. The command saves
+    the ledger after each pull request and prints
     `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
   - **Why not auto-merge.** `gh pr merge --auto` merges at once when nothing
     required is pending, and an armed auto-merge survives later pushes, so it

@@ -160,11 +160,11 @@ A missing value fails its rule: no board, no card and no `review` all hold the
 pull request. `<state>` and `<status>` print lower case, and `none` for a
 missing one. `CLEAN` means every check passed, required or not, so one red job
 holds the pull request. Rule 6 fails for an issue whose record has `by_agent`
-true: a scan filed it, so it is not the owner's. Rule 7 reads every card of a
-linked issue, with no tidy of the board first. It fails when the issue has no
-card in In Review, and when any of its cards has a status that is neither In
-Review nor in `CLOSED_STATUSES`. `<status>` is the status of the card that holds
-it.
+true or whose ref is in the ledger's `found`: a scan filed it, so it is not the
+owner's. Rule 7 reads every card of a linked issue, in `plan` and in `land`,
+with no tidy of the board first. It fails when the issue has no card in In
+Review, and when any of its cards has a status that is neither In Review nor in
+`CLOSED_STATUSES`. `<status>` is the status of the card that holds it.
 
 **CLI**: `finish` accepts `land` and `no-land`, and an optional
 `--task <task_id>`. For a review key whose entry is running, a `--task` value
@@ -278,19 +278,19 @@ and `reverted_prs` for the repo's landings that have no `reverted` value,
 marking the ones it returns as reverted in the ledger. Read the pull request
 last with `pr_detail`, and run `land_block` on the fresh records. The linked
 issues and the other open pull requests stay those of the snapshot. When a read
-fails, whatever the error (`Exception` or `SystemExit`), merge nothing for that
-pull request, report it as refused with the error's last line and go on to the
-next one. When the gate now holds it, report it as refused with that reason.
-Both leave `offered` cleared, so the next plan decides again. Otherwise store
-the head on the entry as `tried` and run
+fails or its reply cannot be used (the error kinds in `UNREAD`, or
+`SystemExit`), merge nothing for that pull request, report it as refused with
+the error's last line and go on to the next one. When the gate now holds it,
+report it as refused with that reason. Both leave `offered` cleared, so the next
+plan decides again. Otherwise store the head on the entry as `tried` and run
 `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` as one
 plain `subprocess.run`, with no retry and no reading of its output, then read
 the pull request once more. When its `state` is `MERGED` and its head is the
-verdict's head, append to `landed` with its merge commit. When that read fails,
-whatever the error (any `Exception`), and the merge command exited 0, append to
-`landed` with no merge commit, so the daily limit and the pause still count it,
-and report it as refused. `tried` stays the head in every case, so rule 17 holds
-the pull request until a new head, also in a second `land` with the same plan.
+verdict's head, append to `landed` with its merge commit. When that read fails
+(the error kinds in `UNREAD`) and the merge command exited 0, append to `landed`
+with no merge commit, so the daily limit and the pause still count it, and
+report it as refused. `tried` stays the head in every case, so rule 17 holds the
+pull request until a new head, also in a second `land` with the same plan.
 Report anything but a confirmed merge as refused with the error's last line.
 Save the ledger after each pull request. Tests through `plan`, one per rule of
 the gate, and the CLI with `gh` faked: a head that moved after the plan is

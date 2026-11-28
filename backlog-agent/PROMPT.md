@@ -157,10 +157,10 @@ Run it with
 the board, the repo's land topic, the default branch's checks and its reverts,
 and the PR itself. It runs the land gate on those fresh reads and merges only
 what still passes, pinned to the head commit the verdict names. A read that
-fails, whatever the error, refuses that PR alone and merges nothing for it.
-`plan` offers one PR per repo each run, so the next one is judged against the
-default branch the first merge made. It prints `landed` and `refused`: keep both
-for step 5.
+fails, or whose reply it cannot use, refuses that PR alone and merges nothing
+for it. `plan` offers one PR per repo each run, so the next one is judged
+against the default branch the first merge made. It prints `landed` and
+`refused`: keep both for step 5.
 
 When the permission gate refuses the command or it fails, put its last line
 under **Needs you** and do nothing else about it. Never merge a PR any other

@@ -816,12 +816,12 @@ def land_block(
     if owner_hold(pr):
         return "held by the owner"
     refs, owner = issue_links(name, pr), candidates.get("owner")
-    authors = {
-        f"{r['repo']}#{i['number']}": i["author"]
-        for r in candidates["repos"]
-        for i in r.get("issues", [])
-        if not i.get("by_agent")
-    }
+    authors = {}
+    for r in candidates["repos"]:
+        for i in r.get("issues", []):
+            ref = f"{r['repo']}#{i['number']}"
+            if not scan_filed(ledger, ref, i):
+                authors[ref] = i["author"]
     if not (refs and owner) or any(authors.get(ref) != owner for ref in refs):
         return "issue not the owner's"
     cards = {}
@@ -1166,7 +1166,7 @@ def plan(
     thread_id: str = "",
     busy: frozenset = frozenset(),
 ) -> dict:
-    present = present_keys(candidates)
+    present, untidied = present_keys(candidates), candidates
     tidy_ops = []
     if "board" in candidates:
         board = candidates["board"]
@@ -1304,7 +1304,7 @@ def plan(
             review_room -= 1
         ready.append(t)
     ready += review_tasks(candidates, ledger, now, busy)
-    lands, greenlit = land_work(candidates, ledger, now)
+    lands, greenlit = land_work(untidied, ledger, now)
     backlog_tasks, card_ops, card_status = backlog_work(candidates, ledger, now)
     card_ops += owner_cards(candidates, ledger, present, now) + tidy_ops
     ready += [t for t in backlog_tasks if t["key"] not in busy]

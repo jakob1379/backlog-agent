@@ -2108,6 +2108,9 @@ class LandGatePlanTest(unittest.TestCase):
         for name, c in cases.items():
             with self.subTest(name):
                 self.holds("issue not the owner's", c)
+        L = cleared()
+        L["found"] = ["o/r#1"]
+        self.holds("issue not the owner's", landable(), L)
 
     def test_every_linked_issue_needs_a_card_in_review(self):
         both = agent_pr(issues=[1, 2])
@@ -2128,6 +2131,10 @@ class LandGatePlanTest(unittest.TestCase):
                 "card needs approval",
             ),
             "no board": (without(landable(), "board"), "card none"),
+            "moved beside a twin still there": (
+                landable(cards=[card(1, "In Review"), twin(1, "Needs info", ["x"])]),
+                "card needs info",
+            ),
         }
         for name, (c, expected) in cases.items():
             with self.subTest(name):
