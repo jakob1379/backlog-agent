@@ -230,9 +230,11 @@ linking to its PR or repo:
   ran before this run's children, so add each review that finished `land` this
   run with the words `the next run's land gate decides`.
 - **Findings record**: when the plan's `findings.record` is above 0,
-  `<findings.record> of <findings.needed>`. At the full count a top-up triage
-  run may fix a finding in a repo with the land topic with no act by the owner.
-  A revert of any landing resets the count.
+  `<findings.record> of <findings.needed>`. This line needs no link. `plan`
+  counted it before this run's `land`, so a finding that landed in this run
+  shows in the next report. At the full count a top-up triage run may fix a
+  finding in a repo with the land topic with no act by the owner. A revert of
+  any landing resets the count.
 - **Cards**: the `applied` ops, each as the card's identifier (from the
   snapshot's `board.cards`, matched on `id`; a `create` prints its new one), its
   new status, and the issue or pull request it links to.

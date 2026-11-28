@@ -172,27 +172,27 @@ takes the repo's record, the pull request's record and its review entry, and
 returns the first reason the pull request may not land, in this order, or
 `None`:
 
-| #   | Rule                                                                                                      | `why`                                                         |
-| --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| 1   | the entry's status is `land`                                                                              | `no verdict`                                                  |
-| 2   | the entry's `head` is the pull request's `head`                                                           | `verdict is stale`                                            |
-| 3   | `state` is `OPEN`                                                                                         | `not open`                                                    |
-| 4   | `base` is set and is the repo's `default_branch`                                                          | `base not the default branch`                                 |
-| 5   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label                                                    | `held by the owner`                                           |
-| 6   | every linked issue is open in the snapshot, its `author` is the owner and, if a finding, acted on         | `issue not the owner's`                                       |
-| 7   | every linked issue has a card in In Review and no card in another open status                             | `card <status>`                                               |
-| 8   | no other open agent pull request shares a linked issue, and every repo's open pull requests were all read | `split across pull requests`, or `pull requests not all read` |
-| 9   | `merge_state` is `CLEAN`                                                                                  | `merge state <state>`                                         |
-| 10  | `review.checks` is `green`                                                                                | `checks <state>`                                              |
-| 11  | the repo's `main` is `green`                                                                              | `default branch <state>`                                      |
-| 12  | `unresolved` is 0 and no feedback is newer than the run's start                                           | `open feedback`                                               |
-| 13  | `changed_files` and `lines` are within the limits                                                         | `too large`                                                   |
-| 14  | no name in `files` matches `PROTECTED`                                                                    | `protected path <path>`                                       |
-| 15  | no landed pull request of the repo is marked reverted                                                     | `paused after a revert`                                       |
-| 16  | the repo's `land` is true                                                                                 | `shadow`                                                      |
-| 17  | neither the entry's `offered` nor its `tried` is the pull request's `head`                                | `merge not made`                                              |
-| 18  | fewer than `LAND_DAILY_CAP` merges today, `taken` included                                                | `daily limit`                                                 |
-| 19  | `LAND_DELAY` has passed since the entry finished                                                          | `lands <iso time>`                                            |
+| #   | Rule                                                                                                                                                      | `why`                                                         |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | the entry's status is `land`                                                                                                                              | `no verdict`                                                  |
+| 2   | the entry's `head` is the pull request's `head`                                                                                                           | `verdict is stale`                                            |
+| 3   | `state` is `OPEN`                                                                                                                                         | `not open`                                                    |
+| 4   | `base` is set and is the repo's `default_branch`                                                                                                          | `base not the default branch`                                 |
+| 5   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label                                                                                                    | `held by the owner`                                           |
+| 6   | every linked issue is open in the snapshot and its `author` is the owner; a finding also needs `sponsor` to give `owner`, or `topup` on the earned record | `issue not the owner's`                                       |
+| 7   | every linked issue has a card in In Review and no card in another open status                                                                             | `card <status>`                                               |
+| 8   | no other open agent pull request shares a linked issue, and every repo's open pull requests were all read                                                 | `split across pull requests`, or `pull requests not all read` |
+| 9   | `merge_state` is `CLEAN`                                                                                                                                  | `merge state <state>`                                         |
+| 10  | `review.checks` is `green`                                                                                                                                | `checks <state>`                                              |
+| 11  | the repo's `main` is `green`                                                                                                                              | `default branch <state>`                                      |
+| 12  | `unresolved` is 0 and no feedback is newer than the run's start                                                                                           | `open feedback`                                               |
+| 13  | `changed_files` and `lines` are within the limits                                                                                                         | `too large`                                                   |
+| 14  | no name in `files` matches `PROTECTED`                                                                                                                    | `protected path <path>`                                       |
+| 15  | no landed pull request of the repo is marked reverted                                                                                                     | `paused after a revert`                                       |
+| 16  | the repo's `land` is true                                                                                                                                 | `shadow`                                                      |
+| 17  | neither the entry's `offered` nor its `tried` is the pull request's `head`                                                                                | `merge not made`                                              |
+| 18  | fewer than `LAND_DAILY_CAP` merges today, `taken` included                                                                                                | `daily limit`                                                 |
+| 19  | `LAND_DELAY` has passed since the entry finished                                                                                                          | `lands <iso time>`                                            |
 
 A missing value fails its rule: no board, no card and no `review` all hold the
 pull request. `<state>` and `<status>` print lower case, and `none` for a
@@ -210,21 +210,21 @@ by `other`. It ends as `topup`, the top-up's start, at an `agent` move to Needs
 triage whose `from` is anything but Needs info, a missing `from` included. Any
 other `agent` move is skipped, so a triage the owner asked for still counts
 after the agent started it again on the owner's reply (an `agent` move from
-Needs info to Needs triage). A history with no `owner` move has no act. A card
-whose `history_cut` is true or missing has no act either. The ledger's origin
-`owner` is not read here. Without the act the pull request is held as
-`issue not the owner's`. The one exception is a finding whose
-`ledger["origins"][ref]` is `finding`: it passes with no act by the owner when
-`sponsor` gives `topup` for an In Review card of it, which needs every move in
-that card's history to be the agent's, and only while
-`finding_record(ledger, now)` is still at least `FINDING_RECORD`, in `plan` and
-in `land`, so a revert between the fix and the landing holds the pull request.
-An issue the owner wrote needs no such act. Rule 7 reads every card of a linked
-issue, in `plan` and in `land`, with no tidy of the board first. It fails when
-the issue has no card in In Review, and when any of its cards has a status that
-is neither In Review nor in `CLOSED_STATUSES`. `<status>` is the status of the
-card that holds it. Rule 8 also fails, as `pull requests not all read`, while
-any repo's `prs_cut` is true or missing.
+Needs info to Needs triage). A history with no `owner` move has no act by the
+owner: `topup` is not one. A card whose `history_cut` is true or missing has no
+act by the owner and no `topup` either. The ledger's origin `owner` is not read
+here. Without the act the pull request is held as `issue not the owner's`. The
+one exception is a finding whose `ledger["origins"][ref]` is `finding`: it
+passes with no act by the owner when `sponsor` gives `topup` for an In Review
+card of it, which needs every move in that card's history to be the agent's, and
+only while `finding_record(ledger, now)` is still at least `FINDING_RECORD`, in
+`plan` and in `land`, so a revert between the fix and the landing holds the pull
+request. An issue the owner wrote needs no such act. Rule 7 reads every card of
+a linked issue, in `plan` and in `land`, with no tidy of the board first. It
+fails when the issue has no card in In Review, and when any of its cards has a
+status that is neither In Review nor in `CLOSED_STATUSES`. `<status>` is the
+status of the card that holds it. Rule 8 also fails, as
+`pull requests not all read`, while any repo's `prs_cut` is true or missing.
 
 **CLI**: `finish` accepts `land` and `no-land`, and an optional
 `--task <task_id>`. For a review key whose entry is running, a `--task` value

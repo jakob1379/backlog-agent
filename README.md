@@ -73,13 +73,13 @@ Only two steps are mine: dragging a card to **Approved**, and reviewing whatever
 pull request the land gate leaves for me. The agent moves the card everywhere
 else. A triage run can also end in one of these other ways:
 
-| The run ends with                                            | The card goes to                    |
-| ------------------------------------------------------------ | ----------------------------------- |
-| a fix PR, for a bug I sent to triage or a finding it may fix | In Review                           |
-| a question, or no way to reproduce it                        | Needs info, labeled `needs-repro`   |
-| a diagnosis but no safe fix                                  | Needs info, labeled `unable-to-fix` |
-| a crash, twice                                               | Needs info, labeled `failed`        |
-| a finding that it's not actionable                           | Canceled                            |
+| The run ends with                                           | The card goes to                    |
+| ----------------------------------------------------------- | ----------------------------------- |
+| a fix PR, for a bug I sent to triage or an unlocked finding | In Review                           |
+| a question, or no way to reproduce it                       | Needs info, labeled `needs-repro`   |
+| a diagnosis but no safe fix                                 | Needs info, labeled `unable-to-fix` |
+| a crash, twice                                              | Needs info, labeled `failed`        |
+| a finding that it's not actionable                          | Canceled                            |
 
 To answer a question, I comment on the issue, and the card goes back to triage
 the next hour. When nothing waits for me, the agent picks the best untriaged
@@ -104,7 +104,8 @@ plans wait for my approval.
   card: approving its plan, sending it to triage or moving it to In Review. Once
   five such fixes have landed in 60 days, all after the last revert of any
   landing, the agent may fix a finding in a repo with the land topic and land it
-  with no approval. One revert takes that away.
+  with no approval. One revert takes that away, and it lapses once fewer than
+  five such landings remain in the last 60 days.
 - Children never write to Linear. Only `backlog.py` writes, through the agent's
   own OAuth app, so a card's history always shows who moved it.
 - Build pull requests are labeled `needs-review` and assigned to me. The land

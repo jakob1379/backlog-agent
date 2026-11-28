@@ -69,10 +69,10 @@ population of diffs: a trained risk score and its percentiles.
   Once five findings have landed in 60 days, across all repos, a top-up triage
   run may fix a finding in a repo with the land topic, and that fix can land
   with no act by the owner. This is the findings record, as RADAR keeps one for
-  a new source. A revert of any landing resets it, also for a run that has not
-  finished and for a fix that waits to land. Only findings that land after the
-  revert was seen count again, so lifting the repo's pause does not bring the
-  record back.
+  a new source. A revert of any landing that the agent detects resets it, also
+  for a run that has not finished and for a fix that waits to land. Only
+  findings that land after the revert was seen count again, so lifting the
+  repo's pause does not bring the record back.
 - Four limits of the findings record are accepted. An issue the owner wrote by
   hand while a scan of that repo ran is remembered in the ledger's `found` and
   so is treated as a finding, which a top-up triage run can now fix without

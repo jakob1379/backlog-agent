@@ -499,27 +499,27 @@ whether work is moving.
   that fails as the reason the pull request is held. A pull request lands only
   when all 19 hold:
 
-  | #   | The pull request lands only when                                                                          | Held as                                                       |
-  | --- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-  | 1   | its review entry's status is `land`                                                                       | `no verdict`                                                  |
-  | 2   | the entry's head commit is the pull request's head commit                                                 | `verdict is stale`                                            |
-  | 3   | it is open                                                                                                | `not open`                                                    |
-  | 4   | its base is the repo's default branch                                                                     | `base not the default branch`                                 |
-  | 5   | it is not a draft and has neither the `agent:hold` nor the `agent:blocked` label                          | `held by the owner`                                           |
-  | 6   | every linked issue is open in the snapshot, written by the owner's account and, if a finding, acted on    | `issue not the owner's`                                       |
-  | 7   | every linked issue has a card in In Review and no card in another open status                             | `card <status>`                                               |
-  | 8   | no other open agent pull request shares a linked issue, and every repo's open pull requests were all read | `split across pull requests`, or `pull requests not all read` |
-  | 9   | GitHub's `mergeStateStatus` is `CLEAN`                                                                    | `merge state <state>`                                         |
-  | 10  | its required checks are green                                                                             | `checks <state>`                                              |
-  | 11  | the repo's default branch is green                                                                        | `default branch <state>`                                      |
-  | 12  | no thread of feedback is unresolved and no feedback is newer than the review run's start                  | `open feedback`                                               |
-  | 13  | it changes at most 10 files and 300 lines                                                                 | `too large`                                                   |
-  | 14  | no changed file is on a protected path                                                                    | `protected path <path>`                                       |
-  | 15  | no landed pull request of the repo is marked reverted                                                     | `paused after a revert`                                       |
-  | 16  | the repo has the land topic and is not a repo that never lands                                            | `shadow`                                                      |
-  | 17  | the gate has neither offered this head commit for a merge nor tried to merge it                           | `merge not made`                                              |
-  | 18  | fewer than 3 landings were made today, those this plan offers included                                    | `daily limit`                                                 |
-  | 19  | 24 hours have passed since the review entry finished                                                      | `lands <iso time>`                                            |
+  | #   | The pull request lands only when                                                                                                                                    | Held as                                                       |
+  | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+  | 1   | its review entry's status is `land`                                                                                                                                 | `no verdict`                                                  |
+  | 2   | the entry's head commit is the pull request's head commit                                                                                                           | `verdict is stale`                                            |
+  | 3   | it is open                                                                                                                                                          | `not open`                                                    |
+  | 4   | its base is the repo's default branch                                                                                                                               | `base not the default branch`                                 |
+  | 5   | it is not a draft and has neither the `agent:hold` nor the `agent:blocked` label                                                                                    | `held by the owner`                                           |
+  | 6   | every linked issue is open in the snapshot and written by the owner's account; a finding also needs the owner's go-ahead on its card, or the earned findings record | `issue not the owner's`                                       |
+  | 7   | every linked issue has a card in In Review and no card in another open status                                                                                       | `card <status>`                                               |
+  | 8   | no other open agent pull request shares a linked issue, and every repo's open pull requests were all read                                                           | `split across pull requests`, or `pull requests not all read` |
+  | 9   | GitHub's `mergeStateStatus` is `CLEAN`                                                                                                                              | `merge state <state>`                                         |
+  | 10  | its required checks are green                                                                                                                                       | `checks <state>`                                              |
+  | 11  | the repo's default branch is green                                                                                                                                  | `default branch <state>`                                      |
+  | 12  | no thread of feedback is unresolved and no feedback is newer than the review run's start                                                                            | `open feedback`                                               |
+  | 13  | it changes at most 10 files and 300 lines                                                                                                                           | `too large`                                                   |
+  | 14  | no changed file is on a protected path                                                                                                                              | `protected path <path>`                                       |
+  | 15  | no landed pull request of the repo is marked reverted                                                                                                               | `paused after a revert`                                       |
+  | 16  | the repo has the land topic and is not a repo that never lands                                                                                                      | `shadow`                                                      |
+  | 17  | the gate has neither offered this head commit for a merge nor tried to merge it                                                                                     | `merge not made`                                              |
+  | 18  | fewer than 3 landings were made today, those this plan offers included                                                                                              | `daily limit`                                                 |
+  | 19  | 24 hours have passed since the review entry finished                                                                                                                | `lands <iso time>`                                            |
 
   A missing value fails its rule: no board, no card and no review data all hold
   the pull request. `<state>` and `<status>` print in lower case, and `none` for
