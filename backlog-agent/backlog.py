@@ -10,6 +10,7 @@ import sys
 import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from http.client import HTTPException
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -51,7 +52,7 @@ OUTCOMES = {
 }
 REVIEW_ROUNDS = 3
 REVIEW_QUIET = timedelta(minutes=30)
-AGENT_BRANCH = r"backlog-agent/.+-(build|triage)"
+AGENT_BRANCH = r"backlog-agent/.+-\d+-(build|triage)"
 LAND_TOPIC = "backlog-agent-land"
 NEVER_LAND_REPOS = {
     "jakob1379/backlog-agent",
@@ -65,6 +66,15 @@ LAND_DAILY_CAP = 3
 LAND_RECORD = timedelta(days=60)
 HOLD_LABEL = "agent:hold"
 COMMIT = r"\b[0-9a-f]{40}\b"
+UNREAD = (
+    RuntimeError,
+    ValueError,
+    LookupError,
+    TypeError,
+    AttributeError,
+    OSError,
+    HTTPException,
+)
 PROTECTED_NAMES = """
 .github .gitlab-ci.yml .pre-commit-config.yaml CODEOWNERS
 .claude .agents .cursor* .mcp.json CLAUDE.md CLAUDE.local.md AGENTS.md GEMINI.md
@@ -76,6 +86,8 @@ package-lock.json pnpm-lock.yaml *.nix Makefile justfile Dockerfile*
 *compose*.y*ml ruff.toml .ruff.toml mypy.ini biome.json* eslint.config.*
 .eslintrc*
 scripts *.sh .env*
+.gitmodules Pipfile bun.lockb npm-shrinkwrap.json .npmrc .husky .circleci
+Taskfile.y*ml requirements bin
 """
 PROTECTED = re.compile(
     "(?:^|/)(?:"
@@ -808,6 +820,7 @@ def land_block(
         f"{r['repo']}#{i['number']}": i["author"]
         for r in candidates["repos"]
         for i in r.get("issues", [])
+        if not i.get("by_agent")
     }
     if not (refs and owner) or any(authors.get(ref) != owner for ref in refs):
         return "issue not the owner's"
@@ -818,8 +831,9 @@ def land_block(
             cards.setdefault(ref, []).append(c["status"])
     for ref in refs:
         statuses = cards.get(ref, [None])
-        if "In Review" not in statuses:
-            return f"card {lower(statuses[0])}"
+        stray = [s for s in statuses if s not in CLOSED_STATUSES | {"In Review"}]
+        if stray or "In Review" not in statuses:
+            return f"card {lower((stray or statuses)[0])}"
     if any(
         "review" in other
         and (r["repo"], other["number"]) != (name, pr.get("number"))
@@ -828,7 +842,7 @@ def land_block(
         for other in r.get("other_prs", [])
     ):
         return "split across pull requests"
-    if pr.get("merge_state") not in ("CLEAN", "HAS_HOOKS"):
+    if pr.get("merge_state") != "CLEAN":
         return f"merge state {lower(pr.get('merge_state'))}"
     if review.get("checks") != "green":
         return f"checks {lower(review.get('checks'))}"
@@ -861,7 +875,7 @@ def land_block(
         return "paused after a revert"
     if repo.get("land") is not True or name in NEVER_LAND_REPOS:
         return "shadow"
-    if entry.get("offered") == head:
+    if head in (entry.get("offered"), entry.get("tried")):
         return "merge not made"
     today = now.astimezone(TZ).date()
     if (
@@ -896,7 +910,7 @@ def land_work(
         repo = repos.get(e["repo"], {})
         if e["pr"] in repo.get("reverted", []):
             e.setdefault("reverted", True)
-        if e.get("reverted") and not repo.get("land"):
+        if e.get("reverted") and repo.get("land") is False:
             e["reverted"] = False
         if e.get("reverted") or now - datetime.fromisoformat(e["at"]) <= LAND_RECORD:
             kept.append(e)
@@ -950,12 +964,12 @@ def land(candidates: dict, ledger: dict, name: str, number: int, now: datetime) 
             if e["pr"] in reverted:
                 e["reverted"] = True
         pr = {**known, **pr_detail(name, number, owner)}
-    except (RuntimeError, SystemExit) as e:
+    except (*UNREAD, SystemExit) as e:
         return {**task, "why": str(e).splitlines()[-1]}
     why = land_block(candidates, repo, pr, entry, ledger, now, 0)
     if why:
         return {**task, "why": why}
-    head = entry["offered"] = entry["head"]
+    head = entry["tried"] = entry["head"]
     merge = subprocess.run(
         [
             "gh",
@@ -974,11 +988,10 @@ def land(candidates: dict, ledger: dict, name: str, number: int, now: datetime) 
     )
     try:
         after = pr_node(name, number)
-    except RuntimeError:
+    except UNREAD:
         after = None
     merged = bool(after and after["state"] == "MERGED" and after["headRefOid"] == head)
     sha = (after["mergeCommit"] or {}).get("oid") if after and merged else None
-    # An unread merge that gh reported made still counts for the daily limit and the pause.
     if merged or (after is None and not merge.returncode):
         ledger.setdefault("landed", []).append(
             {**task, "head": head, "sha": sha, "at": now.isoformat()}
@@ -1468,7 +1481,6 @@ def other_pr_record(name: str, p: dict) -> dict:
         "created_at": p["createdAt"],
         "labels": [lb["name"] for lb in p["labels"]["nodes"]],
         "head": p["headRefOid"],
-        "branch": p["headRefName"],
         "linked_issues": [
             int(ref.rpartition("#")[2])
             for ref in closes
@@ -1497,7 +1509,7 @@ def is_agent_pr(name: str, p: dict, record: dict, owner: str) -> bool:
 # shortcut: last 100 comments and reviews, first 100 of a thread, page them if a PR exceeds that
 PR_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-    state isDraft mergeStateStatus headRefOid headRefName baseRefName
+    state isDraft mergeStateStatus headRefOid baseRefName
     additions deletions changedFiles mergeCommit { oid }
     labels(first: 100) { nodes { name } }
     commits(last: 1) { nodes { commit { committedDate } } }
@@ -1563,11 +1575,9 @@ def pr_detail(repo: str, number: int, owner: str) -> dict:
     return {
         "state": p["state"],
         "head": p["headRefOid"],
-        "branch": p["headRefName"],
         "base": p["baseRefName"],
         "draft": p["isDraft"],
         "merge_state": p["mergeStateStatus"],
-        "merge_commit": (p["mergeCommit"] or {}).get("oid"),
         "labels": [lb["name"] for lb in p["labels"]["nodes"]],
         "review": {
             "checks": sha_state(
@@ -1745,11 +1755,7 @@ def collect(landed: list[dict] | tuple = ()) -> dict:
                 "land": LAND_TOPIC in topics and name not in NEVER_LAND_REPOS,
                 "reverted": reverted_prs(
                     name,
-                    [
-                        e
-                        for e in landed
-                        if e["repo"] == name and e.get("reverted") is not True
-                    ],
+                    [e for e in landed if e["repo"] == name and "reverted" not in e],
                 ),
             }
         )

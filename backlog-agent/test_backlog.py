@@ -1,3 +1,4 @@
+import http.client
 import io
 import json
 import os
@@ -1517,11 +1518,9 @@ def agent_pr(
     return {
         **other_pr(number, draft, issues, linked_refs, labels),
         "head": head,
-        "branch": AGENT_BRANCH,
         "base": "main",
         "state": "OPEN",
         "merge_state": "CLEAN",
-        "merge_commit": None,
         "review": {
             "checks": "green",
             "pushed_at": "2026-10-21T10:00:00Z",
@@ -1911,13 +1910,16 @@ docker-compose.prod.yaml ruff.toml .ruff.toml mypy.ini biome.json biome.jsonc
 eslint.config.mjs .eslintrc .eslintrc.json
 scripts/run.py tools/scripts/run.py install.sh bin/x.sh .env .env.local
 config/.envrc
+.gitmodules Pipfile bun.lockb npm-shrinkwrap.json .npmrc .husky/pre-commit
+.circleci/config.yml Taskfile.yml Taskfile.yaml requirements/dev.txt bin/deploy
 makefile dockerfile claude.md .GitHub/workflows/ci.yml
 """
 FREE_PATHS = """
 src/app/main.py docs/guide.md tests/test_x.py README.md src/environment.py
 src/lockfile.py docs/makefile-tips.md src/scripts.py composer.py src/github/api.py
 src/nix.py shell.py tsconfig-docs/schema.json
-tests/test_setup.py src/mypackage.json notscripts/a.py
+tests/test_setup.py src/mypackage.json notscripts/a.py docs/requirements.md
+src/bin.py cabin/a.py
 """
 
 
@@ -1975,7 +1977,6 @@ def scene(passing):
             other_prs=[p] if ok(8) else [p, agent_pr(13)],
         ),
         "main": "green" if ok(11) else "red",
-        # A repo without the topic forgets its reverts, so rule 15 shows only with it.
         "land": ok(16) or not ok(15),
     }
     c = snap(r, cards=[card(1, "In Review" if ok(7) else "In Progress")])
@@ -2088,13 +2089,15 @@ class LandGatePlanTest(unittest.TestCase):
         self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
 
     def test_every_linked_issue_must_be_open_and_written_by_the_owner(self):
-        strangers, closed = landable(), landable()
+        strangers, closed, scanned = landable(), landable(), landable()
         strangers["repos"][0]["issues"] = [issue(1, author="eve")]
         closed["repos"][0]["issues"] = []
+        scanned["repos"][0]["issues"] = [found(1)]
         far = agent_pr(linked_refs=["o/x#5"])
         cases = {
             "someone else's issue": strangers,
             "a closed issue": closed,
+            "an issue a scan filed": scanned,
             "an issue in a repo out of scope": landable(
                 far, cards=[card(1, "In Review"), card(5, "In Review", repo="o/x")]
             ),
@@ -2153,14 +2156,20 @@ class LandGatePlanTest(unittest.TestCase):
         self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
 
     def test_only_a_clean_merge_state_lands(self):
-        for state in ("BLOCKED", "BEHIND", "DIRTY", "UNSTABLE", "UNKNOWN", "DRAFT"):
+        for state in (
+            "BLOCKED",
+            "BEHIND",
+            "DIRTY",
+            "UNSTABLE",
+            "UNKNOWN",
+            "DRAFT",
+            "HAS_HOOKS",
+        ):
             with self.subTest(state):
                 c = landable({**agent_pr(), "merge_state": state})
                 self.holds(f"merge state {state.lower()}", c)
         c = landable(without(agent_pr(), "merge_state"))
         self.holds("merge state none", c)
-        c = landable({**agent_pr(), "merge_state": "HAS_HOOKS"})
-        self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
 
     def test_only_green_required_checks_land(self):
         whole = agent_pr()
@@ -2264,6 +2273,18 @@ class LandGatePlanTest(unittest.TestCase):
         self.holds("shadow", landable(land=False), L)
         self.assertEqual(L["landed"], [{**landing(9, "abc"), "reverted": False}])
         self.assertEqual(lands(plan(landable(reverted=[9]), L, DUE)), [12])
+
+    def test_a_repo_missing_from_a_snapshot_stays_paused(self):
+        paused = {**landing(9, "abc"), "reverted": True}
+        for name, c in [
+            ("repo not listed", snap(backlog_repo(name="o/other"))),
+            ("land topic not read", snap(backlog_repo())),
+        ]:
+            with self.subTest(name):
+                L = empty()
+                L["landed"] = [dict(paused)]
+                plan(c, L, DUE)
+                self.assertEqual(L["landed"], [paused])
 
     def test_a_reverted_landing_still_counts_toward_the_day_it_was_made(self):
         today = DUE.isoformat()
@@ -3151,7 +3172,6 @@ def pull(comments=(), reviews=(), threads=(), more=(), **kw):
         "isDraft": False,
         "mergeStateStatus": "CLEAN",
         "headRefOid": "h1",
-        "headRefName": AGENT_BRANCH,
         "baseRefName": "main",
         "additions": 5,
         "deletions": 2,
@@ -3208,11 +3228,9 @@ class PullRequestReadTest(unittest.TestCase):
             {
                 "state": "OPEN",
                 "head": "h1",
-                "branch": AGENT_BRANCH,
                 "base": "main",
                 "draft": False,
                 "merge_state": "CLEAN",
-                "merge_commit": None,
                 "labels": ["needs-review"],
                 "review": {
                     "checks": "green",
@@ -3226,11 +3244,6 @@ class PullRequestReadTest(unittest.TestCase):
                 },
             },
         )
-
-    def test_a_merged_pull_request_names_its_merge_commit(self):
-        merged = pull(state="MERGED", mergeCommit={"oid": "m9"})
-        got = detail(merged)[0]
-        self.assertEqual((got["state"], got["merge_commit"]), ("MERGED", "m9"))
 
     def test_a_base_branch_that_requires_no_checks_gives_no_check_state(self):
         got, calls, _ = detail(pull())
@@ -3454,11 +3467,9 @@ class CollectTest(unittest.TestCase):
                     "linked_issues": [1],
                     "linked_refs": [],
                     "head": "h1",
-                    "branch": AGENT_BRANCH,
                     "base": "main",
                     "state": "OPEN",
                     "merge_state": "CLEAN",
-                    "merge_commit": None,
                     "review": {
                         "checks": None,
                         "pushed_at": "2026-10-21T09:00:00Z",
@@ -3511,7 +3522,7 @@ class CollectTest(unittest.TestCase):
                 )
                 self.assertEqual(why(result), [(12, expected)])
 
-    def test_any_other_pull_request_gets_its_head_and_branch_and_no_review(self):
+    def test_any_other_pull_request_gets_its_head_and_no_review(self):
         others = {
             "someone else's": pr_node(author="eve"),
             "from a fork": pr_node(fork=True),
@@ -3519,16 +3530,16 @@ class CollectTest(unittest.TestCase):
             "on a branch that only starts like the agent's": pr_node(
                 branch=AGENT_BRANCH + "-2"
             ),
+            "on a dependency-work branch for a package named build": pr_node(
+                branch="backlog-agent/o-r-dep-pip-build"
+            ),
             "without an issue": pr_node(closes=()),
         }
         for name, node in others.items():
             with self.subTest(name):
                 snapshot, _ = collected({REPOS_READ: viewer(repo_node(prs=[node]))})
                 (got,) = snapshot["repos"][0]["other_prs"]
-                self.assertEqual(
-                    (got["head"], got["branch"], "review" in got),
-                    ("h0", node["headRefName"], False),
-                )
+                self.assertEqual((got["head"], "review" in got), ("h0", False))
 
     def test_a_pull_request_that_only_mentions_an_issue_of_another_repo_is_the_agents(
         self,
@@ -3615,18 +3626,18 @@ class CollectTest(unittest.TestCase):
                 self.assertEqual(snapshot["repos"][0]["reverted"], expected)
 
     def test_a_landing_already_reverted_is_not_looked_for_again(self):
-        landed = [
-            {**landing(12, "abc123", at="2026-09-01T12:00:00+00:00"), "reverted": True},
-            landing(14, "def456"),
-        ]
+        old = landing(12, "abc123", at="2026-09-01T12:00:00+00:00")
         replies = {
             REPOS_READ: viewer(repo_node()),
             HISTORY_READ: history(commit("This reverts commit abc123.")),
         }
-        snapshot, calls = collected(replies, landed)
-        self.assertEqual(snapshot["repos"][0]["reverted"], [])
-        (read,) = [c for c in calls if HISTORY_READ in c]
-        self.assertIn("since=2026-10-20T12:00:00+00:00", read)
+        for name, paused in [("still paused", True), ("pause lifted", False)]:
+            with self.subTest(name):
+                landed = [{**old, "reverted": paused}, landing(14, "def456")]
+                snapshot, calls = collected(replies, landed)
+                self.assertEqual(snapshot["repos"][0]["reverted"], [])
+                (read,) = [c for c in calls if HISTORY_READ in c]
+                self.assertIn("since=2026-10-20T12:00:00+00:00", read)
 
     def test_a_repo_without_a_landing_costs_no_history_read(self):
         replies = {REPOS_READ: viewer(repo_node("o/r"), repo_node("o/quiet"))}
@@ -3873,12 +3884,24 @@ class LandCommandTest(unittest.TestCase):
                 FakeLinear(cards=[card(1, "Needs info")]),
                 "card needs info",
             ),
+            "the card was moved and its twin was not": (
+                {},
+                FakeLinear(
+                    cards=[card(1, "In Review"), twin(1, "Needs info", ["att-1b"])]
+                ),
+                "card needs info",
+            ),
             "the repo cannot be read": (
                 {REPO_READ: gh_error("HTTP 502: Bad Gateway")},
                 None,
                 "gh api repos/o/r: HTTP 502: Bad Gateway",
             ),
             "the board cannot be read": ({}, down, "linear HTTP 502: bad gateway"),
+            "the board reply is cut short": (
+                {},
+                http.client.IncompleteRead(b""),
+                "IncompleteRead(0 bytes read)",
+            ),
             "the board has no single owner": (
                 {},
                 FakeLinear(owners=2),
@@ -4002,41 +4025,62 @@ class LandCommandTest(unittest.TestCase):
                     (lands(result), why(result)), ([], [(12, "merge not made")])
                 )
 
-    def test_a_pull_request_that_cannot_be_read_is_refused_and_decided_again(self):
-        c = spread(12, 13)
-        replies = {
-            PR_READ: [STILL_OPEN, NOW_MERGED],
-            MERGE: "",
-            "-F number=13": gh_error("HTTP 502: Bad Gateway"),
-        }
-        out = self.land(cleared(REVIEW, "o/r13#13:review"), replies, c)
+    def test_a_merge_that_was_tried_is_not_made_by_running_the_same_plan_again(self):
+        L, c = cleared(), landable()
+        decided = plan(c, L, DUE)
+        failed = {PR_READ: [STILL_OPEN], MERGE: gh_error("not mergeable")}
+        self.land(L, failed, c, decided)
+        again = {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""}
+        out = self.land(self.ledger(), again, c, decided)
         self.assertEqual(
             out,
             {
-                "landed": [{"repo": "o/r", "pr": 12, "sha": "m9"}],
-                "refused": [
-                    {
-                        "repo": "o/r13",
-                        "pr": 13,
-                        "why": "gh api graphql: HTTP 502: Bad Gateway",
-                    }
-                ],
+                "landed": [],
+                "refused": [{"repo": "o/r", "pr": 12, "why": "merge not made"}],
             },
         )
-        self.assertEqual([e["pr"] for e in self.ledger()["landed"]], [12])
-        self.assertEqual(lands(plan(spread(13), self.ledger(), DUE)), [])
-        left = spread(12, 13)
-        left["repos"] = left["repos"][1:]
-        self.assertEqual(lands(plan(left, self.ledger(), DUE)), [13])
+        self.assertEqual(self.merges(), [])
+        entry = self.ledger()["tasks"][REVIEW]
+        self.assertEqual((entry["offered"], entry["tried"]), (None, HEAD))
+
+    def test_a_pull_request_that_cannot_be_read_is_refused_and_decided_again(self):
+        cases = {
+            "gh fails": (
+                gh_error("HTTP 502: Bad Gateway"),
+                "gh api graphql: HTTP 502: Bad Gateway",
+            ),
+            "gh prints no JSON": (
+                "not json",
+                "Expecting value: line 1 column 1 (char 0)",
+            ),
+        }
+        for name, (unread, expected) in cases.items():
+            with self.subTest(name):
+                c = spread(13, 12)
+                replies = {
+                    "-F number=13": unread,
+                    PR_READ: [STILL_OPEN, NOW_MERGED],
+                    MERGE: "",
+                }
+                out = self.land(cleared("o/r#13:review", "o/r12#12:review"), replies, c)
+                self.assertEqual(
+                    out,
+                    {
+                        "landed": [{"repo": "o/r12", "pr": 12, "sha": "m9"}],
+                        "refused": [{"repo": "o/r", "pr": 13, "why": expected}],
+                    },
+                )
+                self.assertEqual([e["pr"] for e in self.ledger()["landed"]], [12])
+                left = spread(13, 12)
+                left["repos"] = left["repos"][:1]
+                self.assertEqual(lands(plan(left, self.ledger(), DUE)), [13])
 
     def test_a_crash_on_the_second_keeps_the_first_landing(self):
-        replies = {
-            PR_READ: [STILL_OPEN, NOW_MERGED],
-            MERGE: "",
-            "-F number=13": "not json",
-        }
-        with self.assertRaises(ValueError):
-            self.land(cleared(REVIEW, "o/r13#13:review"), replies, spread(12, 13))
+        L, c = cleared(), landable()
+        decided = plan(c, L, DUE)
+        decided["lands"].append({"repo": "o/r"})
+        with self.assertRaises(KeyError):
+            self.land(L, {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""}, c, decided)
         self.assertEqual([e["pr"] for e in self.ledger().get("landed", [])], [12])
         self.assertEqual(
             [t["pr"] for t in json.loads(self.out.getvalue())["landed"]], [12]
@@ -4056,23 +4100,26 @@ class LandCommandTest(unittest.TestCase):
         self.assertEqual(self.merges(), [])
 
     def test_a_merge_that_cannot_be_read_back_is_not_offered_again(self):
-        replies = {
-            PR_READ: [STILL_OPEN, gh_error("HTTP 502: Bad Gateway")],
-            MERGE: "",
-        }
-        out = self.land(cleared(), replies)
-        self.assertEqual(
-            out,
-            {
-                "landed": [],
-                "refused": [{"repo": "o/r", "pr": 12, "why": "merge not made"}],
-            },
-        )
-        self.assertEqual(len(self.merges()), 1)
-        (unconfirmed,) = self.ledger()["landed"]
-        self.assertEqual((unconfirmed["pr"], unconfirmed["sha"]), (12, None))
-        result = plan(landable(), self.ledger(), DUE)
-        self.assertEqual((lands(result), why(result)), ([], [(12, "merge not made")]))
+        for name, after in [
+            ("gh fails", gh_error("HTTP 502: Bad Gateway")),
+            ("gh prints no JSON", "not json"),
+        ]:
+            with self.subTest(name):
+                out = self.land(cleared(), {PR_READ: [STILL_OPEN, after], MERGE: ""})
+                self.assertEqual(
+                    out,
+                    {
+                        "landed": [],
+                        "refused": [{"repo": "o/r", "pr": 12, "why": "merge not made"}],
+                    },
+                )
+                self.assertEqual(len(self.merges()), 1)
+                (unconfirmed,) = self.ledger()["landed"]
+                self.assertEqual((unconfirmed["pr"], unconfirmed["sha"]), (12, None))
+                result = plan(landable(), self.ledger(), DUE)
+                self.assertEqual(
+                    (lands(result), why(result)), ([], [(12, "merge not made")])
+                )
 
 
 if __name__ == "__main__":
