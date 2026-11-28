@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -199,6 +200,216 @@ def assign(ledger: dict, key: str, task_id: str) -> None:
 
 def lock_path(work: Path, key: str) -> Path:
     return work / (re.sub(r"[/#:]", "-", key) + ".lock")
+
+
+def thread_for(key: str) -> tuple[str, int, str] | None:
+    m = re.fullmatch(r"([^:#]+)#(\d+)(?::(triage|build|review))?", key)
+    return m and (m[1], int(m[2]), m[3] or "pr")
+
+
+def thread_of(ledger: dict, repo: str, number: int) -> dict:
+    # shortcut: threads are never pruned, drop closed ones in plan once the ledger grows slow
+    return ledger.setdefault("threads", {}).setdefault(
+        f"{repo}#{number}", {"comment": None, "runs": [], "report": None}
+    )
+
+
+def track_run(ledger: dict, key: str, work: Path) -> tuple[str, int, dict] | None:
+    if not (where := thread_for(key)):
+        return None
+    repo, number, kind = where
+    entry, thread = ledger["tasks"][key], thread_of(ledger, repo, number)
+    run = {
+        "key": key,
+        "kind": kind,
+        **{f: entry[f] for f in ("started", "finished", "status", "note")},
+        "attempt": entry["attempts"],
+    }
+    runs = thread["runs"]
+    if runs and (runs[-1]["key"], runs[-1]["started"]) == (key, run["started"]):
+        runs[-1] = run
+    else:
+        runs.append(run)
+    report = lock_path(work, key).with_suffix(".report.md")
+    if entry["status"] != "running" and report.exists():
+        thread["report"] = report.read_text(errors="replace")
+        report.unlink()
+    return repo, number, thread
+
+
+STATUS_MARKER = "<!-- backlog-agent:status -->"
+BADGE_URL = (
+    "https://raw.githubusercontent.com/jakob1379/backlog-agent/main/docs/readme/badges"
+)
+COMMENT_LIMIT = 65000
+SCRUBBERS = {"triage": "Probe", "build": "Rivet", "review": "Rivet", "pr": "Patch"}
+ISSUE_STAGES = ("Triage", "Approval", "Build", "Review", "Land")
+STAGES = {
+    "triage": (ISSUE_STAGES, 0),
+    "build": (ISSUE_STAGES, 2),
+    "review": (("Build", "Review", "Land"), 1),
+    "pr": (("Update", "Review", "Land"), 0),
+}
+STAGE_AT = {"needs-approval": 1, "fix-pending": 3, "land": 2, "landed": 2}
+BADGE_STATES = {
+    "running": "work",
+    "failed": "idle",
+    "blocked": "alarm",
+    "done": "happy",
+    "not-actionable": "happy",
+    "landed": "happy",
+}
+MARKS = {"happy": "✓", "alarm": "✗"}
+WORKING = {
+    "triage": "triaging this issue",
+    "build": "building the approved plan",
+    "review": "reviewing this pull request",
+    "pr": "updating this pull request",
+}
+
+
+def short(text: str, limit: int = 120) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def local(at: str, fmt: str) -> str:
+    return datetime.fromisoformat(at).astimezone(TZ).strftime(fmt)
+
+
+def status_body(thread: dict, now: datetime) -> str:
+    run = thread["runs"][-1]
+    kind, status, note = run["kind"], run["status"], run["note"] or ""
+    who, state = SCRUBBERS[kind], BADGE_STATES.get(status, "wait")
+    pr = re.search(PR_URL, note)
+    if kind == "review" and status == "failed" and run["attempt"] >= REVIEW_ROUNDS:
+        status, state = "no-land", "wait"
+    if status == "running":
+        headline = f"{who} is {WORKING[kind]}"
+    elif status in ("needs-approval", "needs-repro", "unable-to-fix"):
+        headline = f"{who} is waiting on you"
+    elif status == "fix-pending":
+        opened = f"[a pull request]({pr[0]})" if pr else "a pull request"
+        headline = f"{who} opened {opened}; a review run takes it next"
+    elif status == "no-land":
+        headline = f"{who} is waiting on your review"
+    elif status == "land":
+        headline = f"{who} cleared this pull request to land"
+    elif state == "happy":
+        headline = f"Done: {short(note) or status}"
+    elif state == "alarm":
+        headline = f"{who} is blocked"
+    else:
+        headline = f"{who} hit an error and is retrying next hour"
+    move = {
+        "needs-approval": "Read the plan, then drag the card to **Approved** in Linear.",
+        "needs-repro": "Reply on this issue.",
+        "unable-to-fix": "Reply on this issue.",
+        "no-land": f"Review [the pull request]({pr[0]})."
+        if pr
+        else "Review the pull request.",
+        "blocked": short(note, 500),
+    }
+    if status == "land":
+        due = datetime.fromisoformat(run["finished"]) + LAND_DELAY
+        move["land"] = (
+            f"Lands no sooner than {due.astimezone(TZ):%Y-%m-%d %H:%M} if the"
+            f" land gate still passes. To stop it: add the `{HOLD_LABEL}` label, leave"
+            " a review thread unresolved, convert to a draft, or close it."
+        )
+    stages, at = STAGES[kind]
+    at = len(stages) - 1 if status == "landed" else STAGE_AT.get(status, at)
+    progress = " → ".join(
+        f"{s} {'✓' if i < at else MARKS.get(state, '●') if i == at else '○'}"
+        for i, s in enumerate(stages)
+    )
+    badge = f"{BADGE_URL}/{who.lower()}-{state}.svg"
+    head = [
+        STATUS_MARKER,
+        f'<img align="left" width="84" src="{badge}" alt="{who}, {state}">',
+        "",
+        f"**{headline}**",
+        "",
+        *([f"> **Your move:** {move[status]}", ""] if move.get(status) else []),
+        '<br clear="left">',
+        "",
+        f"`{progress}`",
+        "",
+    ]
+    runs = thread["runs"]
+    history = [
+        f"- {local(r['started'], '%m-%d %H:%M')}–"
+        f"{local(r['finished'], '%H:%M') if r['finished'] else '…'}"
+        f" {r['kind']}: {r['status']}" + (f" — {short(r['note'])}" if r["note"] else "")
+        for r in runs
+    ]
+    limit = REVIEW_ROUNDS if kind == "review" else MAX_ATTEMPTS
+    footer = (
+        f"<sub>Updated {now.astimezone(TZ):%Y-%m-%d %H:%M} · attempt"
+        f" {run['attempt']} of {limit} · this comment is edited in place</sub>"
+    )
+    runs_said = f"{len(runs)} run{'s' * (len(runs) != 1)}"
+    tail = [
+        f"<details><summary>History ({runs_said})</summary>",
+        "",
+        *history,
+        "",
+        "</details>",
+        "",
+        footer,
+    ]
+    report = "\n".join(
+        ln
+        for ln in (thread.get("report") or "").strip().splitlines()
+        if not ln.lstrip().startswith((STATUS_MARKER, AGENT_MARKER))
+    )
+    if report:
+        cut = "\n\n_Report cut to fit one comment._"
+        room = COMMENT_LIMIT - len("\n".join(head + tail)) - len(cut) - 100
+        if len(report) > room:
+            # shortcut: a history too long for one comment still overflows, cap runs if that happens
+            report = report[: max(room, 0)]
+            if sum(ln.lstrip().startswith("```") for ln in report.splitlines()) % 2:
+                report += "\n```"
+            report += cut
+        head += [
+            "<details open><summary>Latest report</summary>",
+            "",
+            report,
+            "",
+            "</details>",
+            "",
+        ]
+    return "\n".join(head + tail) + "\n"
+
+
+def upsert_status(repo: str, number: int, thread: dict, now: datetime) -> None:
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".md") as f:
+            f.write(status_body(thread, now))
+            f.flush()
+            body = f"body=@{f.name}"
+            if thread["comment"]:
+                try:
+                    gh(
+                        "api",
+                        "-X",
+                        "PATCH",
+                        f"repos/{repo}/issues/comments/{thread['comment']}",
+                        "-F",
+                        body,
+                    )
+                    return
+                except RuntimeError as e:
+                    if "HTTP 404" not in str(e):
+                        raise
+            made = gh("api", f"repos/{repo}/issues/{number}/comments", "-F", body)
+            thread["comment"] = made["id"]
+    except (*UNREAD, SystemExit, subprocess.CalledProcessError) as e:
+        print(
+            f"status comment for {repo}#{number} not updated: {short(str(e), 300)}",
+            file=sys.stderr,
+        )
 
 
 def write_lock(work: Path, key: str, entry: dict) -> None:
@@ -1081,6 +1292,19 @@ def land(
     if not merged:
         said = merge.stderr.strip().splitlines() or ["merge not made"]
         return {**task, "why": said[-1]}
+    thread = thread_of(ledger, name, number)
+    thread["runs"].append(
+        {
+            "key": f"{name}#{number}:review",
+            "kind": "review",
+            "started": now.isoformat(),
+            "finished": now.isoformat(),
+            "status": "landed",
+            "note": f"merged as {sha}" if sha else "merged",
+            "attempt": entry["attempts"],
+        }
+    )
+    upsert_status(name, number, thread, now)
     return {**task, "sha": sha}
 
 
@@ -1546,6 +1770,7 @@ def issue_record(i: dict, owner: str) -> dict:
                 and c["body"].lstrip().startswith(AGENT_MARKER),
             }
             for c in i["comments"]["nodes"]
+            if not c["body"].lstrip().startswith(STATUS_MARKER)
         ],
     }
 
@@ -1610,7 +1835,7 @@ def is_feedback(c: dict, owner: str, opens_thread: bool = False) -> bool:
     kind = author.get("__typename")
     return (
         bool(text)
-        and not text.startswith(AGENT_MARKER)
+        and not text.startswith((AGENT_MARKER, STATUS_MARKER))
         and (
             (kind == "User" and author.get("login") == owner)
             or (kind == "Bot" and opens_thread)
@@ -1968,6 +2193,7 @@ def locked(args: argparse.Namespace) -> None:
         )
         for t in result["dispatch"]:
             write_lock(WORK, t["key"], ledger["tasks"][t["key"]])
+            lock_path(WORK, t["key"]).with_suffix(".report.md").unlink(missing_ok=True)
         print(json.dumps({**result, "stale_locks": stale}, indent=2))
     elif args.cmd == "start":
         assign(ledger, args.key, args.task_id)
@@ -1986,7 +2212,12 @@ def locked(args: argparse.Namespace) -> None:
         note = sys.stdin.read().strip() if args.note == "-" else args.note
         print(finish(ledger, args.key, args.status, note, now))
         release(WORK, args.key)
+    started = args.cmd != "plan" and ledger["tasks"].get(args.key, {}).get("task_id")
+    tracked = track_run(ledger, args.key, WORK) if started else None
     save_ledger(LEDGER, ledger)
+    if tracked:
+        upsert_status(*tracked, now)
+        save_ledger(LEDGER, ledger)
 
 
 if __name__ == "__main__":

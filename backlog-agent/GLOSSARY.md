@@ -29,6 +29,20 @@ needs the owner. _Avoid_: ticket, Linear issue
 moving, such as no card waiting more than a day to be picked up. It never counts
 how much backlog is left. _Avoid_: goal, exit criterion, checks before Phase 2
 
+**Status comment**: The one comment on each issue or pull request a child works
+on that `backlog.py` edits in place when a run starts and ends. It shows the
+scrubber and its state, what the owner must do next, how far the card has come,
+the latest report and the run history. It starts with
+`<!-- backlog-agent:status -->`, and no rule reads it as the owner's word, since
+it is posted with the owner's token. Only a review run reads one line of it, the
+feedback its last report read to. _Avoid_: bot comment, sticky comment, verdict
+comment
+
+**Report file**: The markdown a child with a thread writes to
+`work/<slug>.report.md` before its result line. `finish` puts it in the status
+comment as the latest report and deletes the file. A review run's report is its
+verdict. _Avoid_: summary, handoff
+
 ## Backlog triage
 
 **Backlog issue**: A GitHub issue in an in-scope repo describing work the owner

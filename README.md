@@ -48,6 +48,10 @@ They all show their state the same way, with the eyes and the beacon on top:
   <img src="docs/readme/states.svg" width="100%" alt="The five states: idle with a dark beacon, working with a blue beacon, waiting on you with amber eyes and a turning amber beacon, clean with happy eyes and a green beacon, and blocked with squeezed red eyes and a flashing red alarm.">
 </p>
 
+Every issue and pull request a child works on carries one status comment that
+shows its scrubber in that state, what I need to do next and the latest report.
+The agent edits it in place each run instead of posting a new one.
+
 ## One hour
 
 <p align="center">
