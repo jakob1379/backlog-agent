@@ -106,9 +106,11 @@ _Avoid_: proposal, draft issue
 
 **Agent pull request**: An open pull request the agent opened for a backlog
 issue. Its author is the owner, since the agent posts with the owner's token,
-its head branch is in the same repo and named `backlog-agent/…-build` or
-`backlog-agent/…-triage`, and it links an issue. Only these get review runs and
-only these can land. _Avoid_: bot pull request, automated pull request
+its head branch is in the same repo and named
+`backlog-agent/…-<issue number>-build` or
+`backlog-agent/…-<issue number>-triage`, and it links an issue. Only these get
+review runs and only these can land. _Avoid_: bot pull request, automated pull
+request
 
 **Review run**: One agent run on an agent pull request: it answers the feedback,
 runs the converge review, pushes its fixes and ends with a verdict. A pull

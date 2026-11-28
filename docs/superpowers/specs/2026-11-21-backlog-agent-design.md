@@ -373,10 +373,12 @@ whether work is moving.
   input to the land gate, and a review run never merges.
   - **Agent pull request.** An open pull request whose author is the owner,
     whose head branch is in the same repo and fully matches
-    `backlog-agent/.+-(build|triage)` (`AGENT_BRANCH`), and which links an
-    issue. Only these get review runs and only these can land. The agent posts
-    with the owner's token, so the author alone does not tell its pull requests
-    from the owner's own.
+    `backlog-agent/.+-\d+-(build|triage)` (`AGENT_BRANCH`), and which links an
+    issue. A build or triage branch ends in the issue number and its kind, so a
+    dependency work branch for a package named `build` does not match. Only
+    these get review runs and only these can land. The agent posts with the
+    owner's token, so the author alone does not tell its pull requests from the
+    owner's own.
   - **Feedback.** Text on a pull request that does not start with the agent's
     marker, once leading whitespace is stripped, and is one of two things. By
     the owner: a conversation comment, a review body or a review thread comment.
@@ -386,7 +388,9 @@ whether work is moving.
     other person, a bot's conversation comments and review bodies, and a bot's
     replies inside a thread. Every comment and thread reply a child posts on a
     pull request starts with the marker, so the agent's own text is never
-    feedback.
+    feedback. The one exception is a `@dependabot` command on a Dependabot pull
+    request, which stays the bare command: feedback is read only on an agent
+    pull request.
   - **When.** A review run is due when the pull request has no review entry,
     when its entry failed, when its head commit is not the one the entry
     records, when feedback is newer than the entry's start, or when its required
@@ -405,8 +409,8 @@ whether work is moving.
     The entry's attempts count them, and the task carries `round`, the attempts
     plus one. After the third, another starts only when feedback by the owner is
     newer than the entry's finish.
-  - **Order.** `plan` puts the one review task after dependency work and before
-    build and triage runs, under the same caps. The task is
+  - **Order.** `plan` puts the one review run after dependency work and before
+    build and triage runs, under the same caps. Its task is
     `{"key": "o/r#12:review", "kind": "review", "repo": "o/r", "pr": 12, "head": "<head commit>", "round": 1}`.
   - **What the child does.** It reads the pull request through a filter that
     keeps exactly the feedback, each item marked as the owner's or a bot's. The
@@ -414,13 +418,15 @@ whether work is moving.
     comment that objects to or questions the change means no-land. A bot's text
     is a bug report to check against the code. The child replies to every
     thread, resolves a bot's thread, and never resolves a thread the owner
-    started. It then follows the converge-review skill with the approved plan as
-    the spec, inside a time budget after which no further round starts. The
+    started. The spec is the approved plan on a branch that ends in `-build`,
+    and the comment the triage run posted with its diagnosis on a branch that
+    ends in `-triage`. The child then follows the converge-review skill with
+    that spec, inside a time budget after which no further round starts. The
     subagents that skill dispatches, and the one that applies the rubric, are
     the only ones a child may start.
   - **Verdict.** The verdict is no-land with `not_converged` unless the converge
     review converged. Otherwise one fresh, report-only subagent applies the
-    rubric in `CHILD.md` to the final patch and the plan: land only when every
+    rubric in `CHILD.md` to the final patch and that spec: land only when every
     part of the change fits a safe class, no-land when unsure. The safe classes
     are narrow, so bug fixes with a failing test, refactors, tests and docs are
     what lands, and most feature work still waits for the owner. The child posts
@@ -456,10 +462,10 @@ whether work is moving.
   | 3   | it is open                                                                               | `not open`                    |
   | 4   | its base is the repo's default branch                                                    | `base not the default branch` |
   | 5   | it is not a draft and has neither the `agent:hold` nor the `agent:blocked` label         | `held by the owner`           |
-  | 6   | every linked issue is open in the snapshot and written by the owner                      | `issue not the owner's`       |
-  | 7   | every linked issue has a card in In Review                                               | `card <status>`               |
+  | 6   | every linked issue is open in the snapshot, written by the owner and not filed by a scan | `issue not the owner's`       |
+  | 7   | every linked issue has a card in In Review and no card in another open status            | `card <status>`               |
   | 8   | no other open agent pull request shares a linked issue                                   | `split across pull requests`  |
-  | 9   | GitHub's `mergeStateStatus` is `CLEAN` or `HAS_HOOKS`                                    | `merge state <state>`         |
+  | 9   | GitHub's `mergeStateStatus` is `CLEAN`                                                   | `merge state <state>`         |
   | 10  | its required checks are green                                                            | `checks <state>`              |
   | 11  | the repo's default branch is green                                                       | `default branch <state>`      |
   | 12  | no thread of feedback is unresolved and no feedback is newer than the review run's start | `open feedback`               |
@@ -467,7 +473,7 @@ whether work is moving.
   | 14  | no changed file is on a protected path                                                   | `protected path <path>`       |
   | 15  | no landed pull request of the repo is marked reverted                                    | `paused after a revert`       |
   | 16  | the repo has the land topic and is not a repo that never lands                           | `shadow`                      |
-  | 17  | the gate has not already offered this head commit for a merge                            | `merge not made`              |
+  | 17  | the gate has neither offered this head commit for a merge nor tried to merge it          | `merge not made`              |
   | 18  | fewer than 3 landings were made today, those this plan offers included                   | `daily limit`                 |
   | 19  | 24 hours have passed since the review entry finished                                     | `lands <iso time>`            |
 
@@ -477,12 +483,18 @@ whether work is moving.
   as `checks none`. `CLEAN` means every check passed, required or not, so one
   red job holds the pull request. Rule 4 holds a pull request whose base is
   missing or is another branch: a review run judged it against that base, while
-  rule 11 and the pause after a revert read the default branch. Rule 8 means a
-  change split across several open pull requests waits for the owner. Rule 12
-  also holds a pull request with feedback the read could not hold in one page:
-  more than 100 conversation comments, reviews or review threads, or a thread
-  with more than 100 comments. Such feedback counts as unresolved, and it is not
-  paged.
+  rule 11 and the pause after a revert read the default branch. Rule 6 does not
+  count an issue a scan filed as the owner's: an issue whose body starts with
+  the marker holds the pull request. Rule 7 reads every card of a linked issue,
+  since an issue can have two cards until `apply` drops one. The pull request is
+  held when the issue has no card in In Review, and when any of its cards is in
+  an open status other than In Review. `<status>` is the status of the card that
+  holds it. Rule 8 means a change split across several open pull requests waits
+  for the owner. Rule 12 also holds a pull request with feedback the read could
+  not hold in one page: more than 100 conversation comments, reviews or review
+  threads, or a thread with more than 100 comments. Such feedback counts as
+  unresolved, and it is not paged. Rule 17 holds a head commit the entry records
+  as `offered` or as `tried`.
 
   - **Constants.** `REVIEW_ROUNDS` is 3, `REVIEW_QUIET` 30 minutes, `LAND_DELAY`
     24 hours, `LAND_MAX_FILES` 10, `LAND_MAX_LINES` 300, `LAND_DAILY_CAP` 3 and
@@ -499,18 +511,20 @@ whether work is moving.
     the review itself.
   - **Protected paths.** A path is protected when any of its directories or its
     file name is one of these. CI and merge gating: `.github/`,
-    `.gitlab-ci.yml`, `.pre-commit-config.yaml`, `CODEOWNERS`. Agent
-    instructions: `.claude/`, `.agents/`, `.cursor*`, `.mcp.json`, `CLAUDE.md`,
-    `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`, `SKILL.md`. Build, dependency
-    and check config: `pyproject.toml`, `setup.py`, `setup.cfg`,
-    `requirements*.txt`, `tox.ini`, `noxfile.py`, `pytest.ini`, `conftest.py`,
-    `.coveragerc`, `codecov.y*ml`, `package.json`, `tsconfig*.json`,
-    `jest.config.*`, `vitest.config.*`, `playwright.config.*`, `Cargo.toml`,
-    `go.mod`, `go.sum`, any `*.lock`, `package-lock.json`, `pnpm-lock.yaml`,
-    `*.nix`, `Makefile`, `justfile`, `Dockerfile*`, `*compose*.y*ml`,
-    `ruff.toml`, `.ruff.toml`, `mypy.ini`, `biome.json*`, `eslint.config.*`,
-    `.eslintrc*`. Scripts and secrets: `scripts/`, `*.sh`, `.env*`. A renamed
-    file counts under both its names.
+    `.gitlab-ci.yml`, `.circleci/`, `.pre-commit-config.yaml`, `.husky/`,
+    `CODEOWNERS`. Agent instructions: `.claude/`, `.agents/`, `.cursor*`,
+    `.mcp.json`, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`,
+    `SKILL.md`. Build, dependency and check config: `pyproject.toml`,
+    `setup.py`, `setup.cfg`, `requirements*.txt`, `requirements/`, `Pipfile`,
+    `tox.ini`, `noxfile.py`, `pytest.ini`, `conftest.py`, `.coveragerc`,
+    `codecov.y*ml`, `package.json`, `.npmrc`, `tsconfig*.json`, `jest.config.*`,
+    `vitest.config.*`, `playwright.config.*`, `Cargo.toml`, `go.mod`, `go.sum`,
+    any `*.lock`, `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`,
+    `bun.lockb`, `.gitmodules`, `*.nix`, `Makefile`, `justfile`,
+    `Taskfile.y*ml`, `Dockerfile*`, `*compose*.y*ml`, `ruff.toml`, `.ruff.toml`,
+    `mypy.ini`, `biome.json*`, `eslint.config.*`, `.eslintrc*`. Scripts and
+    secrets: `scripts/`, `bin/`, `*.sh`, `.env*`. A renamed file counts under
+    both its names.
   - **Plan output.** `plan` walks the review entries with status `land`, oldest
     verdict first. `lands` lists the pull requests to merge now, as
     `{"key", "repo", "pr", "head"}`, and `plan` stores each one's head on its
@@ -532,20 +546,22 @@ whether work is moving.
     that moved and a new revert all hold the pull request. A revert found here
     is marked in the ledger, so the pause lasts. Only the linked issues and the
     other open pull requests still come from the plan's snapshot. When one of
-    these reads fails, the command merges nothing for that pull request and
-    reports it as refused with the error's last line. When the gate now holds
-    it, the command reports it as refused with that reason. Both leave `offered`
-    cleared, so the next plan decides again. Otherwise it runs
+    these reads fails, whatever the error, the command merges nothing for that
+    pull request, reports it as refused with the error's last line and goes on
+    to the next one. When the gate now holds it, the command reports it as
+    refused with that reason. Both leave `offered` cleared, so the next plan
+    decides again. Otherwise it stores the head on the entry as `tried`, runs
     `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` once,
     with no retry, and reads the pull request once more. When the pull request
     is merged and its head is the verdict's head, the command records the
-    landing. When that read fails and the merge command exited 0, it records the
-    landing with no merge commit, so the daily limit and the pause still count
-    it. Anything but a confirmed merge is reported as refused with the error's
-    last line, and `offered` stays the head, so rule 17 holds the pull request
-    until it has a new head. A `land` command that never ran leaves `offered`
-    set, so rule 17 holds the pull request then too. The command saves the
-    ledger after each pull request and prints
+    landing. When that read fails, whatever the error, and the merge command
+    exited 0, it records the landing with no merge commit, so the daily limit
+    and the pause still count it. Anything but a confirmed merge is reported as
+    refused with the error's last line, and `tried` stays the head, so rule 17
+    holds the pull request until it has a new head, also when `land` runs again
+    with the same plan. A `land` command that never ran leaves `offered` set, so
+    rule 17 holds the pull request then too. The command saves the ledger after
+    each pull request and prints
     `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
   - **Why not auto-merge.** `gh pr merge --auto` merges at once when nothing
     required is pending, and an armed auto-merge survives later pushes, so it
@@ -558,18 +574,20 @@ whether work is moving.
     entry is kept while `reverted` is true. Any other entry is dropped once it
     is older than 60 days.
   - **Pause after a revert.** `collect` reads the default branch's commits,
-    every page of them, since the repo's oldest landing whose `reverted` is not
-    true. A landed pull request counts as reverted when a commit message holds
+    every page of them, since the repo's oldest landing that has no `reverted`
+    value, and `land` reads them the same way. A landing marked reverted, and
+    one whose pause the owner lifted, is not scanned again. A landed pull
+    request counts as reverted when a commit message holds
     `This reverts commit <its merge sha>`, or when a commit's pull request
     branch starts with `revert-<its number>-`. For a landing recorded with no
     merge commit, the scan reads the merge commit from the merged pull request
     and writes nothing to the ledger. The message is matched only when a merge
     commit is known. The repo then lands nothing. The owner lifts the pause by
-    taking the topic off for one run and putting it back: when a repo with a
-    reverted landing no longer has the land topic, `plan` sets that landing's
-    `reverted` to false. The landing stays in the ledger and still counts toward
-    the daily limit of its day, and the same revert does not pause the repo
-    again.
+    taking the topic off for one run and putting it back: when `plan` sees a
+    repo with a reverted landing in the snapshot without the land topic, it sets
+    that landing's `reverted` to false. A repo that is missing from the snapshot
+    keeps its pause. The landing stays in the ledger and still counts toward the
+    daily limit of its day, and the same revert does not pause the repo again.
   - **Stopping a landing.** The owner stops one pull request with the
     `agent:hold` label, a draft, a close, a card moved out of In Review, or a
     review thread left unresolved, since a child never resolves a thread the
@@ -658,11 +676,12 @@ whether work is moving.
     and `lands` and `greenlit` name what it decided
 - **Seam 2, the CLI round trip.** Like `CliTest`: `plan` claims a triage task,
   `start` records it, and `finish` with each triage outcome produces the card
-  move the table above names. A review task makes the same round trip with
-  `land` and `no-land`, and a `land` whose note does not start with `clean ` and
-  a commit id is stored as `no-land`. The `land` command is tested here with
-  `gh` faked: a head that moved after the plan is refused, a failed merge is not
-  offered again, and a `land` that never ran leaves the pull request held.
+  move the table above names. A review run makes the same round trip with `land`
+  and `no-land`, and a `land` whose note does not start with `clean ` and a
+  commit id is stored as `no-land`. The `land` command is tested here with `gh`
+  faked: a head that moved after the plan is refused, a failed merge is not
+  tried again by the next plan or by a second `land` with the same plan, and a
+  `land` that never ran leaves the pull request held.
 - **Seam 3, pull request reads with `gh` faked.** `gh` is faked at
   `subprocess.run`, as `GhRateLimitTest` does, to test what `collect` reads for
   an agent pull request: feedback by the owner, a bot opening a thread, a bot's
@@ -692,7 +711,7 @@ whether work is moving.
 - Scanning forks, and writing on repos outside the scope.
 - A trained risk score and its percentiles: they need a population of diffs the
   owner's repos don't have.
-- A second GitHub identity, or an approving review as the green light: GitHub
+- A second GitHub identity, or an approving review as the verdict: GitHub
   refuses an approval from a pull request's author, and the agent posts with the
   owner's token.
 - A verdict from another model family.

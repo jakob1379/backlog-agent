@@ -157,16 +157,18 @@ Run it with
 the board, the repo's land topic, the default branch's checks and its reverts,
 and the PR itself. It runs the land gate on those fresh reads and merges only
 what still passes, pinned to the head commit the verdict names. A read that
-fails refuses that PR and merges nothing. `plan` offers one PR per repo each
-run, so the next one is judged against the default branch the first merge made.
-It prints `landed` and `refused`: keep both for step 5.
+fails, whatever the error, refuses that PR alone and merges nothing for it.
+`plan` offers one PR per repo each run, so the next one is judged against the
+default branch the first merge made. It prints `landed` and `refused`: keep both
+for step 5.
 
 When the permission gate refuses the command or it fails, put its last line
 under **Needs you** and do nothing else about it. Never merge a PR any other
 way, never run `gh pr merge` yourself, and never edit the plan file: the `land`
 command is the only merge that runs the land gate first. The gate holds a PR
-that was offered and not merged until it has a new head, so the owner merges it
-or pushes to it.
+whose merge was tried and not made, or whose `land` command never ran, until it
+has a new head, so the owner merges it or pushes to it. A second `land` with the
+same plan does not try that head again.
 
 ## 3. Dispatch, one child at a time
 

@@ -1,11 +1,11 @@
 # A land gate in `backlog.py` merges what a review run clears
 
 A pull request the agent opened for a backlog issue now gets review runs. A
-review run answers the review comments, runs the converge review, pushes its
-fixes and ends with a verdict: land or no-land. The verdict is one input. The
-land gate, a rule in `plan`, decides, and `backlog.py land` makes the merge,
-pinned to the commit the verdict names. A child never merges and never turns on
-auto-merge. Everything the gate does not clear waits for the owner as before.
+review run answers the feedback, runs the converge review, pushes its fixes and
+ends with a verdict: land or no-land. The verdict is one input. The land gate, a
+rule in `plan`, decides, and `backlog.py land` makes the merge, pinned to the
+commit the verdict names. A child never merges and never turns on auto-merge.
+Everything the gate does not clear waits for the owner as before.
 
 The model is Meta's RADAR (arXiv 2605.30208) and PyTorch's GreenLight
 (`pytorch/test-infra`, read at `a1a8f07`). We took what carries over to one
@@ -23,8 +23,8 @@ population of diffs: a trained risk score and its percentiles.
   request. Its rubric and its safety rules are what carry over, so the verdict
   rubric in `CHILD.md` follows its shape: land or no-land with one reason, land
   only when every part of the change fits a safe class, no-land when unsure.
-- **An approving review as the green light.** GitHub refuses an approval from a
-  pull request's author, and the agent posts with the owner's token. A second
+- **An approving review as the verdict.** GitHub refuses an approval from a pull
+  request's author, and the agent posts with the owner's token. A second
   identity would add an account or an app to keep. The verdict lives in the
   ledger instead. A label or a comment on the pull request only shows it and is
   never read to decide, since anything with write access could forge one.
@@ -32,9 +32,9 @@ population of diffs: a trained risk score and its percentiles.
   required is pending, and an armed auto-merge survives the agent's own later
   pushes, so it can merge a head no verdict covers. The gate merges directly
   with `--match-head-commit`.
-- **The review child merging.** The child reads review comments, which are other
-  people's text, and holds the owner's token. Following ADR 0002, it returns a
-  result and code makes the write.
+- **The review child merging.** The child reads feedback, some of it a bot's
+  text, and holds the owner's token. Following ADR 0002, it returns a result and
+  code makes the write.
 - **A verdict from another model family.** The converge review asks for one, and
   T3 offers Gemini models. No child has run there, so this waits until one has.
 - **A track record before the first merge.** RADAR asks a source for a clean
@@ -70,8 +70,8 @@ population of diffs: a trained risk score and its percentiles.
   account. The run report is where a pending merge shows.
 - `backlog.py` now writes to GitHub: the one merge command. The auto mode
   classifier may refuse it as it has refused a child's immediate merge. A merge
-  that was offered and not made is not offered again for that head, so the pull
-  request waits for the owner.
+  that was offered or tried and not made is not tried again for that head, so
+  the pull request waits for the owner.
 - The agent's own repo, nix-config and converge-review never land, whatever
   their topics: they hold the agent's rules, the skills and profiles that run
   with the sandbox off, and the review itself. The dispatcher and the steward
