@@ -511,7 +511,7 @@ answered and the fixes still pushed.
        threads: [.reviewThreads.nodes[] | .comments.nodes as $c
          | {id, isResolved, isOutdated, path, line,
             started: (if ($c[0] | owner) then "owner" elif ($c[0] | bot) then "bot" else "other" end),
-            answered: (($c[-1] | agent) and ([$c[] | select(owner) | stamp] | max) <= $c[-1].createdAt),
+            answered: (($c[-1] | agent) and ([$c[] | select(owner) | stamp] | max) <= ($c[-1] | stamp)),
             comments: [($c[0] | select(owner or bot)), ($c[1:][] | select(owner)) | {by: (if owner then "owner" else "bot" end), at: (if owner then stamp else .createdAt end), body}]}
          | select(.comments | length > 0)]
      }'
@@ -547,9 +547,10 @@ answered and the fixes still pushed.
    `## Plan` heading. On a branch that ends in `-triage`, it is the comment the
    triage run posted with its diagnosis and this PR's URL. Save the specs of all
    linked issues to one file under `$TMPDIR`: together they are the spec. If a
-   linked issue has neither, the verdict is no-land `unclear_intent`. A request
-   from the owner that goes beyond the spec is never built: answer that it needs
-   a new plan, and the verdict is no-land `off_plan`.
+   linked issue has neither, or the PR links no issue, the verdict is no-land
+   `unclear_intent`. A request from the owner that goes beyond the spec is never
+   built: answer that it needs a new plan, and the verdict is no-land
+   `off_plan`.
 4. **Answer the feedback.** For each item whose `answered` is false, decide one
    of three: fix it, reject it with a reason, or name what would settle it. Fix
    a real one on the PR's branch with the smallest change, and for a bug write
