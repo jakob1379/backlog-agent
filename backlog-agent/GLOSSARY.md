@@ -52,7 +52,10 @@ take the pull request from there. _Avoid_: implementation task, fix run
 
 **Top-up**: Triaging the best untriaged backlog issues, on the agent's own
 initiative, while nothing waits for approval or building, until three plans wait
-for approval. _Avoid_: suggestions, auto-triage
+for approval. The card of a bug it picks never goes straight to In Review. The
+one exception is a finding in a repo with the land topic while the findings
+record is earned, which is checked when the run starts and again when it ends.
+_Avoid_: suggestions, auto-triage
 
 **Trusted author**: The owner. Only issues and comments written by a trusted
 author can start or steer a run. On an agent pull request the owner is trusted
@@ -84,10 +87,15 @@ scanned. _Avoid_: audit, review, quality run
 
 **Finding**: One problem a scan found, with an id that survives edits to the
 code. A scan files its worst findings as backlog issues, and no id is filed
-twice. A filed finding starts with the agent's marker, so it never counts as an
-issue the owner wrote: it waits in Backlog for the top-up or for the owner. At
-most three wait at a time; one stops counting when its issue closes or its card
-is Canceled. _Avoid_: proposal, suggestion, scan issue
+twice. A filed finding starts with the agent's marker, so it never takes the
+path of a new issue the owner wrote: it waits in Backlog for the top-up or for
+the owner. Its pull request lands only after an act by the owner on its card
+(approving its plan, asking for its triage by moving the card to Needs triage,
+or moving the card into In Review), or when a top-up triage run fixed it while
+the findings record was earned and it still is. The act counts only while it is
+the owner's newest move of the card, and no one else and no top-up has moved the
+card since. At most three wait at a time; one stops counting when its issue
+closes or its card is Canceled. _Avoid_: proposal, suggestion, scan issue
 
 **Scan skills**: The skills a scan builds from the owner's nix-config
 (`nix build github:jakob1379/nix-config#agent-skills --refresh`, which takes
@@ -145,6 +153,14 @@ leaves the pull request to the owner. _Avoid_: auto-merge, merge gate, risk gate
 **Landing**: The merge `backlog.py land` makes of a pull request the land gate
 cleared, pinned to the commit the verdict names. To land is to be merged this
 way: a merge the owner makes is not a landing. _Avoid_: auto-merge, ship, deploy
+
+**Findings record**: The number of landings of a finding's pull request in the
+last 60 days, counted across all repos. A revert of any landing the gate made
+resets it: only landings made after the revert was seen count. It is earned at
+five. While it is earned, a top-up triage run may fix a finding in a repo with
+the land topic, and that fix can land with no act by the owner. One revert takes
+it away, also for a run that has not finished and for a fix that waits to land.
+_Avoid_: track record, trust score, streak
 
 **Hold**: The owner's `agent:hold` label on a pull request. While it is there,
 no review run starts and the pull request does not land. A draft pull request

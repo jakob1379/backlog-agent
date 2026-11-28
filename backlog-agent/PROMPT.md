@@ -214,7 +214,7 @@ step 1, a failed start, a non-empty `dispatch`, `card_ops`, `resolved`,
 a failed `apply`, a `not read` line from `collect`, a non-empty `landed` or
 `refused` from the `land` command, a `land` command that was refused or failed,
 a `greenlit` entry whose `new` is true, or a self-change commit (step 6). In
-that case, after the steward has finished, reply with at most 12 lines, each
+that case, after the steward has finished, reply with at most 13 lines, each
 linking to its PR or repo:
 
 - **Started**: the keys from `dispatch`, each with the status its child finished
@@ -229,6 +229,10 @@ linking to its PR or repo:
   each pending landing and each reason shows once without any other news. `plan`
   ran before this run's children, so add each review that finished `land` this
   run with the words `the next run's land gate decides`.
+- **Findings record**: when the plan's `findings.record` is above 0,
+  `<findings.record> of <findings.needed>`. At the full count a top-up triage
+  run may fix a finding in a repo with the land topic with no act by the owner.
+  A revert of any landing resets the count.
 - **Cards**: the `applied` ops, each as the card's identifier (from the
   snapshot's `board.cards`, matched on `id`; a `create` prints its new one), its
   new status, and the issue or pull request it links to.
@@ -343,12 +347,17 @@ result shows one of its rules is wrong. The steward follows these rules too:
   `CHILD.md` (no `--admin`, no alert dismissal, no settings changes, sandbox
   stays on except for `nix` checks and the three kinds of command a scan may
   run). Those changes need the owner.
-- Never loosen the land gate in `backlog.py` (`land_block`, `PROTECTED`,
-  `AGENT_BRANCH`, `NEVER_LAND_REPOS`, the `LAND_*` and `REVIEW_*` constants, the
-  feedback rule, the `land` command), and never loosen the verdict rubric or the
-  `review` section's rules in `CHILD.md`. A `why` that keeps a PR from landing
-  is the gate working, not a rule that is wrong. A change that would let more
-  land needs the owner: put it under **Needs you**.
+- Never loosen the land gate (`land_block`, `sponsor`, `scan_filed`,
+  `PROTECTED`, `AGENT_BRANCH`, `NEVER_LAND_REPOS`, the `LAND_*` and `REVIEW_*`
+  constants, the feedback rule and the `land` command in `backlog.py`, and
+  `history_cut`, the `actor` mapping and the one-owner check in `linear.py`).
+  Never loosen the findings record either (`FINDING_RECORD`, `finding_record`,
+  `reset_findings`, the top-up's unlock in `backlog_work`, and the rule that a
+  `fix-pending` with origin `finding` reaches In Review only while the ref is
+  unlocked). And never loosen the verdict rubric or the `review` section's rules
+  in `CHILD.md`. A `why` that keeps a PR from landing is the gate working, not a
+  rule that is wrong. A change that would let more land needs the owner: put it
+  under **Needs you**.
 
 ## Wake-ups
 

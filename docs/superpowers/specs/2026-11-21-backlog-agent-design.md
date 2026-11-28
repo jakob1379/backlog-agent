@@ -75,6 +75,7 @@ whether work is moving.
     approval.
 13. As the owner, I want a bug the top-up found to get a plan and wait for my
     approval, so that the agent never opens pull requests I didn't ask for.
+    Story 63 is the one exception.
 14. As the owner, I want a feature to come back as a plan for one slice, saying
     which files it touches, what's out of scope and which recorded decisions it
     conflicts with, so that I can approve a small, clear piece.
@@ -206,6 +207,11 @@ whether work is moving.
 62. As the owner, I want a review run never to merge and never to turn on
     auto-merge, so that the child that reads feedback is never the one that
     merges.
+63. As the owner, I want a pull request for a finding to land only after I acted
+    on its card, until five findings have landed in 60 days, all after the last
+    revert of any landing, and from then on a top-up triage run to fix a finding
+    in a repo with the land topic without waiting for me, so that the agent
+    earns that step from its record and loses it on one revert.
 
 ## Implementation Decisions
 
@@ -219,8 +225,9 @@ whether work is moving.
   `collect` applies this one rule to both kinds of work.
 - **Scans.** A `scan` task (key `<repo>:scan`) reviews one repo's default branch
   with the `aggregate-code-quality-report` skill and files findings as GitHub
-  issues, so they reach the board, the top-up and the approval gate like any
-  backlog issue (ADR 0003).
+  issues, so they reach the board and the top-up like any backlog issue (ADR
+  0003). A finding's fix lands only after an act by the owner, or on the
+  findings record below.
   - **When.** `plan` offers a scan when the repo is not a fork, its default
     branch head differs from the one last scanned and the last scan started at
     least 7 days ago. Order: a scan being retried, then repos never scanned,
@@ -242,6 +249,25 @@ whether work is moving.
     that forgot the marker; `plan` remembers those issues in the ledger
     (`found`) while they are open. Such an issue never takes the new-owner-issue
     path.
+  - **Findings record.** `finding_record` counts the landings in the ledger that
+    are marked as a finding's, have a merge commit, were made in the last 60
+    days (`LAND_RECORD`) and were made after the ledger's `findings_since`,
+    across all repos. A landing is marked as a finding's when the pull request
+    closes a finding in its own repo; naming a finding in another repo does not
+    mark it. `findings_since` is the time a revert of any landing was last
+    marked in the ledger, so a revert resets the record: only findings that land
+    after the revert was seen count. `findings_since` never moves earlier, and
+    is never earlier than the newest landing in the ledger, so a clock that was
+    wrong cannot keep the record. Lifting a repo's pause does not bring the
+    record back, and neither does a reverted landing that leaves the ledger. The
+    record is earned at 5 (`FINDING_RECORD`). While it is earned, the top-up
+    starts the triage run of a finding with the origin `finding`, in a repo that
+    has the land topic and is not a repo that never lands, and that run may fix
+    a bug as a run the owner asked for may. `plan` checks the record, the land
+    topic and that the issue is a finding again each time it queues that run and
+    when it reads the run's result (see Bugs and the origin of a run). An issue
+    the owner wrote is still started with the origin `topup`, whatever the
+    record. `plan` prints the record as `findings`.
   - **Outcomes.** A failed scan is retried once. A scan that ends blocked, or
     fails twice, keeps a card in Needs info, like blocked dependency work and
     with its `kind: dependency` label, and the repo is not scanned while the
@@ -336,9 +362,24 @@ whether work is moving.
   read, because those are where someone else's text could ride along. The
   agent's own comments on a pull request start with its marker, so they never
   count as the owner's.
-- **Bugs and the origin of a run.** `plan` records whether the owner or the
-  top-up put a card in Needs triage. A triage run started by the owner may open
-  a fix pull request for a bug. One started by the top-up must end with a plan.
+- **Bugs and the origin of a run.** `plan` records the origin of each triage run
+  in the ledger (`origins`). It is `owner` when the owner moved the card to
+  Needs triage or wrote the new issue, `topup` when the top-up picked the issue,
+  and `finding` when the top-up picked a finding in a repo with the land topic
+  while the findings record is earned (see Scans). The owner's move to Needs
+  triage makes it `owner`. A retried run, a run for a card still in Needs triage
+  and a triage started again after a reply keep the stored origin, with one
+  exception. A stored `finding` is queued as `finding` only while the record is
+  still earned, the repo still has the land topic and the issue is still a
+  finding. Otherwise the run is queued as `topup`. A triage run with the origin
+  `owner` or `finding` may open a fix pull request for a bug. With `owner` its
+  `fix-pending` moves the card to In Review. With `finding` it does so only
+  while those three conditions hold when `plan` reads the result. Otherwise the
+  card goes to Needs approval, like a top-up result. With the origin `topup` the
+  child is told to post a plan and open no pull request. That is an instruction
+  to the child, not a code guarantee. What code enforces is that `plan` turns
+  such a run's `fix-pending` into Needs approval, so the card does not reach In
+  Review through it.
 - **Task kinds and keys.** Two new ledger task kinds join the four from
   dependency work: `owner/repo#<issue>:triage` and `owner/repo#<issue>:build`.
   They use the same `start`, `finish`, lockfile, retry and daily-cap rules. In
@@ -465,7 +506,7 @@ whether work is moving.
   | 3   | it is open                                                                                                | `not open`                                                    |
   | 4   | its base is the repo's default branch                                                                     | `base not the default branch`                                 |
   | 5   | it is not a draft and has neither the `agent:hold` nor the `agent:blocked` label                          | `held by the owner`                                           |
-  | 6   | every linked issue is open in the snapshot, written by the owner and not filed by a scan                  | `issue not the owner's`                                       |
+  | 6   | every linked issue is open in the snapshot, written by the owner's account and, if a finding, acted on    | `issue not the owner's`                                       |
   | 7   | every linked issue has a card in In Review and no card in another open status                             | `card <status>`                                               |
   | 8   | no other open agent pull request shares a linked issue, and every repo's open pull requests were all read | `split across pull requests`, or `pull requests not all read` |
   | 9   | GitHub's `mergeStateStatus` is `CLEAN`                                                                    | `merge state <state>`                                         |
@@ -486,15 +527,39 @@ whether work is moving.
   as `checks none`. `CLEAN` means every check passed, required or not, so one
   red job holds the pull request. Rule 4 holds a pull request whose base is
   missing or is another branch: a review run judged it against that base, while
-  rule 11 and the pause after a revert read the default branch. Rule 6 does not
-  count an issue a scan filed as the owner's: an issue whose body starts with
-  the marker, or that the ledger lists as found by a scan, holds the pull
-  request. Rule 7 reads every card of a linked issue, before `plan` tidies the
-  board, since an issue can have two cards until `apply` drops one. The pull
-  request is held when the issue has no card in In Review, and when any of its
-  cards is in an open status other than In Review. `<status>` is the status of
-  the card that holds it. Rule 8 means a change split across several open pull
-  requests waits for the owner. It also holds every pull request, as
+  rule 11 and the pause after a revert read the default branch. Rule 6 counts a
+  finding, an issue a scan filed with the owner's account, like an issue the
+  owner wrote, on one more condition: an act by the owner in the history of a
+  card of that issue that is In Review. The owner's acts are three: approving
+  the plan, asking for the triage by moving the card to Needs triage, and moving
+  the card into In Review by hand. The gate reads them with `sponsor`, which
+  walks the card's history backwards from its newest move. The walk ends at the
+  first move by the owner: the owner acted when that move is to In Review,
+  Approved or Needs triage, and did not when it is to any other status. The walk
+  ends with no act at the first move by anyone who is neither the owner nor the
+  agent. It ends as the top-up's start at a move by the agent to Needs triage
+  from any status but Needs info, also when Linear names no status the card
+  left. Any other move by the agent is skipped. That covers a triage the owner
+  asked for and the agent started again after the owner's reply, since the
+  agent's move from Needs info to Needs triage is skipped. A history with no
+  move by the owner has no act. Neither has a history that Linear cut short: a
+  card whose `history_cut` is true or missing has no act. Without an act the
+  pull request is held as `issue not the owner's`. So a finding does not land
+  when anyone else put its card in In Review, nor when the owner's newest move
+  took the card somewhere else. The one exception is a finding whose triage run
+  the ledger records with the origin `finding`: it passes with no act by the
+  owner when the walk reaches the top-up's start and every move in the card's
+  history is the agent's, and only while the findings record is still earned
+  when the gate runs, in `plan` and again in `land`. So a card the owner pulled
+  back, or that anyone else moved, does not land on the record. A revert between
+  the fix and the landing therefore holds the pull request as
+  `issue not the owner's`. An issue the owner wrote needs no such act. Rule 7
+  reads every card of a linked issue, before `plan` tidies the board, since an
+  issue can have two cards until `apply` drops one. The pull request is held
+  when the issue has no card in In Review, and when any of its cards is in an
+  open status other than In Review. `<status>` is the status of the card that
+  holds it. Rule 8 means a change split across several open pull requests waits
+  for the owner. It also holds every pull request, as
   `pull requests not all read`, while a repo has more open pull requests than
   the 50 `collect` reads, since a sibling could be past the cut. Rule 12 also
   holds a pull request with feedback the read could not hold in one page: more
@@ -504,9 +569,10 @@ whether work is moving.
   `tried`.
 
   - **Constants.** `REVIEW_ROUNDS` is 3, `REVIEW_QUIET` 30 minutes, `LAND_DELAY`
-    24 hours, `LAND_MAX_FILES` 10, `LAND_MAX_LINES` 300, `LAND_DAILY_CAP` 3 and
-    `LAND_RECORD` 60 days. `LAND_TOPIC` is `backlog-agent-land` and `HOLD_LABEL`
-    is `agent:hold`. Lines are additions plus deletions.
+    24 hours, `LAND_MAX_FILES` 10, `LAND_MAX_LINES` 300, `LAND_DAILY_CAP` 3,
+    `LAND_RECORD` 60 days and `FINDING_RECORD` 5. `LAND_TOPIC` is
+    `backlog-agent-land` and `HOLD_LABEL` is `agent:hold`. Lines are additions
+    plus deletions.
   - **Shadow verdicts.** A repo lands only when it has the `backlog-agent-land`
     topic and is not in `NEVER_LAND_REPOS`. Without the topic every verdict is a
     shadow verdict: recorded in the ledger, shown in the run report and never
@@ -543,6 +609,8 @@ whether work is moving.
     `new` is true the first time the entry is held for that reason, and a run
     with a new one reports, so a pending landing and each reason it waits for
     show once. The run report shows both: what landed and what lands next.
+    `findings` is `{"record", "needed"}`: the findings record and the
+    `FINDING_RECORD` it takes to be earned, which the run report shows too.
   - **Landing.** After `apply`, the dispatcher runs
     `backlog.py land <candidates> <plan>` when `lands` is not empty. Under the
     ledger lock, and for each entry of `lands`, the command first checks that
@@ -552,42 +620,52 @@ whether work is moving.
     read. The command then clears the entry's `offered` and reads again what the
     gate reads: the board, the repo's topics and default branch, that branch's
     required checks, the reverts of the repo's landings, and last the pull
-    request. It runs the gate on those fresh reads, so a card the owner moved, a
-    land topic the owner removed, a default branch that moved and a new revert
-    all hold the pull request. A revert found here is marked in the ledger, so
-    the pause lasts. Only the linked issues and the other open pull requests
-    still come from the plan's snapshot. When one of these reads fails, or its
-    reply cannot be used, the command merges nothing for that pull request,
-    reports it as refused with the error's last line and goes on to the next
-    one. When the gate now holds it, the command reports it as refused with that
-    reason. Both leave `offered` cleared, so the next plan decides again.
-    Otherwise it stores the head on the entry as `tried`, records the landing
-    with no merge commit and saves the ledger, so a command cut off during the
-    merge still counts toward the daily limit and is not tried again. It then
-    runs `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>`
-    once, with no retry, and reads the pull request once more. When the pull
-    request is merged and its head is the verdict's head, the record gets the
-    merge commit. When that read fails, or its reply cannot be used, the outcome
-    is unknown whatever the merge command said, so the record stays with no
-    merge commit and the daily limit and the pause still count it. When the read
-    shows the pull request not merged, the record is removed. Anything but a
-    confirmed merge is reported as refused with the error's last line, and
-    `tried` stays the head, so rule 17 holds the pull request until it has a new
-    head. A `land` that runs again with the same plan is refused as
-    `not offered`, since the first run cleared the offer. A `land` command that
-    never ran leaves `offered` set, so rule 17 holds the pull request then too.
-    The command saves the ledger after each pull request and prints
+    request. When a linked issue has the origin `finding`, it also reads the
+    reverts of every other repo that has a landing with no `reverted` value,
+    since a revert of any landing resets the findings record. It runs the gate
+    on those fresh reads, so a card the owner moved, a land topic the owner
+    removed, a default branch that moved and a new revert all hold the pull
+    request. A revert found here is marked in the ledger, so the pause lasts,
+    and any revert found here sets `findings_since`. Only the linked issues and
+    the other open pull requests still come from the plan's snapshot. When one
+    of these reads fails, or its reply cannot be used, the command merges
+    nothing for that pull request, reports it as refused with the error's last
+    line and goes on to the next one. When the gate now holds it, the command
+    reports it as refused with that reason. Both leave `offered` cleared, so the
+    next plan decides again. Otherwise it stores the head on the entry as
+    `tried`, records the landing with no merge commit and saves the ledger, so a
+    command cut off during the merge still counts toward the daily limit and is
+    not tried again. It then runs
+    `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` once,
+    with no retry, and reads the pull request once more. When the pull request
+    is merged and its head is the verdict's head, the record gets the merge
+    commit. When that read fails, or its reply cannot be used, the outcome is
+    unknown whatever the merge command said, so the record stays with no merge
+    commit and the daily limit and the pause still count it. When the read shows
+    the pull request not merged, the record is removed. Anything but a confirmed
+    merge is reported as refused with the error's last line, and `tried` stays
+    the head, so rule 17 holds the pull request until it has a new head. A
+    `land` that runs again with the same plan is refused as `not offered`, since
+    the first run cleared the offer. A `land` command that never ran leaves
+    `offered` set, so rule 17 holds the pull request then too. The command saves
+    the ledger after each pull request and prints
     `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
   - **Why not auto-merge.** `gh pr merge --auto` merges at once when nothing
     required is pending, and an armed auto-merge survives later pushes, so it
     can merge a head no verdict covers. The gate merges directly, pinned to the
     verdict's head.
-  - **Ledger.** `landed` is a list of `{"repo", "pr", "head", "sha", "at"}`, one
-    per merge the gate made or was cut off making, where `sha` is the merge
-    commit, or `null` for a landing recorded with no merge commit. An entry gets
-    `"reverted": true` once a revert is seen, and `"reverted": false` once the
-    owner lifts the pause. An entry is kept while `reverted` is true. Any other
-    entry is dropped once it is older than 60 days.
+  - **Ledger.** `landed` is a list of
+    `{"repo", "pr", "head", "sha", "at", "finding"}`, one per merge the gate
+    made or was cut off making. `finding` is true when the pull request closes a
+    finding in its own repo, and the findings record is counted from these
+    entries. In each entry `sha` is the merge commit, or `null` for a landing
+    recorded with no merge commit. An entry gets `"reverted": true` once a
+    revert is seen, and `"reverted": false` once the owner lifts the pause. An
+    entry is kept while `reverted` is true. Any other entry is dropped once it
+    is older than 60 days. `findings_since` is an ISO time. `plan` and `land`
+    set it to the current time when they first mark a landing as reverted, never
+    to an earlier time than it holds, and the findings record counts only
+    landings made after it. Lifting a pause does not change it.
   - **Pause after a revert.** `collect` reads the default branch's commits,
     every page of them, since the repo's oldest landing that has no `reverted`
     value, and `land` reads them the same way. A landing marked reverted, and
@@ -614,8 +692,8 @@ whether work is moving.
     comments, since they share an account, so the run report is where a pending
     landing shows.
   - **Who may change it.** The dispatcher and the steward never loosen the land
-    gate or the verdict rubric. A change that would let more land is the
-    owner's.
+    gate, the findings record or the verdict rubric. A change that would let
+    more land is the owner's.
 
 - **Cards for pull requests and owner actions.** `plan` creates a card in In
   Review, with `kind: pr`, for every open pull request in an in-scope repo that
@@ -679,7 +757,10 @@ whether work is moving.
   - the top-up starts only when nothing waits and stops at three, in
     label-then-age order
   - untrusted authors start nothing
-  - a top-up bug can't go straight to a fix
+  - a top-up bug can't go straight to a fix, except a finding in a repo with the
+    land topic while the findings record is earned
+  - a finding's pull request is held without an act by the owner in its card's
+    history, and a revert takes the findings record away
   - one retry, then Needs info with `failed`
   - triage and build rank below all dependency work and share the caps
   - pull request cards open and close

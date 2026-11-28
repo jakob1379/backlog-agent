@@ -49,7 +49,7 @@ talking.
 **Plan output additions:**
 
 - `dispatch[]` items for backlog work:
-  `{key, kind: "triage"|"build", repo, issue, card, origin: "owner"|"topup", tier, attempt}`.
+  `{key, kind: "triage"|"build", repo, issue, card, origin: "owner"|"topup"|"finding", tier, attempt}`.
   Keys: `owner/repo#<n>:triage`, `owner/repo#<n>:build`. Tier 8 for build, 9 for
   triage (after add-CI's 7).
 - `card_ops[]`, applied in order by the Linear module:

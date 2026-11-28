@@ -3,8 +3,9 @@
 A scan files each finding as a GitHub issue whose body starts with
 `<!-- backlog-agent -->`. Everything after that is the existing path: the issue
 gets a card, waits in Backlog, and reaches a plan and the owner's approval
-through the top-up or the owner's own move. This is the first time the agent
-creates issues.
+through the top-up or the owner's own move. A finding's fix lands only after an
+act by the owner, or on the findings record (ADR 0004). This is the first time
+the agent creates issues.
 
 The marker is needed because children post with the owner's token, so GitHub
 shows the owner as the author. Without it, `plan` would send the issue straight

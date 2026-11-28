@@ -38,6 +38,7 @@ LAND_MAX_FILES = 10
 LAND_MAX_LINES = 300
 LAND_DAILY_CAP = 3
 LAND_RECORD = timedelta(days=60)
+FINDING_RECORD = 5
 HOLD_LABEL = "agent:hold"
 PROTECTED = <one compiled regex, see T3>
 ```
@@ -72,6 +73,9 @@ wrote them.
   reverts; `"default_branch": str|None`, the default branch's name;
   `"prs_cut": bool`, true when the repo has more open pull requests than the 50
   `collect` reads.
+- card: `"history_cut": bool`, true when Linear did not return the card's whole
+  `history`. `linear.py` asks `pageInfo { hasNextPage }` on a card's `history`
+  and `card()` returns the flag.
 - every other PR: `"head"` (head commit).
 - an agent pull request also gets everything `pr_detail` returns.
 
@@ -108,23 +112,51 @@ creation only. `collect` calls `pr_detail` for each agent pull request, and
   `offered`: the head it last put in `lands`. `land` clears `offered` and stores
   `tried`: the head it last ran the merge command for. Its `attempts` is the
   number of review runs the pull request has had.
-- `landed`: a list of `{"repo", "pr", "head", "sha", "at"}`, one per merge the
-  gate made or was cut off making, `sha` being the merge commit, or `None` for a
-  landing recorded with no merge commit, with `"reverted": true` once a revert
-  is seen. `plan` sets a reverted entry's `reverted` to false once the repo is
-  in the snapshot and its `land` is false, so taking the topic off for one run
-  and putting it back ends the pause. That entry still counts toward the daily
-  limit of its day, and the same revert does not pause the repo again. A repo
-  that is missing from the snapshot keeps its pause. An entry is kept while
-  `reverted` is true, and any other entry is dropped once it is older than
-  `LAND_RECORD`.
+- `landed`: a list of `{"repo", "pr", "head", "sha", "at", "finding"}`, one per
+  merge the gate made or was cut off making, `finding` being true when the pull
+  request closes a finding in its own repo (`linked_issues`), `sha` being the
+  merge commit, or `None` for a landing recorded with no merge commit, with
+  `"reverted": true` once a revert is seen. `plan` sets a reverted entry's
+  `reverted` to false once the repo is in the snapshot and its `land` is false,
+  so taking the topic off for one run and putting it back ends the pause. That
+  entry still counts toward the daily limit of its day, and the same revert does
+  not pause the repo again. A repo that is missing from the snapshot keeps its
+  pause. An entry is kept while `reverted` is true, and any other entry is
+  dropped once it is older than `LAND_RECORD`.
+- `findings_since`: an ISO time. `plan` (in `land_work`) and `land` set it to
+  now when they first mark any `landed` entry as `reverted`, through
+  `reset_findings`, which sets it to the latest of now, its old value and the
+  newest `at` in `landed`. Setting an entry's `reverted` to false does not
+  change it.
+- `finding_record(ledger, now) -> int` is the findings record: the number of
+  `landed` entries with `finding` true, a `sha` that is not empty, an `at`
+  within `LAND_RECORD` of `now` and an `at` later than `findings_since`, across
+  all repos. The times are compared as datetimes, and no `findings_since` means
+  no limit. It does not read the `reverted` key. So lifting a pause, or a
+  reverted landing leaving the ledger, does not bring the record back: only
+  findings that land after the revert was seen count. The record is earned when
+  it is at least `FINDING_RECORD`.
+- `origins["<repo>#<issue>"]` is the origin of the issue's triage run: `owner`,
+  `topup` or `finding`.
 
 **Task object**:
 `{"key": "o/r#12:review", "kind": "review", "repo": "o/r", "pr": 12, "head": "<head commit>", "round": 1}`.
-`round` is the entry's attempts plus one.
+`round` is the entry's attempts plus one. A triage task's `origin` is `owner`,
+`topup` or `finding`. In `backlog_work` one local function says whether a ref is
+unlocked now: the findings record is earned, the repo's snapshot record has
+`land` true and the issue is a finding (`scan_filed`). The top-up starts the
+triage run of an unlocked ref with `finding` in place of `topup`. An issue the
+owner wrote is still started with `topup`, whatever the record. The owner's move
+to Needs triage still makes the origin `owner`. A retry, a card still in Needs
+triage and a re-triage after a reply keep the stored origin, except that a
+stored `finding` is queued as `topup` when the ref is not unlocked. When a
+triage run ends `fix-pending`, `plan` moves the card to In Review for the origin
+`owner`, and for the origin `finding` only while the ref is unlocked at that
+moment. Any other `fix-pending` goes to Needs approval, as a `topup` run's does.
 
 **Plan output additions**:
 
+- `findings`: `{"record": <finding_record>, "needed": FINDING_RECORD}`.
 - `lands`: `[{"key", "repo", "pr", "head"}]`, the pull requests to merge now.
 - `greenlit`: `[{"key", "repo", "pr", "why", "new"}]`, every review entry with
   status `land` that is not in `lands`, with the first rule that holds it. `new`
@@ -147,7 +179,7 @@ returns the first reason the pull request may not land, in this order, or
 | 3   | `state` is `OPEN`                                                                                         | `not open`                                                    |
 | 4   | `base` is set and is the repo's `default_branch`                                                          | `base not the default branch`                                 |
 | 5   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label                                                    | `held by the owner`                                           |
-| 6   | every linked issue is open in the snapshot, written by the owner and not `by_agent`                       | `issue not the owner's`                                       |
+| 6   | every linked issue is open in the snapshot, its `author` is the owner and, if a finding, acted on         | `issue not the owner's`                                       |
 | 7   | every linked issue has a card in In Review and no card in another open status                             | `card <status>`                                               |
 | 8   | no other open agent pull request shares a linked issue, and every repo's open pull requests were all read | `split across pull requests`, or `pull requests not all read` |
 | 9   | `merge_state` is `CLEAN`                                                                                  | `merge state <state>`                                         |
@@ -165,14 +197,34 @@ returns the first reason the pull request may not land, in this order, or
 A missing value fails its rule: no board, no card and no `review` all hold the
 pull request. `<state>` and `<status>` print lower case, and `none` for a
 missing one. `CLEAN` means every check passed, required or not, so one red job
-holds the pull request. Rule 6 fails for an issue whose record has `by_agent`
-true or whose ref is in the ledger's `found`: a scan filed it, so it is not the
-owner's. Rule 7 reads every card of a linked issue, in `plan` and in `land`,
-with no tidy of the board first. It fails when the issue has no card in In
-Review, and when any of its cards has a status that is neither In Review nor in
-`CLOSED_STATUSES`. `<status>` is the status of the card that holds it. Rule 8
-also fails, as `pull requests not all read`, while any repo's `prs_cut` is true
-or missing.
+holds the pull request. Rule 6 counts a finding (`scan_filed`: `by_agent` true,
+or its ref in the ledger's `found`) like an issue the owner wrote, on one more
+condition: an act by the owner in the `history` of a card of that issue that is
+In Review. A card's `history` is a list of `{"from", "to", "actor", "at"}` in
+time order, `actor` being `owner`, `agent` or `other`. `sponsor(history)` reads
+the act by walking the history backwards from its newest move, and returns
+`owner`, `topup` or nothing. The walk ends at the first move by `owner`: the
+owner acted when that move is to In Review, Approved or Needs triage, and did
+not when it is to any other status. The walk ends with no act at the first move
+by `other`. It ends as `topup`, the top-up's start, at an `agent` move to Needs
+triage whose `from` is anything but Needs info, a missing `from` included. Any
+other `agent` move is skipped, so a triage the owner asked for still counts
+after the agent started it again on the owner's reply (an `agent` move from
+Needs info to Needs triage). A history with no `owner` move has no act. A card
+whose `history_cut` is true or missing has no act either. The ledger's origin
+`owner` is not read here. Without the act the pull request is held as
+`issue not the owner's`. The one exception is a finding whose
+`ledger["origins"][ref]` is `finding`: it passes with no act by the owner when
+`sponsor` gives `topup` for an In Review card of it, which needs every move in
+that card's history to be the agent's, and only while
+`finding_record(ledger, now)` is still at least `FINDING_RECORD`, in `plan` and
+in `land`, so a revert between the fix and the landing holds the pull request.
+An issue the owner wrote needs no such act. Rule 7 reads every card of a linked
+issue, in `plan` and in `land`, with no tidy of the board first. It fails when
+the issue has no card in In Review, and when any of its cards has a status that
+is neither In Review nor in `CLOSED_STATUSES`. `<status>` is the status of the
+card that holds it. Rule 8 also fails, as `pull requests not all read`, while
+any repo's `prs_cut` is true or missing.
 
 **CLI**: `finish` accepts `land` and `no-land`, and an optional
 `--task <task_id>`. For a review key whose entry is running, a `--task` value
@@ -285,15 +337,19 @@ then read again what the gate reads outside the pull request, on a copy of the
 repo's record: the board (`linear.board()`), the repo's topics and default
 branch (`repos/<repo>`) for `land` and `default_branch`, the default branch's
 required checks for `main`, and `reverted_prs` for the repo's landings that have
-no `reverted` value, marking the ones it returns as reverted in the ledger. Read
-the pull request last with `pr_detail`, and run `land_block` on the fresh
-records. The linked issues and the other open pull requests stay those of the
-snapshot. When a read fails or its reply cannot be used (the error kinds in
-`UNREAD`, or `SystemExit`), merge nothing for that pull request, report it as
-refused with the error's last line and go on to the next one. When the gate now
-holds it, report it as refused with that reason. Both leave `offered` cleared,
-so the next plan decides again. Otherwise store the head on the entry as
-`tried`, append to `landed` with no merge commit and save the ledger, then run
+no `reverted` value, marking the ones it returns as reverted in the ledger. When
+a linked issue of the pull request has the ledger origin `finding`, call
+`reverted_prs` the same way for every repo that has a `landed` entry with no
+`reverted` key, and mark what it returns. Marking an entry sets
+`findings_since`, as the ledger contract says. Read the pull request last with
+`pr_detail`, and run `land_block` on the fresh records. The linked issues and
+the other open pull requests stay those of the snapshot. When a read fails or
+its reply cannot be used (the error kinds in `UNREAD`, or `SystemExit`), merge
+nothing for that pull request, report it as refused with the error's last line
+and go on to the next one. When the gate now holds it, report it as refused with
+that reason. Both leave `offered` cleared, so the next plan decides again.
+Otherwise store the head on the entry as `tried`, append to `landed` with no
+merge commit and save the ledger, then run
 `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` as one
 plain `subprocess.run`, with no retry and no reading of its output, then read
 the pull request once more with `pr_node`, whose `mergeCommit` gives the merge
@@ -349,10 +405,14 @@ not empty. When the command is refused or fails, report it under **Needs you**
 and never merge any other way. A non-empty `landed` or `refused` is something to
 report. The report gains **Landed** and **Lands next**, the second listing the
 `greenlit` entries. Step 6 gains: never loosen the land gate (`land_block`,
-`PROTECTED`, `AGENT_BRANCH`, `NEVER_LAND_REPOS`, the `LAND_*` and `REVIEW_*`
-constants, the feedback rule, the `land` command) or the verdict rubric in
-`CHILD.md`; a change that would let more land goes under **Needs you**. The
-steward audits the new ADR and tickets.
+`sponsor`, `scan_filed`, `PROTECTED`, `AGENT_BRANCH`, `NEVER_LAND_REPOS`, the
+`LAND_*` and `REVIEW_*` constants, the feedback rule, the `land` command, and
+`history_cut`, the `actor` mapping and the one-owner check in `linear.py`), the
+findings record (`FINDING_RECORD`, `finding_record`, `reset_findings`, the
+top-up's unlock in `backlog_work`, and the rule that a `fix-pending` with origin
+`finding` reaches In Review only while the ref is unlocked) or the verdict
+rubric in `CHILD.md`; a change that would let more land goes under **Needs
+you**. The steward audits the new ADR and tickets.
 
 ### T6 docs: spec, glossary, README and its images
 

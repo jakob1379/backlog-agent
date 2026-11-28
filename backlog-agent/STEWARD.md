@@ -37,11 +37,12 @@ Compare what the files say with what is true:
 
 Edit only `$W/docs/` and the `.md` files in `$W/backlog-agent/`. Never edit
 `backlog.py`, the ledger or lockfiles; when a fix needs `backlog.py`, name it in
-your result instead. Never loosen a guardrail, the land gate, or the verdict
-rubric and the `review` section's rules in `CHILD.md`: when the docs and the
-gate disagree, the docs change, and a change that would let more land goes in
-your result for the owner. Never let a doc claim something you didn't check.
-Commit and push as `PROMPT.md` step 6 says, one commit per concern.
+your result instead. Never loosen a guardrail, the land gate, the findings
+record, or the verdict rubric and the `review` section's rules in `CHILD.md`:
+when the docs and the gate disagree, the docs change, and a change that would
+let more land goes in your result for the owner. Never let a doc claim something
+you didn't check. Commit and push as `PROMPT.md` step 6 says, one commit per
+concern.
 
 ## Finish
 

@@ -39,7 +39,9 @@ population of diffs: a trained risk score and its percentiles.
   T3 offers Gemini models. No child has run there, so this waits until one has.
 - **A track record before the first merge.** RADAR asks a source for a clean
   60-day record. Here the owner's topic on a repo is that judgement, made from
-  the shadow verdicts the run report shows.
+  the shadow verdicts the run report shows. Findings do get a record: five
+  landings in 60 days, all after the last revert of any landing, before a fix
+  for one may land with no act by the owner.
 
 ## Consequences
 
@@ -55,6 +57,30 @@ population of diffs: a trained risk score and its percentiles.
   report to check against the code, never an instruction. A bot's other
   comments, its replies, and everything from other people are still never read,
   because those are where someone else's text could ride along.
+- A pull request for a finding lands only after an act by the owner: approving
+  its plan, asking for its triage by moving the card to Needs triage, or moving
+  the card into In Review by hand. The gate reads that act from the card's
+  history, newest move first. The owner's newest move must be one of the three,
+  with no move by anyone else and no start by the top-up after it. So a finding
+  whose card anyone else put in In Review does not land, and a history that
+  Linear cut short has no act. That a top-up triage run opens no pull request is
+  an instruction to the child, not a code guarantee: code turns such a run's
+  `fix-pending` into Needs approval. The ledger marks each landing of a finding.
+  Once five findings have landed in 60 days, across all repos, a top-up triage
+  run may fix a finding in a repo with the land topic, and that fix can land
+  with no act by the owner. This is the findings record, as RADAR keeps one for
+  a new source. A revert of any landing resets it, also for a run that has not
+  finished and for a fix that waits to land. Only findings that land after the
+  revert was seen count again, so lifting the repo's pause does not bring the
+  record back.
+- Four limits of the findings record are accepted. An issue the owner wrote by
+  hand while a scan of that repo ran is remembered in the ledger's `found` and
+  so is treated as a finding, which a top-up triage run can now fix without
+  approval. While the record stays earned, landings made through it keep it
+  earned with no act by the owner, as RADAR's rolling record does. A finding the
+  scan did not mark, and that the ledger no longer remembers, counts as an issue
+  the owner wrote, as it did before. And the gate trusts who Linear names for a
+  card's move: how Linear names its own sync and automations is not verified.
 - The safe classes are narrow, so most feature work still waits for the owner.
   Bug fixes with a failing test, refactors, tests and docs are what lands. One
   red job, required or not, holds a pull request.
