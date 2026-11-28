@@ -1,8 +1,8 @@
 # Backlog agent
 
 An hourly agent that keeps the owner's GitHub repos clear of dependency and
-security work, moves the owner's own backlog through triage, approval and
-review, and scans the repos for work nobody filed.
+security work, moves the owner's own backlog through triage, approval, review
+and landing, and scans the repos for work nobody filed.
 
 ## Language
 
@@ -18,7 +18,8 @@ which makes it an in-scope repo.
 
 **Dependency work**: The agent's work on Dependabot PRs, security alerts, red
 default branches and minimal CI. It needs the owner only when it ends blocked or
-in review. _Avoid_: Phase 1, maintenance
+in review. Its pull requests get no review run and the land gate never merges
+them. _Avoid_: Phase 1, maintenance
 
 **Card**: One item on the owner's board in the tracker. It stands for a backlog
 issue, an open pull request with no issue behind it, or dependency work that
@@ -46,19 +47,24 @@ proposal, design
 else's move counts, and the agent never makes it. _Avoid_: sign-off, accept
 
 **Build run**: One agent run that implements an approved plan and opens one pull
-request per repo it touches. _Avoid_: implementation task, fix run
+request per repo it touches. It never merges one: review runs and the land gate
+take the pull request from there. _Avoid_: implementation task, fix run
 
 **Top-up**: Triaging the best untriaged backlog issues, on the agent's own
 initiative, while nothing waits for approval or building, until three plans wait
 for approval. _Avoid_: suggestions, auto-triage
 
 **Trusted author**: The owner. Only issues and comments written by a trusted
-author can start or steer a run.
+author can start or steer a run. On an agent pull request the owner is trusted
+anywhere: in a conversation comment, a review body or a review thread. A bot is
+not a trusted author. It counts in one place only, where it opens a review
+thread, and that text is read as a bug report, never as an instruction.
 
-**Owner action**: A card waiting on the owner: in Needs approval, Needs info or
-In Review. Dependency work that needs the owner, such as a blocked task or an
-alert to rule on, is an owner action too, and so is a scan that ended blocked.
-_Avoid_: needs you, blocked item, todo
+**Owner action**: A card waiting on the owner: in Needs approval, Needs info, or
+In Review with a pull request the land gate does not clear. Dependency work that
+needs the owner, such as a blocked task or an alert to rule on, is an owner
+action too, and so is a scan that ended blocked. _Avoid_: needs you, blocked
+item, todo
 
 **Phase**: Not a current term. Phases 0–2 were the rollout order; the agent's
 dependency work and backlog triage are now one ongoing job. _Avoid_: Phase 1,
@@ -95,3 +101,52 @@ downloads are whatever the machine has. _Avoid_: pinned skills
 stack with no profile, or a profile that needs a fix, it drafts one and opens a
 pull request on nix-config, so the skill improves through the owner's review.
 _Avoid_: proposal, draft issue
+
+## Review and landing
+
+**Agent pull request**: An open pull request the agent opened for a backlog
+issue. Its author is the owner, since the agent posts with the owner's token,
+its head branch is in the same repo and named `backlog-agent/…-build` or
+`backlog-agent/…-triage`, and it links an issue. Only these get review runs and
+only these can land. _Avoid_: bot pull request, automated pull request
+
+**Review run**: One agent run on an agent pull request: it answers the feedback,
+runs the converge review, pushes its fixes and ends with a verdict. A pull
+request gets at most three, and another after that only for new feedback by the
+owner. A review run never merges. _Avoid_: scan, review task, re-review
+
+**Feedback**: The text on an agent pull request that a review run answers: the
+owner's conversation comments, review bodies and review thread comments, and the
+first comment of a review thread a bot opened. Text that starts with the agent's
+marker is never feedback. Neither is anything from another person, a bot's
+conversation comment or review body, or a bot's reply in a thread: those start
+nothing, block nothing and are never read. _Avoid_: review comments, comments,
+input
+
+**Verdict**: A review run's result for one head commit: land or no-land, with
+one reason. It is one input to the land gate, and it counts only while that
+commit is the pull request's head. _Avoid_: approval, green light, decision
+
+**Shadow verdict**: A verdict in a repo without the land topic,
+`backlog-agent-land`. It is recorded and shown in the run report and never acted
+on, so the owner can judge a repo's verdicts before giving it the topic.
+_Avoid_: dry run, trial verdict
+
+**Land gate**: The rule in `plan` that decides whether an agent pull request
+lands. Code checks the verdict and its head commit, the checks, the size, the
+protected paths, the hold, the delay, the daily limit and the repo's land topic,
+and the first rule that fails leaves the pull request to the owner. _Avoid_:
+auto-merge, merge gate, risk gate
+
+**Landing**: The merge `backlog.py land` makes of a pull request the land gate
+cleared, pinned to the commit the verdict names. To land is to be merged this
+way: a merge the owner makes is not a landing. _Avoid_: auto-merge, ship, deploy
+
+**Hold**: The owner's `agent:hold` label on a pull request. While it is there,
+no review run starts and the pull request does not land. _Avoid_: block, freeze,
+pause
+
+**Protected path**: A file path the land gate never lets land: CI and merge
+gating, agent instructions, build, dependency and check config, scripts and
+secrets. A pull request that changes one waits for the owner. _Avoid_: sensitive
+file, tripwire

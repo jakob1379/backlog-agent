@@ -2,7 +2,7 @@
 
 Date: 2026-11-21. Owner: jakob1379. Supersedes the phased design of 2026-10-20,
 which stays as the record of how dependency work was built. Vocabulary:
-`backlog-agent/GLOSSARY.md`. Decisions: `docs/adr/0001` to `docs/adr/0003`.
+`backlog-agent/GLOSSARY.md`. Decisions: `docs/adr/0001` to `docs/adr/0004`.
 
 ## Problem Statement
 
@@ -33,9 +33,11 @@ owner, it also triages the best untriaged issues itself, up to three plans at a
 time. A triage run reproduces and diagnoses the issue. It then posts a fix, a
 plan, a question, or a ruling that the issue is not actionable. A plan waits in
 Needs approval until the owner moves the card to Approved. A build run then
-implements exactly that plan and opens a pull request for review.
+implements exactly that plan and opens a pull request. Review runs then answer
+the feedback on that pull request and give a verdict, and the land gate merges
+what it clears. The rest waits for the owner's review.
 
-Anything else that needs the owner also lands on the same board as a card, so
+Anything else that needs the owner also appears on the same board as a card, so
 the board is the one list of owner actions: open pull requests with no issue
 behind them, drafts included, and dependency work that ended blocked or in
 review. The run board stops showing phases. It shows health checks that say
@@ -88,9 +90,10 @@ whether work is moving.
     checks and review stay separate.
 19. As the owner, I want a card to reach Done only when all of its pull requests
     have merged, so that half-finished work doesn't look finished.
-20. As the owner, I want every pull request from a build run to go to review,
-    never to auto-merge, so that no agent-written source change lands without my
-    review.
+20. As the owner, I want every pull request from a build run labelled for review
+    and assigned to me, and merged without me only when the land gate clears it,
+    so that no agent-written source change is merged outside rules I can read in
+    code.
 21. As the owner, I want plans, questions and diagnoses posted as comments on
     the GitHub issue, so that the discussion stays with the repo and survives a
     change of tracker.
@@ -102,9 +105,10 @@ whether work is moving.
     what the agent needs.
 24. As the owner, I want to turn a plan down by moving the card to Canceled, so
     that rejecting is as easy as approving.
-25. As the owner, I want only text I wrote to start or steer a run, so that an
-    issue or comment from someone else can't steer an agent that holds my GitHub
-    token.
+25. As the owner, I want only text I wrote to steer a run, and only that text or
+    a review thread a bot opens on an agent pull request to start one, so that
+    an issue or comment from someone else can't steer an agent that holds my
+    GitHub token.
 26. As the owner, I want issues opened by anyone else, including bots, to wait
     in Backlog until I move them, so that I decide what outside input the agent
     acts on.
@@ -168,6 +172,40 @@ whether work is moving.
 51. As the owner, I want the steward to keep this spec, the glossary and the
     prompts true to what happens, so that the docs don't drift the way the
     August import did.
+52. As the owner, I want a review run to answer the feedback on a pull request
+    the agent opened, so that my comments there are acted on without me starting
+    anything.
+53. As the owner, I want a review thread a bot opens treated as a bug report to
+    check against the code, and other people's text on a pull request never
+    read, so that a review app I installed helps while nobody else's text
+    reaches the agent.
+54. As the owner, I want a review run to run the converge review and push its
+    fixes before it gives a verdict, so that a verdict rests on a change that
+    has already been reviewed and fixed.
+55. As the owner, I want a verdict to name one head commit and to count for that
+    commit only, so that a later push never lands on an older verdict.
+56. As the owner, I want the land gate's rules checked by code in `backlog.py`,
+    not judged by a model, so that a steered child can't talk a pull request
+    into landing.
+57. As the owner, I want a landing to wait 24 hours after its verdict, and to
+    stop it with the `agent:hold` label, a draft, a close, a card moved out of
+    In Review or an unresolved review thread of mine, so that I can always step
+    in first.
+58. As the owner, I want a repo to land nothing until I add the
+    `backlog-agent-land` topic to it, with its verdicts recorded and shown as
+    shadow verdicts until then, so that I can judge the verdicts before any of
+    them merges anything.
+59. As the owner, I want a repo to stop landing once one of its landed pull
+    requests is reverted, until I take the topic off and put it back, so that
+    one bad landing is not followed by another.
+60. As the owner, I want at most three landings a day, so that a fault in the
+    land gate can't merge much before I see it.
+61. As the owner, I want the agent's own repo, nix-config and converge-review
+    never to land, whatever their topics, so that the agent can't change its own
+    rules, the skills it runs or its own review.
+62. As the owner, I want a review run never to merge and never to turn on
+    auto-merge, so that the child that reads feedback is never the one that
+    merges.
 
 ## Implementation Decisions
 
@@ -243,14 +281,16 @@ whether work is moving.
     twice and park its repo in Needs info. Accepted risk: nix-config's default
     branch reaches a scan with no second look by the owner. The skill's text
     steers the child, and a profile's commands run with the sandbox off. A
-    profile pull request is never auto-merged, so the owner's merge there is the
-    one review. Plugin skills its lanes call and the scanners it downloads are
-    whatever the machine has.
+    profile pull request is never auto-merged, gets no review run and never
+    lands, since nix-config is a repo that never lands, so the owner's merge
+    there is the one review. Plugin skills its lanes call and the scanners it
+    downloads are whatever the machine has.
 - **Board.** The JGA team's statuses are Backlog, Needs triage, Needs approval,
   Approved, In Progress, In Review, Needs info, Done, Canceled and Duplicate.
   Needs triage, Needs approval, Approved and Needs info are new. In Review means
-  at least one pull request is open, and Canceled means not actionable. Labels:
-  the existing single-select `repo` group, a new single-select `kind` group
+  at least one pull request is open, which the owner merges or, when the land
+  gate clears it, the agent lands. Canceled means not actionable. Labels: the
+  existing single-select `repo` group, a new single-select `kind` group
   (`dependency`, `backlog`, `pr`), and the Needs info reasons `needs-repro`,
   `unable-to-fix`, `failed`, plus `draft`. Only cards linked to an in-scope repo
   are ever touched.
@@ -268,10 +308,12 @@ whether work is moving.
   | Needs approval | Canceled       | owner               | plan turned down                                        |
   | Approved       | In Progress    | agent               | a build run starts                                      |
   | Needs info     | Needs triage   | agent               | the owner commented after the agent's last comment      |
-  | In Review      | Done           | sync or agent       | every linked pull request merged                        |
+  | In Review      | Done           | sync or agent       | every linked pull request merged, whoever merged it     |
 
   A move to Approved by anyone but the owner is undone back to Needs approval. A
-  card that arrives in Approved any other way is ignored.
+  card that arrives in Approved any other way is ignored. A review run and a
+  landing move no card: the card stays in In Review until its pull requests have
+  merged.
 
 - **Triggers.** A triage run starts for a card in Needs triage. A new issue
   authored by the owner is moved there automatically. The top-up runs only when
@@ -284,7 +326,16 @@ whether work is moving.
   of the Linear workspace. When there is not exactly one, `collect` prints
   `board not read` and the run makes no card moves. `plan` never starts a run
   from a card whose issue was written by someone else unless the owner moved it.
-  A child's prompt never includes comments from untrusted authors.
+  A child's prompt never includes comments from untrusted authors, with one
+  exception. On an agent pull request, only feedback counts (defined under
+  Review runs): the owner's text anywhere, and the first comment of a review
+  thread a bot opened. A bot's thread is admitted because an app only reviews
+  where the owner installed it, so the install is the owner's act. A review run
+  reads it as a bug report to check against the code, never as an instruction. A
+  bot's other comments, its replies and everything from other people are never
+  read, because those are where someone else's text could ride along. The
+  agent's own comments on a pull request start with its marker, so they never
+  count as the owner's.
 - **Bugs and the origin of a run.** `plan` records whether the owner or the
   top-up put a card in Needs triage. A triage run started by the owner may open
   a fix pull request for a bug. One started by the top-up must end with a plan.
@@ -292,18 +343,214 @@ whether work is moving.
   dependency work: `owner/repo#<issue>:triage` and `owner/repo#<issue>:build`.
   They use the same `start`, `finish`, lockfile, retry and daily-cap rules. In
   the tier order they rank after add-CI. Scans add a seventh kind,
-  `owner/repo:scan`, described under Scans.
+  `owner/repo:scan`, described under Scans. Review runs add an eighth, `review`,
+  with the key `owner/repo#<pr>:review`: it is keyed on the pull request, not
+  the issue, and described under Review runs.
 - **Child result contract.** A triage or build child ends with
   `RESULT: <outcome> — <note>`. The outcome is one of `fix-pending`,
   `needs-approval`, `needs-repro`, `unable-to-fix` or `not-actionable`, and the
   note names every pull request URL. Plans, questions and diagnoses go on the
   GitHub issue as comments. A build child takes the agent's last plan comment as
   its spec, opens one pull request per in-scope repo it changes, labels each
-  `needs-review`, assigns the owner, and links each one from the issue. Build
-  pull requests never auto-merge.
+  `needs-review`, assigns the owner, and links each one from the issue. A child
+  never merges a pull request from a triage or build run and never turns on
+  auto-merge for it: only the land gate merges one without the owner. A review
+  child ends with
+  `RESULT: land|no-land|failed — <reason> <head commit> <PR URL>; <note>`. The
+  reason is one of `clean`, `not_trivial`, `off_plan`, `not_converged`,
+  `possible_regression`, `removed_safety_logic`, `insufficient_tests`,
+  `scope_too_large`, `unclear_intent`, `security_risk`, `breaking_change`,
+  `build_or_ci_risk`, `injection_attempt` or `review_error`, and `clean` is the
+  only one a `land` may carry.
 - **Retries.** A crashed or timed-out run is retried once. A second failure
   sends the card to Needs info with `failed`. This is the same rule as
-  dependency work, not triagebot's three failures.
+  dependency work, not triagebot's three failures. A review run is the
+  exception: its failure is never turned into blocked and moves no card, and the
+  round limit bounds its retries.
+- **Review runs.** A `review` task is one run on an agent pull request: it
+  answers the feedback, runs the converge review, pushes its fixes and ends with
+  a verdict, land or no-land with one reason (ADR 0004). The verdict is one
+  input to the land gate, and a review run never merges.
+  - **Agent pull request.** An open pull request whose author is the owner,
+    whose head branch is in the same repo and fully matches
+    `backlog-agent/.+-(build|triage)` (`AGENT_BRANCH`), and which links an
+    issue. Only these get review runs and only these can land. The agent posts
+    with the owner's token, so the author alone does not tell its pull requests
+    from the owner's own.
+  - **Feedback.** Text on a pull request that does not start with the agent's
+    marker, once leading whitespace is stripped, and is one of two things. By
+    the owner: a conversation comment, a review body or a review thread comment.
+    By a bot, an author GitHub's GraphQL API types as `Bot`: the first comment
+    of a review thread, and nothing else. Anything else is not feedback: it
+    starts nothing, blocks nothing and never reaches a child. That covers every
+    other person, a bot's conversation comments and review bodies, and a bot's
+    replies inside a thread. Every comment and thread reply a child posts on a
+    pull request starts with the marker, so the agent's own text is never
+    feedback.
+  - **When.** A review run is due when the pull request has no review entry,
+    when its entry failed, when its head commit is not the one the entry
+    records, when feedback is newer than the entry's start, or when its required
+    checks are red and its last push is newer than the entry's start.
+  - **When not.** No review run starts without a board, or while a linked issue
+    has no card in In Review. None starts while the pull request is a draft or
+    carries the `agent:hold` or `agent:blocked` label, while its checks are
+    pending, or within 30 minutes (`REVIEW_QUIET`) of the later of its last push
+    and its newest feedback. None starts while a triage or build entry of a
+    linked issue is running or failed. One review run runs at a time: none
+    starts while any review entry is running or its lockfile is held.
+  - **Rounds.** A pull request gets at most three review runs (`REVIEW_ROUNDS`).
+    The entry's attempts count them, and the task carries `round`, the attempts
+    plus one. After the third, another starts only when feedback by the owner is
+    newer than the entry's finish.
+  - **Order.** `plan` puts the one review task after dependency work and before
+    build and triage runs, under the same caps. The task is
+    `{"key": "o/r#12:review", "kind": "review", "repo": "o/r", "pr": 12, "head": "<head commit>", "round": 1}`.
+  - **What the child does.** It reads the pull request through a filter that
+    keeps exactly the feedback, each item marked as the owner's or a bot's. The
+    owner's text is an instruction within the approved plan, and an owner
+    comment that objects to or questions the change means no-land. A bot's text
+    is a bug report to check against the code. The child replies to every
+    thread, resolves a bot's thread, and never resolves a thread the owner
+    started. It then follows the converge-review skill with the approved plan as
+    the spec, inside a time budget after which no further round starts. The
+    subagents that skill dispatches, and the one that applies the rubric, are
+    the only ones a child may start.
+  - **Verdict.** The verdict is no-land with `not_converged` unless the converge
+    review converged. Otherwise one fresh, report-only subagent applies the
+    rubric in `CHILD.md` to the final patch and the plan: land only when every
+    part of the change fits a safe class, no-land when unsure. The safe classes
+    are narrow, so bug fixes with a failing test, refactors, tests and docs are
+    what lands, and most feature work still waits for the owner. The child posts
+    one verdict comment. That comment and any label only show the verdict: the
+    gate reads the ledger, since anything with write access could forge a
+    comment or a label.
+  - **Entry.** The review entry lives exactly as long as its pull request is
+    open. Its finished status is `land`, `no-land` or `failed`. `finish` refuses
+    an entry that is not running and stores `head`: the first 40-hex commit id
+    in the note. It stores `land` only when the note starts with `clean ` and a
+    40-hex commit id, and stores any other `land` as `no-land`. A verdict
+    therefore covers one head commit, and a push after it makes it stale. A
+    verdict that is not `land`, given for an entry that already holds a `land`,
+    turns it into `no-land`: a late run can take a landing back, never give one.
+- **The land gate.** The land gate is the rule in `plan` that decides which
+  agent pull requests land, and `backlog.py land` makes the merge (ADR 0004).
+  `land_block` checks the rules below in this order and returns the first one
+  that fails as the reason the pull request is held. A pull request lands only
+  when all 18 hold:
+
+  | #   | The pull request lands only when                                                         | Held as                      |
+  | --- | ---------------------------------------------------------------------------------------- | ---------------------------- |
+  | 1   | its review entry's status is `land`                                                      | `no verdict`                 |
+  | 2   | the entry's head commit is the pull request's head commit                                | `verdict is stale`           |
+  | 3   | it is open                                                                               | `not open`                   |
+  | 4   | it is not a draft and has neither the `agent:hold` nor the `agent:blocked` label         | `held by the owner`          |
+  | 5   | every linked issue is open in the snapshot and written by the owner                      | `issue not the owner's`      |
+  | 6   | every linked issue has a card in In Review                                               | `card <status>`              |
+  | 7   | no other open agent pull request shares a linked issue                                   | `split across pull requests` |
+  | 8   | GitHub's `mergeStateStatus` is `CLEAN` or `HAS_HOOKS`                                    | `merge state <state>`        |
+  | 9   | its required checks are green                                                            | `checks <state>`             |
+  | 10  | the repo's default branch is green                                                       | `default branch <state>`     |
+  | 11  | no thread of feedback is unresolved and no feedback is newer than the review run's start | `open feedback`              |
+  | 12  | it changes at most 10 files and 300 lines                                                | `too large`                  |
+  | 13  | no changed file is on a protected path                                                   | `protected path <path>`      |
+  | 14  | no landed pull request of the repo is marked reverted                                    | `paused after a revert`      |
+  | 15  | the repo has the land topic and is not a repo that never lands                           | `shadow`                     |
+  | 16  | the gate has not already offered this head commit for a merge                            | `merge not made`             |
+  | 17  | fewer than 3 landings were made today, those this plan offers included                   | `daily limit`                |
+  | 18  | 24 hours have passed since the review entry finished                                     | `lands <iso time>`           |
+
+  A missing value fails its rule: no board, no card and no review data all hold
+  the pull request. `<state>` and `<status>` print in lower case, and `none` for
+  a missing one, so a pull request whose base branch requires no checks is held
+  as `checks none`. `CLEAN` means every check passed, required or not, so one
+  red job holds the pull request. Rule 7 means a change split across several
+  open pull requests waits for the owner.
+
+  - **Constants.** `REVIEW_ROUNDS` is 3, `REVIEW_QUIET` 30 minutes, `LAND_DELAY`
+    24 hours, `LAND_MAX_FILES` 10, `LAND_MAX_LINES` 300, `LAND_DAILY_CAP` 3 and
+    `LAND_RECORD` 60 days. `LAND_TOPIC` is `backlog-agent-land` and `HOLD_LABEL`
+    is `agent:hold`. Lines are additions plus deletions.
+  - **Shadow verdicts.** A repo lands only when it has the `backlog-agent-land`
+    topic and is not in `NEVER_LAND_REPOS`. Without the topic every verdict is a
+    shadow verdict: recorded in the ledger, shown in the run report and never
+    acted on. The owner's topic is the judgement that a repo's shadow verdicts
+    were good enough.
+  - **Repos that never land.** `jakob1379/backlog-agent`, `jakob1379/nix-config`
+    and `jakob1379/converge-review`, whatever their topics: they hold the
+    agent's rules, the skills and profiles that run with the sandbox off, and
+    the review itself.
+  - **Protected paths.** A path is protected when any of its directories or its
+    file name is one of these. CI and merge gating: `.github/`,
+    `.gitlab-ci.yml`, `.pre-commit-config.yaml`, `CODEOWNERS`. Agent
+    instructions: `.claude/`, `.agents/`, `.cursor*`, `.mcp.json`, `CLAUDE.md`,
+    `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`, `SKILL.md`. Build, dependency
+    and check config: `pyproject.toml`, `setup.py`, `setup.cfg`,
+    `requirements*.txt`, `tox.ini`, `noxfile.py`, `pytest.ini`, `conftest.py`,
+    `.coveragerc`, `codecov.y*ml`, `package.json`, `tsconfig*.json`,
+    `jest.config.*`, `vitest.config.*`, `playwright.config.*`, `Cargo.toml`,
+    `go.mod`, `go.sum`, any `*.lock`, `package-lock.json`, `pnpm-lock.yaml`,
+    `*.nix`, `Makefile`, `justfile`, `Dockerfile*`, `*compose*.y*ml`,
+    `ruff.toml`, `.ruff.toml`, `mypy.ini`, `biome.json*`, `eslint.config.*`,
+    `.eslintrc*`. Scripts and secrets: `scripts/`, `*.sh`, `.env*`. A renamed
+    file counts under both its names.
+  - **Plan output.** `plan` walks the review entries with status `land`, oldest
+    verdict first. `lands` lists the pull requests to merge now, as
+    `{"key", "repo", "pr", "head"}`, and `plan` stores each one's head on its
+    entry as `offered`. One pull request per repo goes into `lands` in a plan: a
+    second one that passes the gate is held as `default branch pending`, because
+    the first merge makes a default branch commit no check has run on.
+    `greenlit` lists every other entry with status `land`, as
+    `{"key", "repo", "pr", "why", "new"}`, with the first rule that holds it.
+    `new` is true the first time the entry is held for that reason, and a run
+    with a new one reports, so a pending landing and each reason it waits for
+    show once. The run report shows both: what landed and what lands next.
+  - **Landing.** After `apply`, the dispatcher runs
+    `backlog.py land <candidates> <plan>` when `lands` is not empty. Under the
+    ledger lock, and for each entry of `lands`, the command clears the entry's
+    `offered`, reads the pull request again and runs the gate on the fresh
+    record. When the gate now holds it, the command reports it as refused with
+    that reason and leaves `offered` cleared, so the next plan decides again.
+    Otherwise it runs
+    `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` once,
+    with no retry, and reads the pull request once more. When the pull request
+    is merged and its head is the verdict's head, the command records the
+    landing. When that read fails and the merge command exited 0, it records the
+    landing with no merge commit, so the daily limit and the pause still count
+    it. Anything but a confirmed merge is reported as refused with the error's
+    last line, and `offered` stays the head, so rule 16 holds the pull request
+    until it has a new head. A `land` command that never ran leaves `offered`
+    set, so rule 16 holds the pull request then too. The command saves the
+    ledger after each pull request and prints
+    `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
+  - **Why not auto-merge.** `gh pr merge --auto` merges at once when nothing
+    required is pending, and an armed auto-merge survives later pushes, so it
+    can merge a head no verdict covers. The gate merges directly, pinned to the
+    verdict's head.
+  - **Ledger.** `landed` is a list of `{"repo", "pr", "head", "sha", "at"}`, one
+    per merge the gate made, where `sha` is the merge commit. An entry gets
+    `"reverted": true` once a revert is seen. An entry older than 60 days is
+    dropped unless it is reverted.
+  - **Pause after a revert.** `collect` reads the default branch's commits since
+    the repo's oldest landing. A landed pull request counts as reverted when a
+    commit message holds `This reverts commit <its merge sha>`, or when a
+    commit's pull request branch starts with `revert-<its number>-`. The repo
+    then lands nothing. A repo's reverted entries are dropped once the repo no
+    longer has the land topic, so the owner ends the pause by taking the topic
+    off for one run and putting it back.
+  - **Stopping a landing.** The owner stops one pull request with the
+    `agent:hold` label, a draft, a close, a card moved out of In Review, or a
+    review thread left unresolved, since a child never resolves a thread the
+    owner started. A plain comment restarts the review and the delay, and a
+    review run answers it. A comment made while the last allowed review run is
+    going starts no further run, so the pull request is held as `open feedback`
+    until the owner comments again or merges it. The owner pauses a whole repo
+    by removing the topic. GitHub sends the owner no notice of the agent's
+    comments, since they share an account, so the run report is where a pending
+    landing shows.
+  - **Who may change it.** The dispatcher and the steward never loosen the land
+    gate or the verdict rubric. A change that would let more land is the
+    owner's.
+
 - **Cards for pull requests and owner actions.** `plan` creates a card in In
   Review, with `kind: pr`, for every open pull request in an in-scope repo that
   isn't Dependabot's and isn't linked to a backlog issue. A draft gets `draft`
@@ -372,13 +619,26 @@ whether work is moving.
   - pull request cards open and close
   - forks count only with the topic
   - each health check counts right
+  - a review run is due, and is held back, by each rule under Review runs, with
+    one at a time and the round limit
+  - the land gate holds a pull request for each of its rules, one test per rule,
+    and `lands` and `greenlit` name what it decided
 - **Seam 2, the CLI round trip.** Like `CliTest`: `plan` claims a triage task,
   `start` records it, and `finish` with each triage outcome produces the card
-  move the table above names.
-- **Not unit-tested:** the Linear module and the GitHub calls in `collect`. They
-  are I/O, as today's `gh` calls are. A broken mapping shows up as a failed
-  `collect` or a red health check on the next run, and ADR 0001's loud failure
-  on a missing status covers renames.
+  move the table above names. A review task makes the same round trip with
+  `land` and `no-land`, and a `land` whose note does not start with `clean ` and
+  a commit id is stored as `no-land`. The `land` command is tested here with
+  `gh` faked: a head that moved after the plan is refused, a failed merge is not
+  offered again, and a `land` that never ran leaves the pull request held.
+- **Seam 3, pull request reads with `gh` faked.** `gh` is faked at
+  `subprocess.run`, as `GhRateLimitTest` does, to test what `collect` reads for
+  an agent pull request: feedback by the owner, a bot opening a thread, a bot's
+  review body, a bot's reply, a stranger and the agent's marker, unresolved
+  threads, a rename, and a revert found both ways.
+- **Not unit-tested:** the Linear module and the other GitHub calls in
+  `collect`. They are I/O, as today's `gh` calls are. A broken mapping shows up
+  as a failed `collect` or a red health check on the next run, and ADR 0001's
+  loud failure on a missing status covers renames.
 - Run the tests with `python3 -m unittest` in the agent's directory, as today.
   Committing rule changes stays gated on a passing run.
 
@@ -393,9 +653,21 @@ whether work is moving.
 - Any change to dependency work's rules, apart from scope and the cards it now
   creates.
 - A second tracker. The design only keeps porting to one module.
-- Auto-merging anything a triage or build run produced.
+- GitHub auto-merge on anything a triage or build run produced, and a child
+  merging it. Only the land gate merges one without the owner.
 - A health check that counts findings, and labels or priorities set by a scan.
 - Scanning forks, and writing on repos outside the scope.
+- A trained risk score and its percentiles: they need a population of diffs the
+  owner's repos don't have.
+- A second GitHub identity, or an approving review as the green light: GitHub
+  refuses an approval from a pull request's author, and the agent posts with the
+  owner's token.
+- A verdict from another model family.
+- An automatic track record before a repo's first landing. The owner's topic is
+  that judgement.
+- Detecting a hand-written or partial revert.
+- Review runs for dependency work's pull requests and for profile pull requests.
+- A card label for a pending landing.
 
 ## Further Notes
 
@@ -483,13 +755,24 @@ whether work is moving.
   expiry from GitHub's `github-authentication-token-expiration` header, and
   `plan` sets `rotate_token` once a day in the last 7 days, so the run asks the
   owner to rotate it. Git in the main checkout uses the same token, so T3's
-  fetch before each run doesn't depend on the owner's keyring.
+  fetch before each run doesn't depend on the owner's keyring. Review runs and
+  the land gate need no new permission: the gate's merge uses Contents write,
+  and replying to a review thread and resolving one use Pull requests write with
+  Contents write. Resolving a thread with this token is still unverified.
 - **Top-up order is only as good as the labels.** Many issues have no labels,
   such as homelab's unauthenticated Traefik API. The owner labelling a few
   `security` or `Bug` is the cheapest way to steer the top-up.
-- Triagebot's protected-paths tripwire is not copied. Every build pull request
-  goes to review anyway. Dependency work's lane rule, which sends workflow and
-  test-config edits to review, still applies.
+- Triagebot's protected-paths tripwire is not copied into triage or build runs.
+  The land gate checks protected paths instead, so a pull request that touches
+  one waits for the owner's review. Dependency work's lane rule, which sends
+  workflow and test-config edits to review, still applies.
 - Every child already holds the owner's GitHub token. The trust rule limits
   whose text reaches a child. It does not limit what a steered child could do on
-  GitHub.
+  GitHub. A review child reads feedback and holds that token, which is why it
+  never merges and why code checks the land gate's rules.
+- **Review runs and the land gate (2026-11-27).** The feature has not run yet:
+  no review run has started and nothing has landed. Still unverified: whether
+  the token can resolve a review thread, how the auto mode classifier treats the
+  `land` command (it has refused a child's immediate merge), and whether
+  `mergeStateStatus` reads `CLEAN` on the owner's rulesets. Where it does not,
+  the gate holds every pull request as `merge state <state>`.
