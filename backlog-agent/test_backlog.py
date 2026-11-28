@@ -431,6 +431,8 @@ class PlanTest(unittest.TestCase):
             cards=[card(1, "Needs approval"), {**asked(2), "status": "Needs approval"}],
         )
         self.assertEqual(plan(c, L, NOW)["health"]["topup_waiting"], 1)
+        L["origins"]["o/r#2"] = "finding"
+        self.assertEqual(plan(c, L, NOW)["health"]["topup_waiting"], 2)
 
     def test_health_without_board_is_zero(self):
         h = plan(cands(repo()), empty(), NOW)["health"]
@@ -463,6 +465,11 @@ def moved(frm, to, actor, at="2026-10-21T10:00:00Z"):
     return {"from": frm, "to": to, "actor": actor, "at": at}
 
 
+def trail(*steps):
+    forms = ["Backlog", *(to for to, _ in steps)]
+    return [moved(frm, to, actor) for frm, (to, actor) in zip(forms, steps)]
+
+
 def card(number, status="Backlog", history=(), labels=(), repo="o/r", type="issue"):
     return {
         "id": f"card-{number}",
@@ -474,6 +481,7 @@ def card(number, status="Backlog", history=(), labels=(), repo="o/r", type="issu
         "created_at": "2026-09-01T00:00:00Z",
         "attachments": [f"att-{number}"],
         "history": list(history),
+        "history_cut": False,
     }
 
 
@@ -1955,6 +1963,122 @@ def landable(*prs, cards=None, **fields):
     return c
 
 
+TRIAGED = [("Needs triage", "agent"), ("In Progress", "agent")]
+AGENT_ONLY = trail(*TRIAGED, ("In Review", "agent"))
+OWNER_ACTS = {
+    "approved the plan": trail(
+        *TRIAGED,
+        ("Needs approval", "agent"),
+        ("Approved", "owner"),
+        ("In Progress", "agent"),
+        ("In Review", "agent"),
+    ),
+    "asked for the triage": trail(
+        ("Needs triage", "owner"), ("In Progress", "agent"), ("In Review", "agent")
+    ),
+    "moved the card into review": trail(*TRIAGED, ("In Review", "owner")),
+    "asked for the triage, then replied to the agent's question": trail(
+        ("Needs triage", "owner"),
+        ("In Progress", "agent"),
+        ("Needs info", "agent"),
+        *TRIAGED,
+        ("In Review", "agent"),
+    ),
+}
+NO_OWNER_ACT = {
+    "no history": [],
+    "only the agent's moves": AGENT_ONLY,
+    "another user's move into review": trail(*TRIAGED, ("In Review", "other")),
+    "an old approval, then the agent's triage and another user's move": trail(
+        ("Needs approval", "agent"),
+        ("Approved", "owner"),
+        ("In Progress", "agent"),
+        ("Needs info", "agent"),
+        *TRIAGED,
+        ("In Review", "other"),
+    ),
+    "an old move into review, then another user's": trail(
+        ("In Review", "owner"), ("In Progress", "agent"), ("In Review", "other")
+    ),
+    "asked for the triage, then another user approved": trail(
+        ("Needs triage", "owner"),
+        ("In Progress", "agent"),
+        ("Needs approval", "agent"),
+        ("Approved", "other"),
+        ("In Review", "other"),
+    ),
+    "asked for the triage, then another user sent it back to triage": trail(
+        ("Needs triage", "owner"),
+        ("In Progress", "agent"),
+        ("Needs info", "agent"),
+        ("Needs triage", "other"),
+        ("In Progress", "agent"),
+        ("In Review", "agent"),
+    ),
+    "asked for the triage, pulled it back, then another user's move": trail(
+        ("Needs triage", "owner"),
+        ("In Progress", "agent"),
+        ("In Review", "agent"),
+        ("Backlog", "owner"),
+        ("In Review", "other"),
+    ),
+    "approved the plan, pulled it back, then another user's move": trail(
+        *TRIAGED,
+        ("Needs approval", "agent"),
+        ("Approved", "owner"),
+        ("Backlog", "owner"),
+        ("In Review", "other"),
+    ),
+    "asked for the triage, pulled it back, then only the agent's moves": trail(
+        ("Needs triage", "owner"),
+        ("In Progress", "agent"),
+        ("Backlog", "owner"),
+        ("In Progress", "agent"),
+        ("In Review", "agent"),
+    ),
+    "an old approval, then a triage the top-up started": [
+        moved("Needs approval", "Approved", "owner"),
+        *AGENT_ONLY,
+    ],
+    "an old approval, then a triage start that names no status it left": [
+        moved("Needs approval", "Approved", "owner"),
+        moved(None, "Needs triage", "agent"),
+        *AGENT_ONLY[1:],
+    ],
+    "canceled it, then the agent's move into review": trail(
+        *TRIAGED, ("Canceled", "owner"), ("In Review", "agent")
+    ),
+    "moved it to needs approval, then the agent's move into review": trail(
+        *TRIAGED, ("Needs approval", "owner"), ("In Review", "agent")
+    ),
+    "a move into review that the top-up's start overtook": [
+        moved("Backlog", "In Review", "owner"),
+        moved("In Review", "Needs triage", "agent"),
+        *AGENT_ONLY[1:],
+    ],
+}
+
+
+def finding(history=(), remembered=False, status="In Review"):
+    c, L = landable(cards=[card(1, status, history)]), cleared()
+    if remembered:
+        L["found"] = ["o/r#1"]
+    else:
+        c["repos"][0]["issues"] = [found(1)]
+    return c, L
+
+
+def earned(n=5, **fields):
+    return [
+        {**landing(100 + i, f"s{i}", repo="o/elsewhere"), "finding": True, **fields}
+        for i in range(n)
+    ]
+
+
+def elsewhere(**fields):
+    return {**backlog_repo(name="o/elsewhere"), "land": True, **fields}
+
+
 def lands(result):
     return [t["pr"] for t in result["lands"]]
 
@@ -2096,15 +2220,13 @@ class LandGatePlanTest(unittest.TestCase):
         self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
 
     def test_every_linked_issue_must_be_open_and_written_by_the_owner(self):
-        strangers, closed, scanned = landable(), landable(), landable()
+        strangers, closed = landable(), landable()
         strangers["repos"][0]["issues"] = [issue(1, author="eve")]
         closed["repos"][0]["issues"] = []
-        scanned["repos"][0]["issues"] = [found(1)]
         far = agent_pr(linked_refs=["o/x#5"])
         cases = {
             "someone else's issue": strangers,
             "a closed issue": closed,
-            "an issue a scan filed": scanned,
             "an issue in a repo out of scope": landable(
                 far, cards=[card(1, "In Review"), card(5, "In Review", repo="o/x")]
             ),
@@ -2115,9 +2237,165 @@ class LandGatePlanTest(unittest.TestCase):
         for name, c in cases.items():
             with self.subTest(name):
                 self.holds("issue not the owner's", c)
-        L = cleared()
-        L["found"] = ["o/r#1"]
-        self.holds("issue not the owner's", landable(), L)
+
+    def test_a_finding_lands_only_after_an_act_by_the_owner_on_its_card(self):
+        for remembered in (False, True):
+            for name, history in OWNER_ACTS.items():
+                with self.subTest(name, remembered=remembered):
+                    c, L = finding(history, remembered)
+                    self.assertEqual(lands(plan(c, L, DUE)), [12])
+            for name, history in NO_OWNER_ACT.items():
+                for origin in (None, "owner"):
+                    with self.subTest(name, remembered=remembered, origin=origin):
+                        c, L = finding(history, remembered)
+                        L["origins"] = {"o/r#1": origin}
+                        self.holds("issue not the owner's", c, L)
+        c, L = finding(AGENT_ONLY)
+        c["board"]["cards"].append(
+            {**twin(1, "Done"), "history": OWNER_ACTS["asked for the triage"]}
+        )
+        self.holds("issue not the owner's", c, L)
+
+    def test_a_card_whose_history_was_not_read_in_full_shows_no_act(self):
+        acted = card(1, "In Review", OWNER_ACTS["asked for the triage"])
+        for name, unread in [
+            ("the history was cut", {**acted, "history_cut": True}),
+            ("no word on the cut", without(acted, "history_cut")),
+        ]:
+            with self.subTest(name):
+                c, L = finding()
+                c["board"]["cards"] = [unread]
+                self.holds("issue not the owner's", c, L)
+
+    def test_an_act_on_another_issues_card_does_not_cover_a_finding(self):
+        acted = OWNER_ACTS["asked for the triage"]
+        for name, history, expected in [
+            ("the finding's card", acted, ([12], [])),
+            ("the other card", AGENT_ONLY, ([], [(12, "issue not the owner's")])),
+        ]:
+            with self.subTest(name):
+                c = landable(
+                    agent_pr(issues=[1, 2]),
+                    cards=[card(1, "In Review", acted), card(2, "In Review", history)],
+                )
+                c["repos"][0]["issues"] = [issue(1), found(2)]
+                result = plan(c, cleared(), DUE)
+                self.assertEqual((lands(result), why(result)), expected)
+
+    def test_each_finding_a_pull_request_closes_needs_its_own_go_ahead(self):
+        acted = OWNER_ACTS["asked for the triage"]
+        for name, first, second in [
+            ("only the first", acted, AGENT_ONLY),
+            ("only the second", AGENT_ONLY, acted),
+        ]:
+            with self.subTest(name):
+                c = landable(
+                    agent_pr(issues=[1, 2]),
+                    cards=[card(1, "In Review", first), card(2, "In Review", second)],
+                )
+                c["repos"][0]["issues"] = [found(1), found(2)]
+                self.holds("issue not the owner's", c)
+
+    def test_a_finding_fixed_on_an_earned_record_lands_while_the_record_holds(self):
+        acted = OWNER_ACTS["asked for the triage"]
+        held = ([], [(12, "issue not the owner's")])
+        for name, origin, landed, reverted, history, expected in [
+            ("the record is earned", "finding", earned(), [], AGENT_ONLY, ([12], [])),
+            (
+                "a finding landing was reverted",
+                "finding",
+                earned(),
+                [100],
+                AGENT_ONLY,
+                held,
+            ),
+            ("the record is one short", "finding", earned(4), [], AGENT_ONLY, held),
+            (
+                "the top-up started it before the record",
+                "topup",
+                earned(),
+                [],
+                AGENT_ONLY,
+                held,
+            ),
+            (
+                "the owner pulled it back and the top-up picked it again",
+                "finding",
+                earned(),
+                [],
+                trail(
+                    *TRIAGED,
+                    ("In Review", "agent"),
+                    ("Backlog", "owner"),
+                    *TRIAGED,
+                    ("In Review", "agent"),
+                ),
+                held,
+            ),
+            (
+                "the owner's move overtook a restart after a reply",
+                "finding",
+                earned(),
+                [],
+                trail(
+                    *TRIAGED,
+                    ("Needs info", "agent"),
+                    ("Backlog", "owner"),
+                    *TRIAGED,
+                    ("In Review", "agent"),
+                ),
+                held,
+            ),
+            (
+                "the agent asked a question and started again on the reply",
+                "finding",
+                earned(),
+                [],
+                trail(
+                    *TRIAGED, ("Needs info", "agent"), *TRIAGED, ("In Review", "agent")
+                ),
+                ([12], []),
+            ),
+            ("no origin on record", None, earned(), [], AGENT_ONLY, held),
+            (
+                "the owner pulled it back and another user moved it",
+                "finding",
+                earned(),
+                [],
+                trail(*TRIAGED, ("Backlog", "owner"), ("In Review", "other")),
+                held,
+            ),
+            (
+                "the owner canceled it and another user restarted it",
+                "finding",
+                earned(),
+                [],
+                trail(
+                    *TRIAGED,
+                    ("Needs info", "agent"),
+                    ("Canceled", "owner"),
+                    ("Needs triage", "other"),
+                    ("In Progress", "agent"),
+                    ("In Review", "agent"),
+                ),
+                held,
+            ),
+            ("no history on the card", "finding", earned(), [], [], held),
+            (
+                "the record is lost but the owner acted",
+                "finding",
+                earned(),
+                [100],
+                acted,
+                ([12], []),
+            ),
+        ]:
+            with self.subTest(name):
+                c, L = finding(history)
+                c["repos"].append(elsewhere(reverted=reverted))
+                L["origins"], L["landed"] = {"o/r#1": origin}, landed
+                result = plan(c, L, DUE)
+                self.assertEqual((lands(result), why(result)), expected)
 
     def test_every_linked_issue_needs_a_card_in_review(self):
         both = agent_pr(issues=[1, 2])
@@ -2435,6 +2713,238 @@ class LandGatePlanTest(unittest.TestCase):
     def test_a_pull_request_waits_a_day_after_its_verdict(self):
         soon = DUE - timedelta(minutes=1)
         self.holds("lands 2026-10-22T12:00:00+00:00", landable(), now=soon)
+
+
+class FindingRecordTest(unittest.TestCase):
+    def fix(self, L, opened=None, land=True):
+        c = snap({**backlog_repo(opened or found(1)), "land": land}, cards=[card(1)])
+        first = plan(c, L, NOW)
+        (task,) = first["dispatch"]
+        finish(L, task["key"], "fix-pending", "https://github.com/o/r/pull/12", NOW)
+        c["board"]["cards"] = [
+            working(card(1, "Needs triage", trail(("Needs triage", "agent"))))
+        ]
+        (op,) = plan(c, L, NOW)["card_ops"]
+        return first["findings"], task["origin"], op["to"]
+
+    def test_five_clean_landings_of_findings_let_the_topup_fix_a_finding(self):
+        old = (NOW - backlog.LAND_RECORD - timedelta(hours=1)).isoformat()
+        cases = {
+            "five clean landings": (earned(), 5),
+            "six": (earned(6), 6),
+            "four": (earned(4), 4),
+            "one with no merge commit": ([*earned(4), *earned(1, sha=None)], 4),
+            "one older than sixty days": ([*earned(4), *earned(1, at=old)], 4),
+            "one not for a finding": ([*earned(4), *earned(1, finding=False)], 4),
+            "one from before findings were marked": (
+                [*earned(4), landing(9, "s9", repo="o/elsewhere")],
+                4,
+            ),
+        }
+        for name, (landed, record) in cases.items():
+            with self.subTest(name):
+                L = empty()
+                L["landed"] = landed
+                route = (
+                    ("finding", "In Review")
+                    if record >= 5
+                    else (
+                        "topup",
+                        "Needs approval",
+                    )
+                )
+                self.assertEqual(self.fix(L), ({"record": record, "needed": 5}, *route))
+
+    def after(self, L, now, cards=(), **there):
+        here = {**backlog_repo(found(1)), "land": True}
+        result = plan(snap(here, elsewhere(**there), cards=cards), L, now)
+        return result["findings"]["record"], picked(result)
+
+    def test_a_reverted_landing_resets_the_record_before_the_topup_decides(self):
+        lost = (0, [(1, "triage", "topup")])
+        for name, reverted, expected in [
+            ("a finding landing", [100], lost),
+            ("a landing for an issue the owner wrote", [9], lost),
+            ("no landing", [], (5, [(1, "triage", "finding")])),
+        ]:
+            with self.subTest(name):
+                L = empty()
+                L["landed"] = [*earned(), landing(9, "s9", repo="o/elsewhere")]
+                seen = self.after(L, NOW, [card(1)], reverted=reverted)
+                self.assertEqual(seen, expected)
+
+    def test_a_clock_that_steps_back_does_not_move_the_reset_earlier(self):
+        L = empty()
+        L["landed"] = [
+            *earned(),
+            landing(8, "s8", repo="o/elsewhere"),
+            landing(9, "s9", repo="o/elsewhere"),
+        ]
+        self.after(L, NOW, [card(1)], reverted=[9])
+        since = L["findings_since"]
+        self.after(L, NOW - timedelta(days=30), [card(1)], reverted=[8, 9])
+        self.assertEqual(L["findings_since"], since)
+
+    def test_a_lost_record_stays_lost_when_the_pause_is_lifted_and_the_landing_is_gone(
+        self,
+    ):
+        day = timedelta(days=1)
+        first = landing(9, "s9", at=(NOW - 50 * day).isoformat(), repo="o/elsewhere")
+        L = empty()
+        L["landed"] = [
+            {**first, "finding": True},
+            *earned(at=(NOW - 2 * day).isoformat()),
+        ]
+        seen = [
+            self.after(L, NOW - day),
+            self.after(L, NOW, reverted=[9]),
+            self.after(L, NOW + day, reverted=[9], land=False),
+            self.after(L, NOW + 11 * day, reverted=[9]),
+            self.after(L, NOW + 12 * day, [card(1)], reverted=[9]),
+        ]
+        self.assertEqual(
+            seen, [(6, []), (0, []), (0, []), (0, []), (0, [(1, "triage", "topup")])]
+        )
+        self.assertEqual([e["pr"] for e in L["landed"]], [100, 101, 102, 103, 104])
+
+    def test_a_second_revert_resets_the_record_again(self):
+        hour = timedelta(hours=1)
+        L = empty()
+        L["landed"] = earned()
+        self.after(L, NOW, reverted=[100])
+        L["landed"] += [
+            {**landing(200 + i, f"t{i}", (NOW + hour).isoformat()), "finding": True}
+            for i in range(5)
+        ]
+        there = {"prs_cut": False}
+        self.assertEqual(self.after(L, NOW + 2 * hour, reverted=[100], **there)[0], 5)
+        L["landed"][-1]["repo"] = "o/elsewhere"
+        seen = self.after(L, NOW + 3 * hour, [card(1)], reverted=[100, 204])
+        self.assertEqual(seen, (0, [(1, "triage", "topup")]))
+
+    def test_a_landing_stamped_ahead_of_the_clock_does_not_outlive_the_reset(self):
+        L = empty()
+        L["landed"] = earned(at=(NOW + timedelta(days=2)).isoformat())
+        seen = self.after(L, NOW, [card(1)], reverted=[100])
+        self.assertEqual(seen, (0, [(1, "triage", "topup")]))
+
+    def test_only_findings_that_land_after_the_revert_was_seen_earn_the_record_again(
+        self,
+    ):
+        later = NOW + timedelta(hours=1)
+        L = empty()
+        L["landed"] = earned()
+        self.assertEqual(self.after(L, NOW, reverted=[100]), (0, []))
+        L["landed"] += [
+            *earned(1, repo="o/same", at=NOW.isoformat()),
+            *earned(4, repo="o/later", at=later.isoformat()),
+        ]
+        self.assertEqual(self.after(L, later, reverted=[100]), (4, []))
+        L["landed"] += earned(1, repo="o/last", at=later.isoformat())
+        seen = self.after(L, later, [card(1)], reverted=[100])
+        self.assertEqual(seen, (5, [(1, "triage", "finding")]))
+
+    def test_only_a_finding_in_a_repo_that_lands_is_fixed_without_the_owner(self):
+        unlocked = ("finding", "In Review")
+        locked = ("topup", "Needs approval")
+        cases = {
+            "a finding the scan marked": ({}, {}, unlocked),
+            "a finding the ledger remembers": (
+                {"found": ["o/r#1"]},
+                {"opened": issue(1)},
+                unlocked,
+            ),
+            "an issue the owner wrote": ({}, {"opened": issue(1)}, locked),
+            "a repo in shadow mode": ({}, {"land": False}, locked),
+            "a repo with no land flag": ({}, {"land": None}, locked),
+        }
+        for name, (remembered, scene, expected) in cases.items():
+            with self.subTest(name):
+                L = {**empty(), **remembered, "landed": earned()}
+                self.assertEqual(self.fix(L, **scene)[1:], expected)
+
+    def test_a_finding_fixed_on_an_earned_record_lands_with_no_act_by_the_owner(self):
+        L = empty()
+        L["landed"] = earned()
+        self.assertEqual(self.fix(L)[1:], ("finding", "In Review"))
+        L["tasks"].update(cleared()["tasks"])
+        c, _ = finding(AGENT_ONLY)
+        self.assertEqual(lands(plan(c, L, DUE)), [12])
+
+    def test_a_triage_started_on_the_record_runs_as_a_topup_once_the_unlock_is_gone(
+        self,
+    ):
+        key = "o/r#1:triage"
+        started = trail(("Needs triage", "agent"))
+        asked_back = trail(*TRIAGED, ("Needs info", "agent"))
+        replied = {**found(1), "comments": [comment(OWNER, "2026-10-21T11:00:00Z")]}
+        scenes = {
+            "a retried run": (found(1), working(card(1, "Needs triage", started)), 1),
+            "a card still in Needs triage": (
+                found(1),
+                card(1, "Needs triage", started),
+                0,
+            ),
+            "a new triage after the owner's reply": (
+                replied,
+                card(1, "Needs info", asked_back),
+                0,
+            ),
+        }
+        for scene, (opened, c1, failed) in scenes.items():
+            for name, landed, land, origin in [
+                ("the unlock holds", earned(), True, "finding"),
+                ("the record is lost", earned(4), True, "topup"),
+                ("the repo no longer lands", earned(), False, "topup"),
+            ]:
+                with self.subTest(scene, state=name):
+                    L = empty()
+                    L["origins"], L["landed"] = {"o/r#1": "finding"}, landed
+                    for _ in range(failed):
+                        start(L, key, "t", NOW - timedelta(hours=2))
+                        finish(L, key, "failed", "boom", NOW - timedelta(hours=1))
+                    c = snap({**backlog_repo(opened), "land": land}, cards=[c1])
+                    self.assertEqual(picked(plan(c, L, NOW)), [(1, "triage", origin)])
+                    self.assertEqual(L["origins"], {"o/r#1": origin})
+
+    def test_a_fix_that_ends_after_the_unlock_is_gone_waits_for_the_owner(self):
+        for name, landed, land, expected in [
+            ("the unlock holds", earned(), True, ("In Review", "finding")),
+            ("the record is lost", earned(4), True, ("Needs approval", "topup")),
+            ("the repo no longer lands", earned(), False, ("Needs approval", "topup")),
+        ]:
+            with self.subTest(name):
+                L = empty()
+                L["landed"] = earned()
+                c = snap({**backlog_repo(found(1)), "land": True}, cards=[card(1)])
+                (task,) = plan(c, L, NOW)["dispatch"]
+                self.assertEqual(task["origin"], "finding")
+                finish(L, task["key"], "fix-pending", "https://x/pull/12", NOW)
+                L["landed"], c["repos"][0]["land"] = landed, land
+                c["board"]["cards"] = [
+                    working(card(1, "Needs triage", trail(("Needs triage", "agent"))))
+                ]
+                (op,) = plan(c, L, NOW)["card_ops"]
+                self.assertEqual((op["to"], L["origins"]["o/r#1"]), expected)
+
+    def test_a_topup_fix_for_a_finding_waits_for_the_owner_and_does_not_land(self):
+        L = empty()
+        L["landed"] = earned(4)
+        self.assertEqual(self.fix(L)[1:], ("topup", "Needs approval"))
+        L["tasks"].update(cleared()["tasks"])
+        for name, status, last in [
+            ("waiting for approval", "Needs approval", ("Needs approval", "agent")),
+            ("put in review by another user", "In Review", ("In Review", "other")),
+            ("put in review by the agent", "In Review", ("In Review", "agent")),
+        ]:
+            with self.subTest(name):
+                c, _ = finding(trail(*TRIAGED, last), status=status)
+                result = plan(c, L, DUE)
+                self.assertEqual(
+                    (lands(result), why(result)),
+                    ([], [(12, "issue not the owner's")]),
+                )
+                self.assertEqual(L["origins"], {"o/r#1": "topup"})
 
 
 def run(name, conclusion, started="2026-10-21T10:00:00Z", status="COMPLETED"):
@@ -2851,6 +3361,16 @@ class CliTest(unittest.TestCase):
             )
             self.assertFalse(lock.exists())
 
+    def test_plan_prints_the_findings_record(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            L = empty()
+            L["landed"] = earned(at=datetime.now(UTC).isoformat())
+            path.write_text(json.dumps(L))
+            cpath.write_text(json.dumps(cands(repo())))
+            out = json.loads(cli(path, "plan", str(cpath), "th"))
+            self.assertEqual(out["findings"], {"record": 5, "needed": 5})
+
     def test_plan_prints_what_lands_and_saves_what_it_offered(self):
         with tempfile.TemporaryDirectory() as d:
             path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
@@ -2875,6 +3395,9 @@ def rate_limited(url, *_):
     return urllib.error.HTTPError(
         url, 429, "ratelimited", Message(), io.BytesIO(b"ratelimit exceeded")
     )
+
+
+ACTOR_IDS = {"agent": "agent", "owner": "u0", "other": "eve"}
 
 
 class FakeLinear:
@@ -2927,7 +3450,22 @@ class FakeLinear:
                             }
                         ]
                     },
-                    "history": {"nodes": []},
+                    "history": {
+                        **(
+                            {"pageInfo": {"hasNextPage": c["history_cut"]}}
+                            if q.count("hasNextPage") > 1
+                            else {}
+                        ),
+                        "nodes": [
+                            {
+                                "actor": {"id": ACTOR_IDS[h["actor"]]},
+                                "fromState": {"name": h["from"]},
+                                "toState": {"name": h["to"]},
+                                "createdAt": h["at"],
+                            }
+                            for h in c["history"]
+                        ],
+                    },
                 }
                 for c in self.cards
             ]
@@ -3117,6 +3655,20 @@ class LinearApplyTest(unittest.TestCase):
             ):
                 backlog.main()
         self.assertEqual(json.loads(out.getvalue())["release"], [])
+
+    def test_a_card_says_whether_its_history_was_read_in_full(self):
+        cards = [card(1), {**card(2), "history_cut": True}]
+        with (
+            mock.patch.object(linear, "_token", "t"),
+            mock.patch("urllib.request.urlopen", side_effect=FakeLinear(cards=cards)),
+            mock.patch.object(sys, "argv", ["backlog.py", "board"]),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as out,
+        ):
+            backlog.main()
+        self.assertEqual(
+            [c["history_cut"] for c in json.loads(out.getvalue())["cards"]],
+            [False, True],
+        )
 
 
 class GhRateLimitTest(unittest.TestCase):
@@ -3804,6 +4356,9 @@ def clock(at):
     return Clock
 
 
+REFUSED = "issue not the owner's"
+
+
 class LandCommandTest(unittest.TestCase):
     def setUp(self):
         d = tempfile.TemporaryDirectory()
@@ -3840,6 +4395,11 @@ class LandCommandTest(unittest.TestCase):
     def merges(self):
         return [c for c in self.calls if MERGE in c]
 
+    def outcome(self, out):
+        merged = [int(c.split()[3]) for c in self.merges()]
+        self.assertEqual(merged, [t["pr"] for t in out["landed"]])
+        return merged, [t["why"] for t in out["refused"]]
+
     def test_a_merge_that_succeeds_is_recorded_with_its_merge_commit(self):
         out = self.land(cleared(), {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""})
         self.assertEqual(
@@ -3851,12 +4411,136 @@ class LandCommandTest(unittest.TestCase):
         )
         (entry,) = self.ledger()["landed"]
         self.assertEqual(
-            without(entry, "at"), {"repo": "o/r", "pr": 12, "head": HEAD, "sha": "m9"}
+            without(entry, "at"),
+            {"repo": "o/r", "pr": 12, "head": HEAD, "sha": "m9", "finding": False},
         )
         self.assertLess(
             datetime.now(UTC) - datetime.fromisoformat(entry["at"]),
             timedelta(minutes=1),
         )
+
+    def test_a_landing_is_marked_when_it_closes_a_finding(self):
+        acted = OWNER_ACTS["asked for the triage"]
+        far = landable(
+            agent_pr(linked_refs=["o/x#5"]),
+            cards=[card(1, "In Review"), card(5, "In Review", acted, repo="o/x")],
+        )
+        far["repos"].append(backlog_repo(found(5), name="o/x"))
+        one_of_two = landable(
+            agent_pr(issues=[1, 2]),
+            cards=[card(1, "In Review"), card(2, "In Review", acted)],
+        )
+        one_of_two["repos"][0]["issues"] = [issue(1), found(2)]
+        cases = {
+            "a finding the scan marked": (*finding(acted), True),
+            "a finding the ledger remembers": (*finding(acted, remembered=True), True),
+            "a finding only named from another repo": (far, cleared(), False),
+            "one of two linked issues": (one_of_two, cleared(), True),
+            "issues the owner wrote": (
+                landable(agent_pr(issues=[1, 2])),
+                cleared(),
+                False,
+            ),
+        }
+        for name, (c, L, expected) in cases.items():
+            with self.subTest(name):
+                out = self.land(L, {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""}, c)
+                self.assertEqual(out["refused"], [])
+                (entry,) = self.ledger()["landed"]
+                self.assertIs(entry["finding"], expected)
+
+    def test_a_finding_needs_the_owners_act_in_the_fresh_history_of_its_card(self):
+        acted = OWNER_ACTS["approved the plan"]
+        undone = NO_OWNER_ACT[
+            "an old approval, then the agent's triage and another user's move"
+        ]
+        for name, fresh, expected in [
+            ("the act is still there", acted, ([12], [])),
+            ("the act is gone", AGENT_ONLY, ([], [REFUSED])),
+            ("another user moved it last", undone, ([], [REFUSED])),
+        ]:
+            with self.subTest(name):
+                c, L = finding(acted)
+                tracker = FakeLinear(cards=[card(1, "In Review", fresh)])
+                replies = {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""}
+                out = self.land(L, replies, c, tracker=tracker)
+                self.assertEqual(self.outcome(out), expected)
+
+    def test_a_finding_fixed_on_an_earned_record_is_refused_once_the_record_is_lost(
+        self,
+    ):
+        edge = (DUE - backlog.LAND_RECORD).isoformat()
+        revert = {HISTORY_READ: history(commit("This reverts commit s9."))}
+        here = {**landing(9, "s9"), "finding": True}
+        aged = earned(1, at=edge)
+        for name, last, replies, now, expected in [
+            ("the record holds", earned(1), {}, DUE, ([12], [])),
+            ("no revert is found", [here], {HISTORY_READ: history()}, DUE, ([12], [])),
+            ("a finding landing was reverted", [here], revert, DUE, ([], [REFUSED])),
+            ("a landing aged out", aged, {}, DUE + timedelta(hours=1), ([], [REFUSED])),
+        ]:
+            with self.subTest(name):
+                c, L = finding(AGENT_ONLY)
+                L["origins"], L["landed"] = {"o/r#1": "finding"}, [*earned(4), *last]
+                merged = {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""}
+                replies = {**merged, HISTORY_READ: history(), **replies}
+                out = self.land(L, replies, c, now=now)
+                self.assertEqual(self.outcome(out), expected)
+
+    def test_a_finding_landing_reverted_in_another_repo_after_the_plan_loses_the_record(
+        self,
+    ):
+        lifted = snap(elsewhere(land=False))
+        for name, reply, expected, record in [
+            ("no revert is found", history(), ([12], []), 6),
+            (
+                "a finding landing was reverted",
+                history(commit("This reverts commit s0.")),
+                ([], [REFUSED]),
+                0,
+            ),
+            (
+                "the history cannot be read",
+                gh_error("HTTP 502"),
+                ([], ["gh api graphql: HTTP 502"]),
+                5,
+            ),
+        ]:
+            with self.subTest(name):
+                c, L = finding(AGENT_ONLY)
+                L["origins"], L["landed"] = {"o/r#1": "finding"}, earned()
+                replies = {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""}
+                out = self.land(L, {**replies, HISTORY_READ: reply}, c, now=DUE)
+                self.assertEqual(self.outcome(out), expected)
+                after = plan(lifted, self.ledger(), DUE)["findings"]["record"]
+                self.assertEqual(after, record)
+                since = self.ledger().get("findings_since")
+                self.assertEqual(since, DUE.isoformat() if record == 0 else None)
+
+    def test_any_landing_reverted_after_the_plan_loses_the_record(self):
+        c, L = finding(AGENT_ONLY)
+        L["origins"] = {"o/r#1": "finding"}
+        L["landed"] = [*earned(), landing(9, "s9", repo="o/third")]
+        replies = {
+            PR_READ: [STILL_OPEN, NOW_MERGED],
+            MERGE: "",
+            HISTORY_READ: history(commit("This reverts commit s9.")),
+        }
+        out = self.land(L, replies, c, now=DUE)
+        self.assertEqual(self.outcome(out), ([], [REFUSED]))
+        self.assertEqual(self.ledger()["findings_since"], DUE.isoformat())
+
+    def test_a_pull_request_not_fixed_on_the_record_reads_no_other_repos_history(self):
+        acted = OWNER_ACTS["asked for the triage"]
+        for name, (c, L), origin in [
+            ("an issue the owner wrote", (landable(), cleared()), "topup"),
+            ("a finding the owner acted on", finding(acted), "owner"),
+        ]:
+            with self.subTest(name):
+                L["origins"], L["landed"] = {"o/r#1": origin}, earned()
+                out = self.land(L, {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""}, c)
+                self.assertEqual(self.outcome(out), ([12], []))
+                self.assertEqual([c for c in self.calls if HISTORY_READ in c], [])
 
     def test_what_changed_after_the_plan_is_refused_and_nothing_is_merged(self):
         cases = {
@@ -3991,6 +4675,7 @@ class LandCommandTest(unittest.TestCase):
         )
         self.assertEqual(self.merges(), [])
         self.assertEqual([e["pr"] for e in self.ledger()["landed"]], [9])
+        self.assertIn("findings_since", self.ledger())
         result = plan(landable(), self.ledger(), DUE)
         self.assertEqual(
             (lands(result), why(result)), ([], [(12, "paused after a revert")])

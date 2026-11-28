@@ -64,6 +64,7 @@ LAND_MAX_FILES = 10
 LAND_MAX_LINES = 300
 LAND_DAILY_CAP = 3
 LAND_RECORD = timedelta(days=60)
+FINDING_RECORD = 5
 HOLD_LABEL = "agent:hold"
 COMMIT = r"\b[0-9a-f]{40}\b"
 UNREAD = (
@@ -419,7 +420,7 @@ def health(candidates: dict, ledger: dict, tasks: list[dict], now: datetime) -> 
             and ledger.get("origins", {}).get(
                 f"{c['link']['repo']}#{c['link']['number']}"
             )
-            == "topup"
+            in ("topup", "finding")
             for c in cards
         ),
         "stale_review": sum(
@@ -481,16 +482,20 @@ def label_rank(issue: dict, card: dict) -> int:
     return 0 if "security" in labels else 1 if "bug" in labels else 2
 
 
+def open_issues(candidates: dict) -> dict:
+    return {
+        f"{r['repo']}#{i['number']}": i
+        for r in candidates["repos"]
+        for i in r.get("issues", [])
+    }
+
+
 def backlog_work(
     candidates: dict, ledger: dict, now: datetime
 ) -> tuple[list[dict], list[dict], dict]:
     owner = candidates.get("owner")
     scope = {r["repo"] for r in candidates["repos"]}
-    issues = {
-        f"{r['repo']}#{i['number']}": i
-        for r in candidates["repos"]
-        for i in r.get("issues", [])
-    }
+    issues = open_issues(candidates)
     linked = {
         ref
         for r in candidates["repos"]
@@ -519,10 +524,21 @@ def backlog_work(
             ops.append({"op": "close", "card": c["id"], "to": "Done"})
     cards = list(chosen.items())
     status = {c["id"]: c["status"] for c in chosen.values()}
+    landing = {r["repo"] for r in candidates["repos"] if r.get("land") is True}
+    earned = finding_record(ledger, now) >= FINDING_RECORD
+
+    def unlocked(ref):
+        return (
+            earned
+            and ref.split("#")[0] in landing
+            and scan_filed(ledger, ref, issues[ref])
+        )
 
     def queue(kind, ref, card, origin):
         issue = issues[ref]
         if kind == "triage":
+            if origin == "finding" and not unlocked(ref):
+                origin = "topup"
             origins[ref] = origin
         task = {
             "key": f"{ref}:{kind}",
@@ -576,12 +592,11 @@ def backlog_work(
                 del ledger["tasks"][k]
                 continue
             outcome = e["status"]
-            if (
-                outcome == "fix-pending"
-                and kind == "triage"
-                and origins.get(ref) != "owner"
-            ):
-                outcome = "needs-approval"
+            if outcome == "fix-pending" and kind == "triage":
+                if origins.get(ref) == "finding" and not unlocked(ref):
+                    origins[ref] = "topup"
+                if origins.get(ref) not in ("owner", "finding"):
+                    outcome = "needs-approval"
             op = outcome_op(c, outcome)
             if op:
                 ops.append(op)
@@ -635,13 +650,42 @@ def backlog_work(
             key=lambda x: x[:3],
         )
         for _, _, ref, c in pool[: max(0, TOPUP_LIMIT - counts["Needs triage"])]:
-            to_triage(ref, c, "topup")
+            to_triage(ref, c, "finding" if unlocked(ref) else "topup")
     ranked.sort(key=lambda x: x[:3])
     return [task for *_, task in ranked], ops, status
 
 
 def scan_filed(ledger: dict, ref: str, issue: dict) -> bool:
     return bool(issue.get("by_agent")) or ref in ledger.get("found", [])
+
+
+def sponsor(history: list[dict]) -> str | None:
+    for h in reversed(history):
+        if h["actor"] == "owner":
+            asked = h["to"] in ("In Review", "Approved", "Needs triage")
+            return "owner" if asked else None
+        if h["actor"] != "agent":
+            return None
+        if h["to"] == "Needs triage" and h["from"] != "Needs info":
+            return "topup" if all(m["actor"] == "agent" for m in history) else None
+    return None
+
+
+def reset_findings(ledger: dict, now: datetime) -> None:
+    times = [now.isoformat(), *(e["at"] for e in ledger.get("landed", []))]
+    if since := ledger.get("findings_since"):
+        times.append(since)
+    ledger["findings_since"] = max(times, key=datetime.fromisoformat)
+
+
+def finding_record(ledger: dict, now: datetime) -> int:
+    since = ledger.get("findings_since")
+    return sum(
+        bool(e.get("finding") and e["sha"])
+        and now - datetime.fromisoformat(e["at"]) <= LAND_RECORD
+        and (not since or later(e["at"], since))
+        for e in ledger.get("landed", [])
+    )
 
 
 def scan_tasks(
@@ -817,21 +861,31 @@ def land_block(
     if owner_hold(pr):
         return "held by the owner"
     refs, owner = issue_links(name, pr), candidates.get("owner")
-    authors = {}
-    for r in candidates["repos"]:
-        for i in r.get("issues", []):
-            ref = f"{r['repo']}#{i['number']}"
-            if not scan_filed(ledger, ref, i):
-                authors[ref] = i["author"]
-    if not (refs and owner) or any(authors.get(ref) != owner for ref in refs):
+    issues = open_issues(candidates)
+    if not (refs and owner) or any(
+        issues.get(ref, {}).get("author") != owner for ref in refs
+    ):
         return "issue not the owner's"
     cards = {}
     for c in candidates.get("board", {}).get("cards", []):
         if c["link"] and c["link"]["type"] == "issue":
             ref = f"{c['link']['repo']}#{c['link']['number']}"
-            cards.setdefault(ref, []).append(c["status"])
+            cards.setdefault(ref, []).append(c)
+    origins = ledger.get("origins", {})
+    earned = finding_record(ledger, now) >= FINDING_RECORD
     for ref in refs:
-        statuses = cards.get(ref, [None])
+        if not scan_filed(ledger, ref, issues[ref]):
+            continue
+        by = {
+            sponsor(c["history"])
+            for c in cards.get(ref, [])
+            if c["status"] == "In Review" and c.get("history_cut") is False
+        }
+        on_record = "topup" in by and earned and origins.get(ref) == "finding"
+        if "owner" not in by and not on_record:
+            return "issue not the owner's"
+    for ref in refs:
+        statuses = [c["status"] for c in cards.get(ref, [])] or [None]
         stray = [s for s in statuses if s not in CLOSED_STATUSES | {"In Review"}]
         if stray or "In Review" not in statuses:
             return f"card {lower((stray or statuses)[0])}"
@@ -911,8 +965,9 @@ def land_work(
     kept = []
     for e in ledger.get("landed", []):
         repo = repos.get(e["repo"], {})
-        if e["pr"] in repo.get("reverted", []):
-            e.setdefault("reverted", True)
+        if e["pr"] in repo.get("reverted", []) and "reverted" not in e:
+            e["reverted"] = True
+            reset_findings(ledger, now)
         if e.get("reverted") and repo.get("land") is False:
             e["reverted"] = False
         if e.get("reverted") or now - datetime.fromisoformat(e["at"]) <= LAND_RECORD:
@@ -965,15 +1020,16 @@ def land(
             "default_branch": branch,
             "main": sha_state(name, branch, required_checks(name, branch)),
         }
-        landed = [
-            e
-            for e in ledger.get("landed", [])
-            if e["repo"] == name and "reverted" not in e
-        ]
-        reverted = reverted_prs(name, landed)
-        for e in landed:
-            if e["pr"] in reverted:
-                e["reverted"] = True
+        fresh = [e for e in ledger.get("landed", []) if "reverted" not in e]
+        origins = ledger.get("origins", {})
+        wide = any(origins.get(ref) == "finding" for ref in issue_links(name, known))
+        for where in {name} | {e["repo"] for e in fresh if wide}:
+            landed = [e for e in fresh if e["repo"] == where]
+            reverted = reverted_prs(where, landed)
+            for e in landed:
+                if e["pr"] in reverted:
+                    e["reverted"] = True
+                    reset_findings(ledger, now)
         pr = {**known, **pr_detail(name, number, owner)}
     except (*UNREAD, SystemExit) as e:
         return {**task, "why": str(e).splitlines()[-1]}
@@ -981,7 +1037,17 @@ def land(
     if why:
         return {**task, "why": why}
     entry["tried"] = head
-    record = {**task, "head": head, "sha": None, "at": now.isoformat()}
+    issues = open_issues(candidates)
+    record = {
+        **task,
+        "head": head,
+        "sha": None,
+        "at": now.isoformat(),
+        "finding": any(
+            scan_filed(ledger, ref, issues[ref])
+            for ref in (f"{name}#{n}" for n in pr.get("linked_issues", []))
+        ),
+    }
     ledger.setdefault("landed", []).append(record)
     save_ledger(LEDGER, ledger)
     merge = subprocess.run(
@@ -1367,6 +1433,7 @@ def plan(
         "newly_blocked": newly_blocked,
         "lands": lands,
         "greenlit": greenlit,
+        "findings": {"record": finding_record(ledger, now), "needed": FINDING_RECORD},
         "health": health(candidates, ledger, tasks, now),
     }
 
