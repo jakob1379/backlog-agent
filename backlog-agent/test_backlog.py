@@ -3103,15 +3103,29 @@ class ReviewFixTest(unittest.TestCase):
 SCRIPT = Path(__file__).with_name("backlog.py")
 
 
-def cli(ledger_path, *args):
-    env = {
+GH_STUB = """#!/bin/sh
+echo "$@" >> "$(dirname "$0")/calls"
+echo '{"id": 7}'
+"""
+
+
+def cli_env(ledger_path):
+    stub = Path(ledger_path).with_name("bin")
+    stub.mkdir(exist_ok=True)
+    (stub / "gh").write_text(GH_STUB)
+    (stub / "gh").chmod(0o755)
+    return {
         **os.environ,
+        "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
         "BACKLOG_LEDGER": str(ledger_path),
         "BACKLOG_WORK": str(Path(ledger_path).with_name("work")),
     }
+
+
+def cli(ledger_path, *args):
     return subprocess.run(
         [sys.executable, SCRIPT, *args],
-        env=env,
+        env=cli_env(ledger_path),
         capture_output=True,
         text=True,
         check=True,
@@ -3246,11 +3260,7 @@ class CliTest(unittest.TestCase):
     def test_start_rejects_a_key_that_is_not_claimed(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d, "ledger.json")
-            env = {
-                **os.environ,
-                "BACKLOG_LEDGER": str(path),
-                "BACKLOG_WORK": str(Path(path).with_name("work")),
-            }
+            env = cli_env(path)
             r = subprocess.run(
                 [sys.executable, SCRIPT, "start", "o/r#1", "t"],
                 env=env,
@@ -3277,11 +3287,7 @@ class CliTest(unittest.TestCase):
             path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
             # Many candidates make each plan slow enough for the runs to overlap.
             cpath.write_text(json.dumps(cands(repo(prs=[pr(n) for n in range(5000)]))))
-            env = {
-                **os.environ,
-                "BACKLOG_LEDGER": str(path),
-                "BACKLOG_WORK": str(Path(path).with_name("work")),
-            }
+            env = cli_env(path)
             procs = [
                 subprocess.Popen(
                     [sys.executable, SCRIPT, "plan", str(cpath), f"th{n}"],
@@ -3304,11 +3310,7 @@ class CliTest(unittest.TestCase):
             L = empty()
             start(L, "o/r#1", "t", NOW)
             path.write_text(json.dumps(L))
-            env = {
-                **os.environ,
-                "BACKLOG_LEDGER": str(path),
-                "BACKLOG_WORK": str(Path(path).with_name("work")),
-            }
+            env = cli_env(path)
             note = "it's $(rm -rf /) `x`"
             subprocess.run(
                 [sys.executable, SCRIPT, "finish", "o/r#1", "done", "-"],
@@ -3751,7 +3753,8 @@ REQUIRES_CI = [
 
 
 def fake_gh(replies):
-    replies = dict(replies)
+    if not any("/comments" in needle for needle in replies):
+        replies = {"/comments": {"id": 7}, **replies}
     replies.setdefault("rules/branches", [])
     replies.setdefault("rate_limit", "")
     calls = []
@@ -4444,6 +4447,16 @@ class LandCommandTest(unittest.TestCase):
         self.assertEqual(merged, [t["pr"] for t in out["landed"]])
         return merged, [t["why"] for t in out["refused"]]
 
+    def test_a_landed_pull_request_shows_done_in_its_status_comment(self):
+        self.land(cleared(), {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""})
+        thread = self.ledger()["threads"]["o/r#12"]
+        self.assertEqual(thread["comment"], 7)
+        self.assertEqual(
+            (thread["runs"][-1]["status"], thread["runs"][-1]["note"]),
+            ("landed", "merged as m9"),
+        )
+        self.assertTrue(any("repos/o/r/issues/12/comments" in c for c in self.calls))
+
     def test_a_merge_that_succeeds_is_recorded_with_its_merge_commit(self):
         out = self.land(cleared(), {PR_READ: [STILL_OPEN, NOW_MERGED], MERGE: ""})
         self.assertEqual(
@@ -4970,6 +4983,330 @@ class LandCommandTest(unittest.TestCase):
                 self.assertEqual(
                     (lands(result), why(result)), ([], [(12, "merge not made")])
                 )
+
+
+STATUS = backlog.STATUS_MARKER
+
+
+def status_run(kind, status, note="", attempt=1, key="o/r#5:triage"):
+    return {
+        "key": key,
+        "kind": kind,
+        "started": "2026-10-21T10:00:00+00:00",
+        "finished": None if status == "running" else "2026-10-21T10:30:00+00:00",
+        "status": status,
+        "note": note,
+        "attempt": attempt,
+    }
+
+
+def body_of(*runs, report=None):
+    return backlog.status_body(
+        {"comment": None, "runs": list(runs), "report": report}, NOW
+    )
+
+
+def raw_comment(body, at, edited=None):
+    return {
+        "author": {"login": OWNER},
+        "createdAt": at,
+        "lastEditedAt": edited,
+        "body": body,
+    }
+
+
+def raw_issue(*comments):
+    return {
+        "number": 5,
+        "title": "t",
+        "body": "b",
+        "createdAt": "2026-09-01T00:00:00Z",
+        "author": {"login": OWNER},
+        "labels": {"nodes": []},
+        "comments": {"nodes": list(comments)},
+    }
+
+
+class StatusCommentTest(unittest.TestCase):
+    def test_a_key_names_the_thread_its_status_comment_lives_on(self):
+        cases = {
+            "o/r#5:triage": ("o/r", 5, "triage"),
+            "o/r#5:build": ("o/r", 5, "build"),
+            "o/r#12:review": ("o/r", 12, "review"),
+            "o/r#7": ("o/r", 7, "pr"),
+            "o/r:fix-main": None,
+            "o/r:add-ci": None,
+            "o/r:scan": None,
+            "o/r:dep:pip:requests": None,
+        }
+        for key, expected in cases.items():
+            with self.subTest(key):
+                self.assertEqual(backlog.thread_for(key), expected)
+
+    def test_each_state_shows_its_badge_headline_move_and_progress(self):
+        pr_url = "https://github.com/o/r/pull/12"
+        cases = [
+            (
+                status_run("triage", "running"),
+                "probe-work",
+                "Probe is triaging this issue",
+                None,
+                "Triage ● → Approval ○ → Build ○ → Review ○ → Land ○",
+            ),
+            (
+                status_run("triage", "needs-approval"),
+                "probe-wait",
+                "Probe is waiting on you",
+                "drag the card to **Approved** in Linear",
+                "Triage ✓ → Approval ● → Build ○ → Review ○ → Land ○",
+            ),
+            (
+                status_run("triage", "needs-repro", "which version?"),
+                "probe-wait",
+                "Probe is waiting on you",
+                "Reply on this issue.",
+                "Triage ● → Approval ○ → Build ○ → Review ○ → Land ○",
+            ),
+            (
+                status_run("triage", "not-actionable", "duplicate of #3"),
+                "probe-happy",
+                "Done: duplicate of #3",
+                None,
+                "Triage ✓ → Approval ○ → Build ○ → Review ○ → Land ○",
+            ),
+            (
+                status_run("build", "running"),
+                "rivet-work",
+                "Rivet is building the approved plan",
+                None,
+                "Triage ✓ → Approval ✓ → Build ● → Review ○ → Land ○",
+            ),
+            (
+                status_run("build", "fix-pending", f"opened {pr_url}"),
+                "rivet-wait",
+                "Rivet is waiting on your review",
+                f"Review [the pull request]({pr_url}).",
+                "Triage ✓ → Approval ✓ → Build ✓ → Review ● → Land ○",
+            ),
+            (
+                status_run("build", "blocked", "tests need a database"),
+                "rivet-alarm",
+                "Rivet is blocked",
+                "tests need a database",
+                "Triage ✓ → Approval ✓ → Build ✗ → Review ○ → Land ○",
+            ),
+            (
+                status_run("build", "failed", "crashed"),
+                "rivet-idle",
+                "Rivet hit an error and is retrying next hour",
+                None,
+                "Triage ✓ → Approval ✓ → Build ● → Review ○ → Land ○",
+            ),
+            (
+                status_run("review", "no-land", f"not_trivial {HEAD}"),
+                "rivet-wait",
+                "Rivet is waiting on your review",
+                "Review the pull request.",
+                "Build ✓ → Review ● → Land ○",
+            ),
+            (
+                status_run("review", "land", f"clean {HEAD}"),
+                "rivet-wait",
+                "Rivet cleared this pull request to land",
+                "Lands no sooner than 2026-10-22 12:30 if the land gate still passes. To stop it: add the `agent:hold` label",
+                "Build ✓ → Review ✓ → Land ●",
+            ),
+            (
+                status_run("review", "landed", "merged as m9"),
+                "rivet-happy",
+                "Done: merged as m9",
+                None,
+                "Build ✓ → Review ✓ → Land ✓",
+            ),
+            (
+                status_run("pr", "running"),
+                "patch-work",
+                "Patch is updating this pull request",
+                None,
+                "Update ● → Review ○ → Land ○",
+            ),
+            (
+                status_run("pr", "done", "rebased"),
+                "patch-happy",
+                "Done: rebased",
+                None,
+                "Update ✓ → Review ○ → Land ○",
+            ),
+        ]
+        for r, badge, headline, move, progress in cases:
+            with self.subTest(f"{r['kind']} {r['status']}"):
+                lines = body_of(r).splitlines()
+                self.assertEqual(lines[0], STATUS)
+                self.assertIn(f'src="{backlog.BADGE_URL}/{badge}.svg"', lines[1])
+                self.assertIn(f"**{headline}**", lines)
+                moves = [ln for ln in lines if ln.startswith("> **Your move:** ")]
+                if move:
+                    (said_,) = moves
+                    self.assertIn(move, said_)
+                else:
+                    self.assertEqual(moves, [])
+                self.assertIn(f"`{progress}`", lines)
+                self.assertIn('<br clear="left">', lines)
+                self.assertTrue(
+                    lines[-1].startswith(
+                        "<sub>Updated 2026-10-21 14:00 · attempt 1 of "
+                    )
+                )
+
+    def test_the_report_and_history_sit_in_their_own_details(self):
+        report = (
+            f"{STATUS}\n## Verdict\n {backlog.AGENT_MARKER}\n**Feedback read to:** x\n"
+        )
+        body = body_of(
+            status_run("triage", "needs-approval", "plan\nposted"),
+            status_run("build", "fix-pending", "x" * 300, key="o/r#5:build"),
+            report=report,
+        )
+        self.assertEqual(body.count(STATUS), 1)
+        self.assertNotIn(backlog.AGENT_MARKER, body)
+        self.assertIn(
+            "<details open><summary>Latest report</summary>\n\n## Verdict\n**Feedback read to:** x\n\n</details>",
+            body,
+        )
+        history = body.split("History (2 runs)</summary>\n\n")[1].split(
+            "\n\n</details>"
+        )[0]
+        first, second = history.splitlines()
+        self.assertEqual(
+            first, "- 10-21 12:00–12:30 triage: needs-approval — plan posted"
+        )
+        self.assertTrue(
+            second.startswith("- 10-21 12:00–12:30 build: fix-pending — xxx")
+        )
+        self.assertTrue(second.endswith("x…"))
+        self.assertIn("History (1 run)", body_of(status_run("pr", "running")))
+        self.assertNotIn("Latest report", body_of(status_run("pr", "running")))
+
+    def test_a_report_too_long_for_one_comment_is_cut(self):
+        body = body_of(status_run("review", "no-land"), report="y" * 100_000)
+        self.assertLess(len(body), 65_000)
+        self.assertIn("_Report cut to fit one comment._", body)
+        self.assertTrue(body.rstrip().endswith("this comment is edited in place</sub>"))
+
+    def test_a_status_comment_is_never_the_owners_reply_on_an_issue(self):
+        agent = raw_comment(f"{backlog.AGENT_MARKER}\nplan", "2026-10-21T09:00:00Z")
+        status = raw_comment(
+            f"\n{STATUS}\nstatus", "2026-10-21T11:00:00Z", "2026-10-21T12:00:00Z"
+        )
+        record = backlog.issue_record(raw_issue(agent, status), OWNER)
+        self.assertEqual(len(record["comments"]), 1)
+        self.assertFalse(backlog.owner_replied(record, [], OWNER))
+        reply = raw_comment("here is the repro", "2026-10-21T11:00:00Z")
+        record = backlog.issue_record(raw_issue(agent, status, reply), OWNER)
+        self.assertTrue(backlog.owner_replied(record, [], OWNER))
+
+    def test_a_status_comment_on_a_pull_request_is_never_feedback(self):
+        edited = "2026-10-21T13:00:00Z"
+        status = said(
+            ME, "2026-10-21T13:00:00Z", body=f"{STATUS}\nRivet", edited=edited
+        )
+        review = review_of(pull(comments=[status]))
+        self.assertEqual(
+            (review["feedback_at"], review["owner_feedback_at"], review["unresolved"]),
+            (None, None, 0),
+        )
+        fields = {
+            k: review[k] for k in ("feedback_at", "owner_feedback_at", "unresolved")
+        }
+        self.assertEqual(
+            rounds(plan(reviewable(agent_pr(**fields)), reviewed(), LATER)), []
+        )
+        self.assertEqual(
+            lands(plan(landable(agent_pr(**fields)), cleared(), DUE)), [12]
+        )
+        owner = review_of(pull(comments=[said(ME, edited)]))
+        fields = {
+            k: owner[k] for k in ("feedback_at", "owner_feedback_at", "unresolved")
+        }
+        self.assertEqual(
+            rounds(plan(reviewable(agent_pr(**fields)), reviewed(), LATER)),
+            [(REVIEW, 2)],
+        )
+        self.assertEqual(lands(plan(landable(agent_pr(**fields)), cleared(), DUE)), [])
+
+    def test_a_failed_github_call_prints_one_line_and_never_raises(self):
+        thread = {
+            "comment": None,
+            "runs": [status_run("pr", "running")],
+            "report": None,
+        }
+        for error in (
+            RuntimeError("gh api: HTTP 502\nbad gateway"),
+            SystemExit("gh missing"),
+            subprocess.CalledProcessError(1, "gh"),
+            ValueError("not json"),
+        ):
+            with (
+                self.subTest(repr(error)),
+                mock.patch.object(backlog, "gh", side_effect=error),
+                mock.patch("sys.stderr", new_callable=io.StringIO) as err,
+            ):
+                backlog.upsert_status("o/r", 7, thread, NOW)
+                (line,) = err.getvalue().splitlines()
+                self.assertTrue(
+                    line.startswith("status comment for o/r#7 not updated: ")
+                )
+        self.assertIsNone(thread["comment"])
+
+    def test_a_comment_is_edited_by_id_and_posted_again_once_it_is_gone(self):
+        thread = {"comment": 3, "runs": [status_run("pr", "running")], "report": None}
+        patched, calls = fake_gh(
+            {
+                "comments/3": gh_error("gh: Not Found (HTTP 404)"),
+                "issues/7/comments": {"id": 9},
+            }
+        )
+        with patched:
+            backlog.upsert_status("o/r", 7, thread, NOW)
+        self.assertEqual(thread["comment"], 9)
+        self.assertEqual(
+            [c.split(" -F ")[0] for c in calls],
+            [
+                "gh api -X PATCH repos/o/r/issues/comments/3",
+                "gh api repos/o/r/issues/7/comments",
+            ],
+        )
+        patched, calls = fake_gh({"comments/9": {"id": 9}})
+        with patched:
+            backlog.upsert_status("o/r", 7, thread, NOW)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(thread["comment"], 9)
+
+    def test_start_and_finish_post_then_edit_the_status_and_keep_the_report(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            cpath.write_text(json.dumps(snap(backlog_repo(issue(5)), cards=[asked(5)])))
+            cli(path, "plan", str(cpath), "th")
+            cli(path, "start", "o/r#5:triage", "task-1")
+            report = Path(d, "work", "o-r-5-triage.report.md")
+            report.write_text("## Plan\nship it\n")
+            cli(path, "finish", "o/r#5:triage", "needs-approval", "plan posted")
+            thread = json.loads(path.read_text())["threads"]["o/r#5"]
+            self.assertEqual(thread["comment"], 7)
+            self.assertEqual(thread["report"], "## Plan\nship it\n")
+            self.assertEqual(
+                [(r["key"], r["status"], r["note"]) for r in thread["runs"]],
+                [("o/r#5:triage", "needs-approval", "plan posted")],
+            )
+            self.assertFalse(report.exists())
+            calls = Path(d, "bin", "calls").read_text().splitlines()
+            self.assertEqual(
+                [c.split(" -F ")[0] for c in calls],
+                [
+                    "api repos/o/r/issues/5/comments",
+                    "api -X PATCH repos/o/r/issues/comments/7",
+                ],
+            )
 
 
 if __name__ == "__main__":
