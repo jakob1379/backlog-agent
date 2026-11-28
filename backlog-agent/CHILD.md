@@ -70,8 +70,11 @@ and the vocabulary in
    `pkgs/development/haskell-modules/hackage-packages.nix`: 16 MB, so without
    the raw header its content comes back empty; take the first `version =` after
    `^  ShellCheck = `. Then run `uvx <tool>@<version>` with `--python` set to
-   the hook's Python when the newest one crashes it. A `buildPythonApplication`
-   check phase in a repo with no `uv.lock` runs as
+   the hook's Python when the newest one crashes it. When the yamlfix hook is
+   what fails, `--log-failed` holds yamlfix's own diff, so it shows what to
+   change. A long plain `run:` line yamlfix rewrites stays untouched once it is
+   a `|-` block scalar (opigen#28). A `buildPythonApplication` check phase in a
+   repo with no `uv.lock` runs as
    `uv run --no-project --python <ver> --with <pkg>==<ver> … -- python -m pytest`,
    with the versions nixpkgs pins at the new rev.
 3. Clone into a fresh directory,
