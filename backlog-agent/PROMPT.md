@@ -62,7 +62,7 @@ skip it unless it is `overdue`:
 Record the outcome by passing the note on stdin, so no quoting is involved:
 
 ```
-$B finish '<key>' <status> - <<'NOTE_END'
+export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token); $B finish '<key>' <status> - <<'NOTE_END'
 <note>
 NOTE_END
 ```
@@ -70,7 +70,7 @@ NOTE_END
 For a `review` key, add the child's task id, in step 1 and in every wake-up:
 
 ```
-$B finish '<key>' --task <task id> <status> - <<'NOTE_END'
+export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token); $B finish '<key>' --task <task id> <status> - <<'NOTE_END'
 <note>
 NOTE_END
 ```
@@ -80,9 +80,17 @@ when you started it, or the entry's `task_id` from `running` that you gave to
 `task_status`. Leave `--task` out only when that id is empty or the child never
 started.
 
-Keep the status it prints, because `failed` can come back as `blocked`. For each
-pull request URL the note names, call `link_pull_request` with it, so the PR
-shows on this run's thread and not only on the child's.
+Every `$B start` and `$B finish` in this prompt edits the status comment on the
+task's issue or PR, when it has one, so run each one with
+`export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token);` in front and
+`allowed_domains: ["api.github.com"]`. When that edit fails, it prints
+`status comment for … not updated: …` on stderr and records the result anyway.
+Leave those lines out of the report, unless every status update this run failed:
+then put one of them under **Needs you**.
+
+Keep the status `finish` prints, because `failed` can come back as `blocked`.
+For each pull request URL the note names, call `link_pull_request` with it, so
+the PR shows on this run's thread and not only on the child's.
 
 A `review` child's note starts with the verdict's reason and the head commit it
 covers, and `finish` reads both from the note. Pass that note to `finish`
@@ -252,8 +260,7 @@ linking to its PR or repo:
   card to Approved, or turn it down with Canceled), and `needs-repro` or
   `unable-to-fix` (answer on the issue). A `fix-pending` finish needs nothing
   from the owner yet, because a review run takes its PRs next. A `review` finish
-  of `no-land` needs the owner (review the PR; the verdict comment on it says
-  why).
+  of `no-land` needs the owner (review the PR; its status comment says why).
 - **Failed to start**: the keys whose `delegate_task` failed, with the error.
 - **Cleaned up**: the keys in `stale_locks`.
 - **Cap**: when `announce_cap` is true, say the daily cap of 100 is reached and

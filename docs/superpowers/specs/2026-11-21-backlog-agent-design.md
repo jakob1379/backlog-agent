@@ -361,7 +361,8 @@ whether work is moving.
   bot's other comments, its replies and everything from other people are never
   read, because those are where someone else's text could ride along. The
   agent's own comments on a pull request start with its marker, so they never
-  count as the owner's.
+  count as the owner's. Neither does the status comment, which starts with
+  `<!-- backlog-agent:status -->`.
 - **Bugs and the origin of a run.** `plan` records the origin of each triage run
   in the ledger (`origins`). It is `owner` when the owner moved the card to
   Needs triage or wrote the new issue, `topup` when the top-up picked the issue,
@@ -391,8 +392,14 @@ whether work is moving.
   `RESULT: <outcome> — <note>`. The outcome is one of `fix-pending`,
   `needs-approval`, `needs-repro`, `unable-to-fix` or `not-actionable`, and the
   note names every pull request URL. Plans, questions and diagnoses go on the
-  GitHub issue as comments. A build child takes the agent's last plan comment as
-  its spec, opens one pull request per in-scope repo it changes, labels each
+  GitHub issue as comments. A triage, build, review or dependency `pr` child
+  also writes a report file before its result line, and `finish` shows it in the
+  thread's status comment
+  ([status comments design](2026-11-28-status-comments-design.md)): one comment
+  per issue or pull request, edited in place when a run starts and ends, showing
+  the scrubber's state, the owner's next move, the card's progress, the latest
+  report and the run history. A build child takes the agent's last plan comment
+  as its spec, opens one pull request per in-scope repo it changes, labels each
   `needs-review`, assigns the owner, and links each one from the issue. A child
   never merges a pull request from a triage or build run and never turns on
   auto-merge for it: only the land gate merges one without the owner. A review
@@ -474,9 +481,11 @@ whether work is moving.
     part of the change fits a safe class, no-land when unsure. The safe classes
     are narrow, so bug fixes with a failing test, refactors, tests and docs are
     what lands, and most feature work still waits for the owner. The child posts
-    one verdict comment. That comment and any label only show the verdict: the
-    gate reads the ledger, since anything with write access could forge a
-    comment or a label.
+    no verdict comment: it writes the verdict as its report, and `finish` shows
+    it in the pull request's status comment, whose `**Feedback read to:**` line
+    the next review run counts its answered feedback from. That comment and any
+    label only show the verdict: the gate reads the ledger, since anything with
+    write access could forge a comment or a label.
   - **Entry.** The review entry lives exactly as long as its pull request is
     open. Its finished status is `land`, `no-land` or `failed`. `finish` refuses
     an entry that is not running and stores `head`: the first 40-hex commit id
