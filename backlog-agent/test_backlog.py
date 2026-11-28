@@ -4024,7 +4024,7 @@ class LandCommandTest(unittest.TestCase):
 
     def test_a_verdict_with_a_value_missing_is_refused(self):
         for field, expected in [
-            ("head", "verdict is stale"),
+            ("head", "not offered"),
             ("started", "open feedback"),
             ("finished", "lands none"),
         ]:
@@ -4116,6 +4116,23 @@ class LandCommandTest(unittest.TestCase):
         )
         self.assertEqual(self.calls, [])
         self.assertEqual(self.ledger()["tasks"][REVIEW]["offered"], HEAD)
+
+    def test_an_offer_with_no_head_or_for_another_verdict_merges_nothing(self):
+        for name, offered, verdict, offer in [
+            ("no head", None, HEAD, None),
+            ("a newer verdict", HEAD, "b" * 40, HEAD),
+        ]:
+            with self.subTest(name):
+                L, c = cleared(), landable()
+                decided = plan(c, L, DUE)
+                L["tasks"][REVIEW].update(offered=offered, head=verdict)
+                decided["lands"][0]["head"] = offer
+                out = self.land(L, {}, c, decided)
+                self.assertEqual(
+                    out["refused"], [{"repo": "o/r", "pr": 12, "why": "not offered"}]
+                )
+                self.assertEqual(self.calls, [])
+                self.assertEqual(self.ledger().get("landed", []), [])
 
     def test_a_merge_cut_off_midway_is_already_on_record(self):
         with self.assertRaises(KeyboardInterrupt):

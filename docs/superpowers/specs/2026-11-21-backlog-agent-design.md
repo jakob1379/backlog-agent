@@ -384,12 +384,12 @@ whether work is moving.
     the owner: a conversation comment, a review body or a review thread comment.
     By a bot, an author GitHub's GraphQL API types as `Bot`: the first comment
     of a review thread, and nothing else. Anything else is not feedback: it
-    starts nothing, blocks nothing and never reaches a child. Only its number
-    can matter: a pull request with more comments than one read holds is held,
-    whoever wrote them. The owner's edit of their own comment counts as new
-    feedback from the time of the edit. A bot's edit does not. That covers every
+    starts nothing, blocks nothing and never reaches a child. That covers every
     other person, a bot's conversation comments and review bodies, and a bot's
-    replies inside a thread. Every comment and thread reply a child posts on a
+    replies inside a thread. Only its number can matter: a pull request with
+    more comments than one read holds is held, whoever wrote them. The owner's
+    edit of their own comment counts as new feedback from the time of the edit.
+    A bot's edit does not. Every comment and thread reply a child posts on a
     pull request starts with the marker, so the agent's own text is never
     feedback. The one exception is a `@dependabot` command on a Dependabot pull
     request, which stays the bare command: feedback is read only on an agent
@@ -545,47 +545,48 @@ whether work is moving.
   - **Landing.** After `apply`, the dispatcher runs
     `backlog.py land <candidates> <plan>` when `lands` is not empty. Under the
     ledger lock, and for each entry of `lands`, the command first checks that
-    the entry's head is the head the ledger holds as `offered`. If not, the plan
-    is not the one that made the offer, and the pull request is refused as
-    `not offered` with nothing read. The command then clears the entry's
-    `offered` and reads again what the gate reads: the board, the repo's topics
-    and default branch, that branch's required checks, the reverts of the repo's
-    landings, and last the pull request. It runs the gate on those fresh reads,
-    so a card the owner moved, a land topic the owner removed, a default branch
-    that moved and a new revert all hold the pull request. A revert found here
-    is marked in the ledger, so the pause lasts. Only the linked issues and the
-    other open pull requests still come from the plan's snapshot. When one of
-    these reads fails, or its reply cannot be used, the command merges nothing
-    for that pull request, reports it as refused with the error's last line and
-    goes on to the next one. When the gate now holds it, the command reports it
-    as refused with that reason. Both leave `offered` cleared, so the next plan
-    decides again. Otherwise it stores the head on the entry as `tried`, records
-    the landing with no merge commit and saves the ledger, so a command cut off
-    during the merge still counts toward the daily limit and is not tried again.
-    It then runs
-    `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` once,
-    with no retry, and reads the pull request once more. When the pull request
-    is merged and its head is the verdict's head, the record gets the merge
-    commit. When that read fails, or its reply cannot be used, and the merge
-    command exited 0, the record stays with no merge commit, so the daily limit
-    and the pause still count it. Otherwise the merge was not made and the
+    the entry has a head, and that it is both the head the ledger holds as
+    `offered` and the verdict's head. If not, the plan is not the one that made
+    the offer, and the pull request is refused as `not offered` with nothing
+    read. The command then clears the entry's `offered` and reads again what the
+    gate reads: the board, the repo's topics and default branch, that branch's
+    required checks, the reverts of the repo's landings, and last the pull
+    request. It runs the gate on those fresh reads, so a card the owner moved, a
+    land topic the owner removed, a default branch that moved and a new revert
+    all hold the pull request. A revert found here is marked in the ledger, so
+    the pause lasts. Only the linked issues and the other open pull requests
+    still come from the plan's snapshot. When one of these reads fails, or its
+    reply cannot be used, the command merges nothing for that pull request,
+    reports it as refused with the error's last line and goes on to the next
+    one. When the gate now holds it, the command reports it as refused with that
+    reason. Both leave `offered` cleared, so the next plan decides again.
+    Otherwise it stores the head on the entry as `tried`, records the landing
+    with no merge commit and saves the ledger, so a command cut off during the
+    merge still counts toward the daily limit and is not tried again. It then
+    runs `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>`
+    once, with no retry, and reads the pull request once more. When the pull
+    request is merged and its head is the verdict's head, the record gets the
+    merge commit. When that read fails, or its reply cannot be used, and the
+    merge command exited 0, the record stays with no merge commit, so the daily
+    limit and the pause still count it. Otherwise the merge was not made and the
     record is removed. Anything but a confirmed merge is reported as refused
     with the error's last line, and `tried` stays the head, so rule 17 holds the
-    pull request until it has a new head, also when `land` runs again with the
-    same plan. A `land` command that never ran leaves `offered` set, so rule 17
-    holds the pull request then too. The command saves the ledger after each
-    pull request and prints
+    pull request until it has a new head. A `land` that runs again with the same
+    plan is refused as `not offered`, since the first run cleared the offer. A
+    `land` command that never ran leaves `offered` set, so rule 17 holds the
+    pull request then too. The command saves the ledger after each pull request
+    and prints
     `{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
   - **Why not auto-merge.** `gh pr merge --auto` merges at once when nothing
     required is pending, and an armed auto-merge survives later pushes, so it
     can merge a head no verdict covers. The gate merges directly, pinned to the
     verdict's head.
   - **Ledger.** `landed` is a list of `{"repo", "pr", "head", "sha", "at"}`, one
-    per merge the gate made, where `sha` is the merge commit, or `null` for a
-    landing recorded with no merge commit. An entry gets `"reverted": true` once
-    a revert is seen, and `"reverted": false` once the owner lifts the pause. An
-    entry is kept while `reverted` is true. Any other entry is dropped once it
-    is older than 60 days.
+    per merge the gate made or was cut off making, where `sha` is the merge
+    commit, or `null` for a landing recorded with no merge commit. An entry gets
+    `"reverted": true` once a revert is seen, and `"reverted": false` once the
+    owner lifts the pause. An entry is kept while `reverted` is true. Any other
+    entry is dropped once it is older than 60 days.
   - **Pause after a revert.** `collect` reads the default branch's commits,
     every page of them, since the repo's oldest landing that has no `reverted`
     value, and `land` reads them the same way. A landing marked reverted, and

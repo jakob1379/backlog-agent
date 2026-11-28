@@ -59,10 +59,10 @@ get review runs and only these can land.
   thread, and nothing else.
 
 Anything else is not feedback: it starts nothing, blocks nothing and never
-reaches a child. Only its number can matter: a read that could not hold every
-comment holds the pull request, whoever wrote them. That covers every other
-person, a bot's conversation comments and review bodies, and a bot's replies
-inside a thread.
+reaches a child. That covers every other person, a bot's conversation comments
+and review bodies, and a bot's replies inside a thread. Only its number can
+matter: a read that could not hold every comment holds the pull request, whoever
+wrote them.
 
 **Snapshot additions** (`collect`):
 
@@ -109,14 +109,15 @@ creation only. `collect` calls `pr_detail` for each agent pull request, and
   `tried`: the head it last ran the merge command for. Its `attempts` is the
   number of review runs the pull request has had.
 - `landed`: a list of `{"repo", "pr", "head", "sha", "at"}`, one per merge the
-  gate made, `sha` being the merge commit, or `None` for a landing recorded with
-  no merge commit, with `"reverted": true` once a revert is seen. `plan` sets a
-  reverted entry's `reverted` to false once the repo is in the snapshot and its
-  `land` is false, so taking the topic off for one run and putting it back ends
-  the pause. That entry still counts toward the daily limit of its day, and the
-  same revert does not pause the repo again. A repo that is missing from the
-  snapshot keeps its pause. An entry is kept while `reverted` is true, and any
-  other entry is dropped once it is older than `LAND_RECORD`.
+  gate made or was cut off making, `sha` being the merge commit, or `None` for a
+  landing recorded with no merge commit, with `"reverted": true` once a revert
+  is seen. `plan` sets a reverted entry's `reverted` to false once the repo is
+  in the snapshot and its `land` is false, so taking the topic off for one run
+  and putting it back ends the pause. That entry still counts toward the daily
+  limit of its day, and the same revert does not pause the repo again. A repo
+  that is missing from the snapshot keeps its pause. An entry is kept while
+  `reverted` is true, and any other entry is dropped once it is older than
+  `LAND_RECORD`.
 
 **Task object**:
 `{"key": "o/r#12:review", "kind": "review", "repo": "o/r", "pr": 12, "head": "<head commit>", "round": 1}`.
@@ -276,21 +277,21 @@ directories or its file name is one of these:
 ledger contract says, walks the review entries with status `land` oldest verdict
 first, stores `offered` on each one it puts in `lands`, and returns `lands` and
 `greenlit`. Add the `land` command, under the ledger lock. For each entry of
-`lands`: refuse it as `not offered` when its `head` is not the entry's
-`offered`, else clear the entry's `offered`, then read again what the gate reads
-outside the pull request, on a copy of the repo's record: the board
-(`linear.board()`), the repo's topics and default branch (`repos/<repo>`) for
-`land` and `default_branch`, the default branch's required checks for `main`,
-and `reverted_prs` for the repo's landings that have no `reverted` value,
-marking the ones it returns as reverted in the ledger. Read the pull request
-last with `pr_detail`, and run `land_block` on the fresh records. The linked
-issues and the other open pull requests stay those of the snapshot. When a read
-fails or its reply cannot be used (the error kinds in `UNREAD`, or
-`SystemExit`), merge nothing for that pull request, report it as refused with
-the error's last line and go on to the next one. When the gate now holds it,
-report it as refused with that reason. Both leave `offered` cleared, so the next
-plan decides again. Otherwise store the head on the entry as `tried`, append to
-`landed` with no merge commit and save the ledger, then run
+`lands`: refuse it as `not offered` when its `head` is missing or is not both
+the entry's `offered` and the entry's `head`, else clear the entry's `offered`,
+then read again what the gate reads outside the pull request, on a copy of the
+repo's record: the board (`linear.board()`), the repo's topics and default
+branch (`repos/<repo>`) for `land` and `default_branch`, the default branch's
+required checks for `main`, and `reverted_prs` for the repo's landings that have
+no `reverted` value, marking the ones it returns as reverted in the ledger. Read
+the pull request last with `pr_detail`, and run `land_block` on the fresh
+records. The linked issues and the other open pull requests stay those of the
+snapshot. When a read fails or its reply cannot be used (the error kinds in
+`UNREAD`, or `SystemExit`), merge nothing for that pull request, report it as
+refused with the error's last line and go on to the next one. When the gate now
+holds it, report it as refused with that reason. Both leave `offered` cleared,
+so the next plan decides again. Otherwise store the head on the entry as
+`tried`, append to `landed` with no merge commit and save the ledger, then run
 `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` as one
 plain `subprocess.run`, with no retry and no reading of its output, then read
 the pull request once more. When its `state` is `MERGED` and its head is the
@@ -298,14 +299,14 @@ verdict's head, set the record's merge commit. When that read fails (the error
 kinds in `UNREAD`) and the merge command exited 0, keep the record with no merge
 commit, so the daily limit and the pause still count it, and report it as
 refused. Otherwise remove the record. `tried` stays the head in every case, so
-rule 17 holds the pull request until a new head, also in a second `land` with
-the same plan. Report anything but a confirmed merge as refused with the error's
-last line. Save the ledger after each pull request. Tests through `plan`, one
-per rule of the gate, and the CLI with `gh` faked: a head that moved after the
-plan is refused, a card, a land topic, a default branch or a revert that changed
-after the plan is refused too, a failed merge is not tried again by the next
-plan or by a second `land` with the same plan, and a `land` that never ran
-leaves the pull request held.
+rule 17 holds the pull request until a new head. A second `land` with the same
+plan is refused as `not offered`. Report anything but a confirmed merge as
+refused with the error's last line. Save the ledger after each pull request.
+Tests through `plan`, one per rule of the gate, and the CLI with `gh` faked: a
+head that moved after the plan is refused, a card, a land topic, a default
+branch or a revert that changed after the plan is refused too, a failed merge is
+not tried again by the next plan or by a second `land` with the same plan, and a
+`land` that never ran leaves the pull request held.
 
 ### T4 child-prompt: the `review` section of `CHILD.md`
 

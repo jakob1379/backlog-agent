@@ -943,7 +943,7 @@ def land(
 ) -> dict:
     task = {"repo": name, "pr": number}
     entry = ledger["tasks"].get(f"{name}#{number}:review")
-    if not entry or entry.get("offered") != head:
+    if not (entry and head and entry.get("offered") == entry.get("head") == head):
         return {**task, "why": "not offered"}
     entry["offered"] = None
     owner = candidates.get("owner", "")

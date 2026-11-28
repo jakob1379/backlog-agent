@@ -483,7 +483,10 @@ answered and the fixes still pushed.
    current head. Read
    `gh pr view <pr> --json baseRefName,headRefName,body,closingIssuesReferences`:
    `<base>` below is `baseRefName`, and the issues are the ones the body closes
-   or links.
+   or links. If `<base>` is not the repo's default branch
+   (`gh repo view <repo> --json defaultBranchRef`), the verdict is no-land
+   `unclear_intent`: the land gate only merges onto the default branch, so a
+   review against another base clears nothing.
 2. **Trust.** Read the PR's feedback only through this filter, with `repo` split
    into `<owner>` and `<name>`, so nothing else reaches you:
 
