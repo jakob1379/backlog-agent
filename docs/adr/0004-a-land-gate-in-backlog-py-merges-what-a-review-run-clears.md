@@ -88,8 +88,9 @@ population of diffs: a trained risk score and its percentiles.
   that one actor makes a few minutes apart into one row, which keeps the first
   status the card left and the last status it reached. And Linear keeps no row
   for a move that the creator of a card makes in its first minutes. So the gate
-  reads the top-up's start from a move by the agent out of Backlog, and a card
-  with a move that Linear did not keep gets no act.
+  reads the top-up's start from a move by the agent to Needs triage and also
+  from a move by the agent out of Backlog, and a card with a move that Linear
+  did not keep gets no act.
 - A private repo on a GitHub plan without rulesets has no required checks to
   read. The gate holds every pull request there as `checks none`.
 - The safe classes are narrow, so most feature work still waits for the owner.
