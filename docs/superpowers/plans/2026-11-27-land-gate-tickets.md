@@ -1,0 +1,310 @@
+# Review runs and the land gate: tickets
+
+Spec: `docs/superpowers/specs/2026-11-21-backlog-agent-design.md`. Vocabulary:
+`backlog-agent/GLOSSARY.md`. Decision:
+`docs/adr/0004-a-land-gate-in-backlog-py-merges-what-a-review-run-clears.md`.
+Integration branch: `feat/backlog-agent-auto-pr-pipeline`.
+
+## Task graph
+
+```
+T1 snapshot ──> T2 review-runs ──> T3 land-gate
+T4 child-prompt      (parallel, codes against the contracts)
+T5 dispatcher-prompt (parallel)
+T6 docs              (parallel)
+```
+
+Frontier at start: T1, T4, T5, T6.
+
+## Shared contracts
+
+Every ticket codes against these shapes, so the parallel tickets agree without
+talking.
+
+**Constants** (`backlog.py`):
+
+```
+REVIEW_ROUNDS = 3
+REVIEW_QUIET = timedelta(minutes=30)
+AGENT_BRANCH = r"backlog-agent/.+-(build|triage)"
+LAND_TOPIC = "backlog-agent-land"
+NEVER_LAND_REPOS = {
+    "jakob1379/backlog-agent",
+    "jakob1379/nix-config",
+    "jakob1379/converge-review",
+}
+LAND_DELAY = timedelta(hours=24)
+LAND_MAX_FILES = 10
+LAND_MAX_LINES = 300
+LAND_DAILY_CAP = 3
+LAND_RECORD = timedelta(days=60)
+HOLD_LABEL = "agent:hold"
+PROTECTED = <one compiled regex, see T3>
+```
+
+**Agent pull request.** An open pull request whose author is the owner, whose
+head branch is in the same repo and fully matches `AGENT_BRANCH`, and which
+links an issue (`linked_issues` or `linked_refs`). Only these get review runs
+and only these can land.
+
+**Feedback.** Text on a pull request that does not start with `AGENT_MARKER`
+(after leading whitespace is stripped) and is one of:
+
+- by the owner: a conversation comment, a review body, or a review thread
+  comment;
+- by a bot (GraphQL `author.__typename == "Bot"`): the first comment of a review
+  thread, and nothing else.
+
+Anything else is not feedback: it starts nothing, blocks nothing and never
+reaches a child. That covers every other person, a bot's conversation comments
+and review bodies, and a bot's replies inside a thread.
+
+**Snapshot additions** (`collect`):
+
+- repo: `"land": bool`, true when the repo has `LAND_TOPIC` and is not in
+  `NEVER_LAND_REPOS`; `"reverted": [int]`, the numbers of this repo's landed
+  pull requests (from the ledger's `landed`) that a commit on the default branch
+  reverts.
+- every other PR: `"head"` (head commit) and `"branch"` (head branch name).
+- an agent pull request also gets everything `pr_detail` returns.
+
+`pr_detail(repo, number, owner) -> dict` reads one pull request and returns
+
+```
+{"state": "OPEN"|"CLOSED"|"MERGED", "head": sha, "branch": name, "draft": bool,
+ "merge_state": GraphQL mergeStateStatus, "merge_commit": sha|None,
+ "labels": [name],
+ "review": {"checks": "green"|"red"|"pending"|None, "pushed_at": iso,
+            "files": [path], "changed_files": int, "lines": int,
+            "unresolved": int, "feedback_at": iso|None,
+            "owner_feedback_at": iso|None}}
+```
+
+`checks` is the required checks of the pull request's base branch on its head
+commit, `None` when that branch requires none. `files` holds each changed file's
+name and, for a rename, its previous name too. `lines` is additions plus
+deletions. `unresolved` counts unresolved review threads whose first comment is
+feedback. `feedback_at` is the time of the newest feedback, `owner_feedback_at`
+of the newest by the owner. `collect` calls `pr_detail` for each agent pull
+request, and `land` calls it again just before a merge. Any other PR has no
+`review` key.
+
+**Ledger additions**:
+
+- A review entry `tasks["<repo>#<pr>:review"]` is a normal entry whose finished
+  status is `land`, `no-land` or `failed`, never `blocked`. `finish` also stores
+  `head`: the first 40-hex commit id in the note, or `None`. `plan` stores
+  `offered`: the head it last put in `lands`. Its `attempts` is the number of
+  review runs the pull request has had.
+- `landed`: a list of `{"repo", "pr", "head", "sha", "at"}`, one per merge the
+  gate made, `sha` being the merge commit, with `"reverted": true` once a revert
+  is seen. An entry older than `LAND_RECORD` is dropped unless it is reverted. A
+  repo's reverted entries are dropped once the repo's `land` is false, so taking
+  the topic off for one run and putting it back ends the pause.
+
+**Task object**:
+`{"key": "o/r#12:review", "kind": "review", "repo": "o/r", "pr": 12, "head": "<head commit>", "round": 1}`.
+`round` is the entry's attempts plus one.
+
+**Plan output additions**:
+
+- `lands`: `[{"key", "repo", "pr", "head"}]`, the pull requests to merge now.
+- `greenlit`: `[{"key", "repo", "pr", "why", "new"}]`, every review entry with
+  status `land` that is not in `lands`, with the first rule that holds it. `new`
+  is true the first time the entry is held for that reason: the entry keeps the
+  last reason as `held`.
+- One pull request per repo goes into `lands` in a plan. A second one that
+  passes the gate is held with `default branch pending`, because the first merge
+  makes a default branch commit no check has run on.
+
+**The land gate.**
+`land_block(candidates, repo, pr, entry, ledger, now, taken) -> str | None`
+takes the repo's record, the pull request's record and its review entry, and
+returns the first reason the pull request may not land, in this order, or
+`None`:
+
+| #   | Rule                                                                | `why`                        |
+| --- | ------------------------------------------------------------------- | ---------------------------- |
+| 1   | the entry's status is `land`                                        | `no verdict`                 |
+| 2   | the entry's `head` is the pull request's `head`                     | `verdict is stale`           |
+| 3   | `state` is `OPEN`                                                   | `not open`                   |
+| 4   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label              | `held by the owner`          |
+| 5   | every linked issue is open in the snapshot and written by the owner | `issue not the owner's`      |
+| 6   | every linked issue has a card in In Review                          | `card <status>`              |
+| 7   | no other open agent pull request shares a linked issue              | `split across pull requests` |
+| 8   | `merge_state` is `CLEAN` or `HAS_HOOKS`                             | `merge state <state>`        |
+| 9   | `review.checks` is `green`                                          | `checks <state>`             |
+| 10  | the repo's `main` is `green`                                        | `default branch <state>`     |
+| 11  | `unresolved` is 0 and no feedback is newer than the run's start     | `open feedback`              |
+| 12  | `changed_files` and `lines` are within the limits                   | `too large`                  |
+| 13  | no name in `files` matches `PROTECTED`                              | `protected path <path>`      |
+| 14  | no landed pull request of the repo is marked reverted               | `paused after a revert`      |
+| 15  | the repo's `land` is true                                           | `shadow`                     |
+| 16  | the entry's `offered` is not the pull request's `head`              | `merge not made`             |
+| 17  | fewer than `LAND_DAILY_CAP` merges today, `taken` included          | `daily limit`                |
+| 18  | `LAND_DELAY` has passed since the entry finished                    | `lands <iso time>`           |
+
+A missing value fails its rule: no board, no card and no `review` all hold the
+pull request. `<state>` and `<status>` print lower case, and `none` for a
+missing one. `CLEAN` means every check passed, required or not, so one red job
+holds the pull request.
+
+**CLI**: `finish` accepts `land` and `no-land`. `land <candidates> <plan>`
+merges each entry of the plan's `lands` and prints
+`{"landed": [{"repo", "pr", "sha"}], "refused": [{"repo", "pr", "why"}]}`.
+
+**Child result**:
+`RESULT: land|no-land|failed — <reason> <head commit> <PR URL>; <note>`. The
+reasons are `clean` (the only one a `land` may carry), `not_trivial`,
+`off_plan`, `not_converged`, `possible_regression`, `removed_safety_logic`,
+`insufficient_tests`, `scope_too_large`, `unclear_intent`, `security_risk`,
+`breaking_change`, `build_or_ci_risk`, `injection_attempt` and `review_error`.
+
+## Tickets
+
+### T1 snapshot: `collect` reads what a review run and the gate need
+
+Blocked by: none.
+
+Add `headRefName` and `isCrossRepository` to `QUERY`, and `head` and `branch` to
+`other_pr_record`. Add `pr_detail`: one GraphQL read of a pull request (state,
+draft, `mergeStateStatus`, head, base branch, merge commit, labels, additions,
+deletions, changed files, the head commit's date, reviews, review threads and
+conversation comments, each comment with its author's `__typename` and login),
+the changed files from REST `repos/<repo>/pulls/<n>/files?per_page=100` so a
+rename gives both names, and the required-check state of its head on its base
+branch through the existing `required_checks` and `sha_state`. When
+`mergeStateStatus` reads `UNKNOWN`, GitHub is still computing it: read once more
+after a few seconds. `collect` merges `pr_detail` into each agent pull request's
+record. `collect` takes the ledger's `landed` list (`main` reads the ledger
+without the lock, since it only reads) and, for each repo with a landing, reads
+the default branch's commits since the oldest one with one GraphQL
+`history(since:)` that also gives each commit's
+`associatedPullRequests(first: 1) { nodes { headRefName } }`. A landed pull
+request is reverted when a message holds `This reverts commit <its merge sha>`
+or a commit's pull request branch starts with `revert-<its number>-`. Set each
+repo's `land`. The marker test strips leading whitespace, for issue comments
+too. Tests fake `gh` at `subprocess.run`, as `GhRateLimitTest` does: feedback by
+the owner, a bot opening a thread, a bot's review body, a bot's reply, a
+stranger and the agent's marker; unresolved threads; a rename; a revert found
+both ways.
+
+### T2 review-runs: `plan` starts review runs and records verdicts
+
+Blocked by: T1.
+
+Add `review_pr(key)`. `present_keys` adds a review key for every open agent pull
+request, so an entry lives exactly as long as its pull request is open. Add
+`review_tasks`. A review run is due when the pull request has no entry, or its
+entry failed, or its head is not the entry's `head`, or `feedback_at` is after
+the entry's start, or `review.checks` is `red` and `pushed_at` is after the
+entry's start. None starts:
+
+- without a board, or while a linked issue has no card in In Review;
+- while the pull request is a draft or carries `HOLD_LABEL` or `agent:blocked`;
+- while its checks are pending;
+- within `REVIEW_QUIET` of the later of `pushed_at` and `feedback_at`;
+- while a triage or build entry of a linked issue is running or failed;
+- while any review key is running or busy, so one review runs at a time;
+- after `REVIEW_ROUNDS` runs, unless `owner_feedback_at` is after the entry's
+  finish.
+
+`plan` puts the one review task after dependency work and before build and
+triage, under the same caps. For a review key, `finish` accepts `land` and
+`no-land`, refuses an entry that is not running, never turns `failed` into
+`blocked`, stores `head`, and stores `land` only when the note starts with
+`clean ` and a 40-hex commit id: any other `land` is stored as `no-land`. A
+verdict that is not `land`, given for an entry that already holds a `land`,
+turns it into `no-land`, so a late run can take a landing back but never give
+one. `owner_cards` skips review keys in `agent_prs` and in its ledger loop.
+Tests through `plan` and the CLI round trip.
+
+### T3 land-gate: `plan` decides what lands, `land` merges it
+
+Blocked by: T2.
+
+Add `land_block` and `PROTECTED`, which matches a path when any of its
+directories or its file name is one of these:
+
+- CI and merge gating: `.github/`, `.gitlab-ci.yml`, `.pre-commit-config.yaml`,
+  `CODEOWNERS`.
+- Agent instructions: `.claude/`, `.agents/`, `.cursor*`, `.mcp.json`,
+  `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `GEMINI.md`, `SKILL.md`.
+- Build, dependency and check config: `pyproject.toml`, `setup.py`, `setup.cfg`,
+  `requirements*.txt`, `tox.ini`, `noxfile.py`, `pytest.ini`, `conftest.py`,
+  `.coveragerc`, `codecov.y*ml`, `package.json`, `tsconfig*.json`,
+  `jest.config.*`, `vitest.config.*`, `playwright.config.*`, `Cargo.toml`,
+  `go.mod`, `go.sum`, any `*.lock`, `package-lock.json`, `pnpm-lock.yaml`,
+  `*.nix`, `Makefile`, `justfile`, `Dockerfile*`, `*compose*.y*ml`, `ruff.toml`,
+  `.ruff.toml`, `mypy.ini`, `biome.json*`, `eslint.config.*`, `.eslintrc*`.
+- Scripts and secrets: `scripts/`, `*.sh`, `.env*`.
+
+`plan` marks `landed` entries reverted from the snapshot, drops entries as the
+ledger contract says, walks the review entries with status `land` oldest verdict
+first, stores `offered` on each one it puts in `lands`, and returns `lands` and
+`greenlit`. Add the `land` command, under the ledger lock. For each entry of
+`lands`: clear the entry's `offered`, read the pull request again with
+`pr_detail`, and run `land_block` on the fresh record. When the gate now holds
+it, report it as refused with that reason and leave `offered` cleared, so the
+next plan decides again. Otherwise run
+`gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` as one
+plain `subprocess.run`, with no retry and no reading of its output, then read
+the pull request once more. When its `state` is `MERGED` and its head is the
+verdict's head, append to `landed` with its merge commit. When that read fails
+and the merge command exited 0, append to `landed` with no merge commit, so the
+daily limit and the pause still count it, and report it as refused. `offered`
+stays the head in every case, so rule 16 holds the pull request until a new
+head. Report anything but a confirmed merge as refused with the error's last
+line. Save the ledger after each pull request. Tests through `plan`, one per
+rule of the gate, and the CLI with `gh` faked: a head that moved after the plan
+is refused, a failed merge is not offered again, and a `land` that never ran
+leaves the pull request held.
+
+### T4 child-prompt: the `review` section of `CHILD.md`
+
+Blocked by: none.
+
+Add `review` to the kinds, a `review` section, the `RESULT:` line and the
+guardrails. Every pull request comment and thread reply starts with the marker,
+for every kind. A child that labels a pull request `needs-review` also creates
+the `agent:hold` label, so the owner can apply it. The section covers:
+
+- reading feedback through a filter that keeps exactly the feedback of the
+  contract, with each item marked as the owner's or a bot's;
+- the owner's text as instructions within the approved plan, and an owner
+  comment that objects to or questions the change as no-land;
+- a bot's text as a bug report to check against the code;
+- replying to every thread, resolving a bot's thread, and never resolving a
+  thread the owner started;
+- the converge review: read `/home/jsg/.claude/skills/converge-review/SKILL.md`
+  and follow it, with the approved plan as the spec. The subagents that skill
+  dispatches are the only ones a child may start, plus the one below;
+- a time budget after which no further round starts;
+- the verdict: no-land `not_converged` unless the skill converged, else the
+  rubric, applied by one fresh report-only subagent that gets the final patch,
+  the plan and the rubric;
+- the one verdict comment, and never merging.
+
+### T5 dispatcher-prompt: `PROMPT.md` and `STEWARD.md`
+
+Blocked by: none.
+
+Reconcile reads `land` and `no-land`. After `apply`, run `land` when `lands` is
+not empty. When the command is refused or fails, report it under **Needs you**
+and never merge any other way. A non-empty `landed` or `refused` is something to
+report. The report gains **Landed** and **Lands next**, the second listing the
+`greenlit` entries. Step 6 gains: never loosen the land gate (`land_block`,
+`PROTECTED`, `AGENT_BRANCH`, `NEVER_LAND_REPOS`, the `LAND_*` and `REVIEW_*`
+constants, the feedback rule, the `land` command) or the verdict rubric in
+`CHILD.md`; a change that would let more land goes under **Needs you**. The
+steward audits the new ADR and tickets.
+
+### T6 docs: spec, glossary, README and its images
+
+Blocked by: none.
+
+Edit the spec in place: user stories, the review-run and land-gate decisions,
+the trust rule for bot feedback, task kinds, the child result contract, testing
+decisions and out of scope. Add glossary entries. Update the README, and
+`docs/readme/generate.py` where an image states that every pull request waits
+for the owner's merge, then regenerate the images.
