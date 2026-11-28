@@ -387,13 +387,13 @@ whether work is moving.
     starts nothing, blocks nothing and never reaches a child. That covers every
     other person, a bot's conversation comments and review bodies, and a bot's
     replies inside a thread. Only its number can matter: a pull request with
-    more comments than one read holds is held, whoever wrote them. The owner's
-    edit of their own comment counts as new feedback from the time of the edit.
-    A bot's edit does not. Every comment and thread reply a child posts on a
-    pull request starts with the marker, so the agent's own text is never
-    feedback. The one exception is a `@dependabot` command on a Dependabot pull
-    request, which stays the bare command: feedback is read only on an agent
-    pull request.
+    more comments than one read holds has open feedback and does not land,
+    whoever wrote them. The owner's edit of their own comment counts as new
+    feedback from the time of the edit. A bot's edit does not. Every comment and
+    thread reply a child posts on a pull request starts with the marker, so the
+    agent's own text is never feedback. The one exception is a `@dependabot`
+    command on a Dependabot pull request, which stays the bare command: feedback
+    is read only on an agent pull request.
   - **When.** A review run is due when the pull request has no review entry,
     when its entry failed, when its head commit is not the one the entry
     records, when feedback is newer than the entry's start, or when its required
@@ -494,13 +494,14 @@ whether work is moving.
   request is held when the issue has no card in In Review, and when any of its
   cards is in an open status other than In Review. `<status>` is the status of
   the card that holds it. Rule 8 means a change split across several open pull
-  requests waits for the owner. It also holds every pull request while a repo
-  has more open pull requests than the 50 `collect` reads, since a sibling could
-  be past the cut. Rule 12 also holds a pull request with feedback the read
-  could not hold in one page: more than 100 conversation comments, reviews or
-  review threads, or a thread with more than 100 comments. Such feedback counts
-  as unresolved, and it is not paged. Rule 17 holds a head commit the entry
-  records as `offered` or as `tried`.
+  requests waits for the owner. It also holds every pull request, as
+  `pull requests not all read`, while a repo has more open pull requests than
+  the 50 `collect` reads, since a sibling could be past the cut. Rule 12 also
+  holds a pull request with feedback the read could not hold in one page: more
+  than 100 conversation comments, reviews or review threads, or a thread with
+  more than 100 comments. Such feedback counts as unresolved, and it is not
+  paged. Rule 17 holds a head commit the entry records as `offered` or as
+  `tried`.
 
   - **Constants.** `REVIEW_ROUNDS` is 3, `REVIEW_QUIET` 30 minutes, `LAND_DELAY`
     24 hours, `LAND_MAX_FILES` 10, `LAND_MAX_LINES` 300, `LAND_DAILY_CAP` 3 and

@@ -841,8 +841,10 @@ def land_block(
         and set(refs) & set(issue_links(r["repo"], other))
         for r in candidates["repos"]
         for other in r.get("other_prs", [])
-    ) or any(r.get("prs_cut", True) for r in candidates["repos"]):
+    ):
         return "split across pull requests"
+    if any(r.get("prs_cut", True) for r in candidates["repos"]):
+        return "pull requests not all read"
     if pr.get("merge_state") != "CLEAN":
         return f"merge state {lower(pr.get('merge_state'))}"
     if review.get("checks") != "green":
@@ -939,7 +941,12 @@ def land_work(
 
 
 def land(
-    candidates: dict, ledger: dict, name: str, number: int, head: str, now: datetime
+    candidates: dict,
+    ledger: dict,
+    name: str,
+    number: int,
+    head: str | None,
+    now: datetime,
 ) -> dict:
     task = {"repo": name, "pr": number}
     entry = ledger["tasks"].get(f"{name}#{number}:review")
@@ -1868,7 +1875,9 @@ def locked(args: argparse.Namespace) -> None:
         result = {"landed": [], "refused": []}
         try:
             for t in json.loads(args.plan.read_text())["lands"]:
-                outcome = land(candidates, ledger, t["repo"], t["pr"], t["head"], now)
+                outcome = land(
+                    candidates, ledger, t["repo"], t["pr"], t.get("head"), now
+                )
                 result["refused" if "why" in outcome else "landed"].append(outcome)
                 save_ledger(LEDGER, ledger)
         finally:

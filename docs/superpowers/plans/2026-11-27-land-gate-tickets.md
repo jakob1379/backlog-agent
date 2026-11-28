@@ -149,7 +149,7 @@ returns the first reason the pull request may not land, in this order, or
 | 5   | not a draft, no `HOLD_LABEL`, no `agent:blocked` label                              | `held by the owner`           |
 | 6   | every linked issue is open in the snapshot, written by the owner and not `by_agent` | `issue not the owner's`       |
 | 7   | every linked issue has a card in In Review and no card in another open status       | `card <status>`               |
-| 8   | no other open agent pull request shares a linked issue, and no repo's list is cut   | `split across pull requests`  |
+| 8   | no other open agent pull request shares a linked issue                              | `split across pull requests`  |
 | 9   | `merge_state` is `CLEAN`                                                            | `merge state <state>`         |
 | 10  | `review.checks` is `green`                                                          | `checks <state>`              |
 | 11  | the repo's `main` is `green`                                                        | `default branch <state>`      |
@@ -170,7 +170,9 @@ true or whose ref is in the ledger's `found`: a scan filed it, so it is not the
 owner's. Rule 7 reads every card of a linked issue, in `plan` and in `land`,
 with no tidy of the board first. It fails when the issue has no card in In
 Review, and when any of its cards has a status that is neither In Review nor in
-`CLOSED_STATUSES`. `<status>` is the status of the card that holds it.
+`CLOSED_STATUSES`. `<status>` is the status of the card that holds it. Rule 8
+also fails, as `pull requests not all read`, while any repo's `prs_cut` is true
+or missing.
 
 **CLI**: `finish` accepts `land` and `no-land`, and an optional
 `--task <task_id>`. For a review key whose entry is running, a `--task` value
@@ -294,19 +296,20 @@ so the next plan decides again. Otherwise store the head on the entry as
 `tried`, append to `landed` with no merge commit and save the ledger, then run
 `gh pr merge <pr> --repo <repo> --squash --match-head-commit <head>` as one
 plain `subprocess.run`, with no retry and no reading of its output, then read
-the pull request once more. When its `state` is `MERGED` and its head is the
-verdict's head, set the record's merge commit. When that read fails (the error
-kinds in `UNREAD`), whatever the merge command's exit, keep the record with no
-merge commit, so the daily limit and the pause still count it, and report it as
-refused. When the read shows it not merged, remove the record. `tried` stays the
-head in every case, so rule 17 holds the pull request until a new head. A second
-`land` with the same plan is refused as `not offered`. Report anything but a
-confirmed merge as refused with the error's last line. Save the ledger after
-each pull request. Tests through `plan`, one per rule of the gate, and the CLI
-with `gh` faked: a head that moved after the plan is refused, a card, a land
-topic, a default branch or a revert that changed after the plan is refused too,
-a failed merge is not tried again by the next plan or by a second `land` with
-the same plan, and a `land` that never ran leaves the pull request held.
+the pull request once more with `pr_node`, whose `mergeCommit` gives the merge
+commit. When its `state` is `MERGED` and its head is the verdict's head, set the
+record's merge commit. When that read fails (the error kinds in `UNREAD`),
+whatever the merge command's exit, keep the record with no merge commit, so the
+daily limit and the pause still count it, and report it as refused. When the
+read shows it not merged, remove the record. `tried` stays the head in every
+case, so rule 17 holds the pull request until a new head. A second `land` with
+the same plan is refused as `not offered`. Report anything but a confirmed merge
+as refused with the error's last line. Save the ledger after each pull request.
+Tests through `plan`, one per rule of the gate, and the CLI with `gh` faked: a
+head that moved after the plan is refused, a card, a land topic, a default
+branch or a revert that changed after the plan is refused too, a failed merge is
+not tried again by the next plan or by a second `land` with the same plan, and a
+`land` that never ran leaves the pull request held.
 
 ### T4 child-prompt: the `review` section of `CHILD.md`
 

@@ -2173,7 +2173,7 @@ class LandGatePlanTest(unittest.TestCase):
             with self.subTest(name):
                 c = landable()
                 c["repos"].append(cut)
-                self.holds("split across pull requests", c)
+                self.holds("pull requests not all read", c)
         c = landable(agent_pr(12), other_pr(13, linked_issues=[1]))
         self.assertEqual(lands(plan(c, cleared(), DUE)), [12])
 
@@ -4119,14 +4119,15 @@ class LandCommandTest(unittest.TestCase):
 
     def test_an_offer_with_no_head_or_for_another_verdict_merges_nothing(self):
         for name, offered, verdict, offer in [
-            ("no head", None, HEAD, None),
-            ("a newer verdict", HEAD, "b" * 40, HEAD),
+            ("no head", None, HEAD, {"head": None}),
+            ("no head key", None, HEAD, {}),
+            ("a newer verdict", HEAD, "b" * 40, {"head": HEAD}),
         ]:
             with self.subTest(name):
                 L, c = cleared(), landable()
                 decided = plan(c, L, DUE)
                 L["tasks"][REVIEW].update(offered=offered, head=verdict)
-                decided["lands"][0]["head"] = offer
+                decided["lands"][0] = {"repo": "o/r", "pr": 12, **offer}
                 out = self.land(L, {}, c, decided)
                 self.assertEqual(
                     out["refused"], [{"repo": "o/r", "pr": 12, "why": "not offered"}]
