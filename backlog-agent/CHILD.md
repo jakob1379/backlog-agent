@@ -100,7 +100,9 @@ and the vocabulary in
    CI. That call returns 403 on a private repo without GitHub Pro; then take the
    checks from the workflows. Read a PR's check results with
    `gh pr view <n> --json statusCheckRollup` (it works with the token since
-   rich-card#49, and lists app checks such as CodeRabbit too), and a commit's
+   rich-card#49, and lists app checks such as CodeRabbit too). Every
+   `gh pr view` also prints a long `gh event listen` hint on stderr. Ignore it,
+   since you never wait on anything (opigen#28). Read a commit's check results
    with `gh run list --commit <sha>` and `gh run view <id> --json jobs`. A
    required check from an app, not Actions (e.g. `SonarCloud Code Analysis`),
    never shows in `gh run list`; read it with
