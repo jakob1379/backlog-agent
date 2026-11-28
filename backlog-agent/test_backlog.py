@@ -2382,6 +2382,47 @@ class LandGatePlanTest(unittest.TestCase):
             ),
             ("no history on the card", "finding", earned(), [], [], held),
             (
+                "Linear merged the top-up's two moves into one",
+                "finding",
+                earned(),
+                [],
+                [
+                    moved("Backlog", "In Progress", "agent"),
+                    moved("In Progress", "In Review", "agent"),
+                ],
+                ([12], []),
+            ),
+            (
+                "Linear merged every move by the agent into one",
+                "finding",
+                earned(),
+                [],
+                [moved("Backlog", "In Review", "agent")],
+                ([12], []),
+            ),
+            (
+                "Linear merged the moves and the owner pulled the card back",
+                "finding",
+                earned(),
+                [],
+                [
+                    moved("Backlog", "In Review", "agent"),
+                    moved("In Review", "Backlog", "owner"),
+                    moved("Backlog", "In Review", "agent"),
+                ],
+                held,
+            ),
+            (
+                "Linear merged a restart after a reply",
+                "finding",
+                earned(),
+                [],
+                [
+                    moved("Needs info", "In Review", "agent"),
+                ],
+                held,
+            ),
+            (
                 "the record is lost but the owner acted",
                 "finding",
                 earned(),

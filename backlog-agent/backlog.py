@@ -666,7 +666,9 @@ def sponsor(history: list[dict]) -> str | None:
             return "owner" if asked else None
         if h["actor"] != "agent":
             return None
-        if h["to"] == "Needs triage" and h["from"] != "Needs info":
+        if h["from"] == "Backlog" or (
+            h["to"] == "Needs triage" and h["from"] != "Needs info"
+        ):
             return "topup" if all(m["actor"] == "agent" for m in history) else None
     return None
 

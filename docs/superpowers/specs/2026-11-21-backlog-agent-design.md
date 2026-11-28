@@ -539,8 +539,11 @@ whether work is moving.
   ends with no act at the first move by anyone who is neither the owner nor the
   agent. It ends as the top-up's start at a move by the agent to Needs triage
   from any status but Needs info, also when Linear names no status the card
-  left. Any other move by the agent is skipped. That covers a triage the owner
-  asked for and the agent started again after the owner's reply, since the
+  left, and at any move by the agent out of Backlog. Linear merges moves that
+  one actor makes a few minutes apart into one row of history, so the top-up's
+  move to Needs triage and the moves after it can read as one move out of
+  Backlog. Any other move by the agent is skipped. That covers a triage the
+  owner asked for and the agent started again after the owner's reply, since the
   agent's move from Needs info to Needs triage is skipped. A history with no
   move by the owner has no act. Neither has a history that Linear cut short: a
   card whose `history_cut` is true or missing has no act. Without an act the

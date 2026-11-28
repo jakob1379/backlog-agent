@@ -80,7 +80,18 @@ population of diffs: a trained risk score and its percentiles.
   earned with no act by the owner, as RADAR's rolling record does. A finding the
   scan did not mark, and that the ledger no longer remembers, counts as an issue
   the owner wrote, as it did before. And the gate trusts who Linear names for a
-  card's move: how Linear names its own sync and automations is not verified.
+  card's move. A live run showed that Linear names the owner for a move made
+  through an integration that holds the owner's Linear login, so each such
+  integration can give the owner's go-ahead. How Linear names its own sync and
+  automations is not verified.
+- A live run showed two more facts about Linear's history. Linear merges moves
+  that one actor makes a few minutes apart into one row, which keeps the first
+  status the card left and the last status it reached. And Linear keeps no row
+  for a move that the creator of a card makes in its first minutes. So the gate
+  reads the top-up's start from a move by the agent out of Backlog, and a card
+  with a move that Linear did not keep gets no act.
+- A private repo on a GitHub plan without rulesets has no required checks to
+  read. The gate holds every pull request there as `checks none`.
 - The safe classes are narrow, so most feature work still waits for the owner.
   Bug fixes with a failing test, refactors, tests and docs are what lands. One
   red job, required or not, holds a pull request.
