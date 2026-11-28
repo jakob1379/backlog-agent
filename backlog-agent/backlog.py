@@ -208,6 +208,7 @@ def thread_for(key: str) -> tuple[str, int, str] | None:
 
 
 def thread_of(ledger: dict, repo: str, number: int) -> dict:
+    # shortcut: threads are never pruned, drop closed ones in plan once the ledger grows slow
     return ledger.setdefault("threads", {}).setdefault(
         f"{repo}#{number}", {"comment": None, "runs": [], "report": None}
     )
@@ -280,11 +281,17 @@ def status_body(thread: dict, now: datetime) -> str:
     run = thread["runs"][-1]
     kind, status, note = run["kind"], run["status"], run["note"] or ""
     who, state = SCRUBBERS[kind], BADGE_STATES.get(status, "wait")
+    pr = re.search(PR_URL, note)
+    if kind == "review" and status == "failed" and run["attempt"] >= REVIEW_ROUNDS:
+        status, state = "no-land", "wait"
     if status == "running":
         headline = f"{who} is {WORKING[kind]}"
     elif status in ("needs-approval", "needs-repro", "unable-to-fix"):
         headline = f"{who} is waiting on you"
-    elif status in ("fix-pending", "no-land"):
+    elif status == "fix-pending":
+        opened = f"[a pull request]({pr[0]})" if pr else "a pull request"
+        headline = f"{who} opened {opened}; a review run takes it next"
+    elif status == "no-land":
         headline = f"{who} is waiting on your review"
     elif status == "land":
         headline = f"{who} cleared this pull request to land"
@@ -294,17 +301,15 @@ def status_body(thread: dict, now: datetime) -> str:
         headline = f"{who} is blocked"
     else:
         headline = f"{who} hit an error and is retrying next hour"
-    pr = re.search(PR_URL, note)
     move = {
         "needs-approval": "Read the plan, then drag the card to **Approved** in Linear.",
         "needs-repro": "Reply on this issue.",
         "unable-to-fix": "Reply on this issue.",
-        "fix-pending": f"Review [the pull request]({pr[0]})."
+        "no-land": f"Review [the pull request]({pr[0]})."
         if pr
         else "Review the pull request.",
         "blocked": short(note, 500),
     }
-    move["no-land"] = move["fix-pending"]
     if status == "land":
         due = datetime.fromisoformat(run["finished"]) + LAND_DELAY
         move["land"] = (
@@ -363,7 +368,10 @@ def status_body(thread: dict, now: datetime) -> str:
         room = COMMENT_LIMIT - len("\n".join(head + tail)) - len(cut) - 100
         if len(report) > room:
             # shortcut: a history too long for one comment still overflows, cap runs if that happens
-            report = report[: max(room, 0)] + cut
+            report = report[: max(room, 0)]
+            if sum(ln.lstrip().startswith("```") for ln in report.splitlines()) % 2:
+                report += "\n```"
+            report += cut
         head += [
             "<details open><summary>Latest report</summary>",
             "",
@@ -2185,6 +2193,7 @@ def locked(args: argparse.Namespace) -> None:
         )
         for t in result["dispatch"]:
             write_lock(WORK, t["key"], ledger["tasks"][t["key"]])
+            lock_path(WORK, t["key"]).with_suffix(".report.md").unlink(missing_ok=True)
         print(json.dumps({**result, "stale_locks": stale}, indent=2))
     elif args.cmd == "start":
         assign(ledger, args.key, args.task_id)
@@ -2203,7 +2212,8 @@ def locked(args: argparse.Namespace) -> None:
         note = sys.stdin.read().strip() if args.note == "-" else args.note
         print(finish(ledger, args.key, args.status, note, now))
         release(WORK, args.key)
-    tracked = None if args.cmd == "plan" else track_run(ledger, args.key, WORK)
+    started = args.cmd != "plan" and ledger["tasks"].get(args.key, {}).get("task_id")
+    tracked = track_run(ledger, args.key, WORK) if started else None
     save_ledger(LEDGER, ledger)
     if tracked:
         upsert_status(*tracked, now)

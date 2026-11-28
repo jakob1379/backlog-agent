@@ -5084,8 +5084,8 @@ class StatusCommentTest(unittest.TestCase):
             (
                 status_run("build", "fix-pending", f"opened {pr_url}"),
                 "rivet-wait",
-                "Rivet is waiting on your review",
-                f"Review [the pull request]({pr_url}).",
+                f"Rivet opened [a pull request]({pr_url}); a review run takes it next",
+                None,
                 "Triage ✓ → Approval ✓ → Build ✓ → Review ● → Land ○",
             ),
             (
@@ -5307,6 +5307,38 @@ class StatusCommentTest(unittest.TestCase):
                     "api -X PATCH repos/o/r/issues/comments/7",
                 ],
             )
+
+    def test_a_failed_last_review_round_waits_on_the_owner_instead_of_retrying(self):
+        run = {**status_run("review", "failed", "crashed"), "attempt": 3}
+        body = body_of(run)
+        self.assertIn("Rivet is waiting on your review", body)
+        self.assertNotIn("retrying", body)
+
+    def test_a_report_cut_inside_a_code_block_closes_it(self):
+        report = "```\n" + "line\n" * 20000
+        body = body_of(status_run("triage", "needs-approval"), report=report)
+        self.assertLessEqual(len(body), backlog.COMMENT_LIMIT)
+        cut = body.split("<details open>")[1].split("_Report cut")[0]
+        self.assertEqual(cut.count("```") % 2, 0)
+
+    def test_a_task_released_before_it_started_posts_no_status(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            cpath.write_text(json.dumps(snap(backlog_repo(issue(5)), cards=[asked(5)])))
+            cli(path, "plan", str(cpath), "th")
+            cli(path, "finish", "o/r#5:triage", "failed", "card moves not applied")
+            self.assertNotIn("threads", json.loads(path.read_text()))
+            self.assertFalse(Path(d, "bin", "calls").exists())
+
+    def test_plan_drops_a_report_left_by_an_earlier_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, cpath = Path(d, "ledger.json"), Path(d, "c.json")
+            cpath.write_text(json.dumps(snap(backlog_repo(issue(5)), cards=[asked(5)])))
+            stale = Path(d, "work", "o-r-5-triage.report.md")
+            stale.parent.mkdir()
+            stale.write_text("old run")
+            cli(path, "plan", str(cpath), "th")
+            self.assertFalse(stale.exists())
 
 
 if __name__ == "__main__":

@@ -707,10 +707,11 @@ answered and the fixes still pushed.
    **Why:** <what decided the verdict, with file:line>
    ```
 
-   A run that ends `failed` writes the same report, with `failed` as the verdict
-   and what happened as the Why. Its Feedback read to is `seen` once it has
-   posted a reply, and otherwise `read` from step 2, or none: the next review
-   run counts from it.
+   A run that ends `failed` after step 2 writes the same report, with `failed`
+   as the verdict and what happened as the Why. Its Feedback read to is always
+   `read` from step 2, never `seen`: its answers may not all be in, and the next
+   review run counts from it. A run that fails before step 2 writes no report,
+   so the previous one, and its Feedback read to, stays.
 
    Never merge the PR, enable auto-merge on it or remove `needs-review`, and
    never apply or remove `agent:hold`: those are the land gate's and the

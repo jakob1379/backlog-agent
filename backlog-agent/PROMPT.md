@@ -85,8 +85,8 @@ task's issue or PR, when it has one, so run each one with
 `export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token);` in front and
 `allowed_domains: ["api.github.com"]`. When that edit fails, it prints
 `status comment for … not updated: …` on stderr and records the result anyway.
-Leave those lines out of the report, unless every status update this run failed:
-then put one of them under **Needs you**.
+Put each such line from a `finish` under **Needs you**: a review's verdict lives
+only in that comment. Leave out the ones from `start`.
 
 Keep the status `finish` prints, because `failed` can come back as `blocked`.
 For each pull request URL the note names, call `link_pull_request` with it, so
