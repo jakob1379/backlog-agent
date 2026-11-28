@@ -742,6 +742,17 @@ def states():
     return frame(W, H, BOT_DEFS, BOT_CSS, "\n".join(body))
 
 
+def badges():
+    motion = {"idle": "", "work": "", "wait": "bob", "happy": "hop", "alarm": "shake"}
+    for kind in CREW:
+        for st, mv in motion.items():
+            body = bot(kind, 84, 124, 1.1, {st: ""}, motion=mv, spin=st != "idle")
+            yield f"{kind}-{st}.svg", frame(168, 144, BOT_DEFS, BOT_CSS, body)
+
+
+(OUT / "badges").mkdir(exist_ok=True)
+for name, svg in badges():
+    (OUT / "badges" / name).write_text(svg)
 (OUT / "hero.svg").write_text(hero())
 (OUT / "hourly-run.svg").write_text(loop())
 (OUT / "card-journey.svg").write_text(board())
