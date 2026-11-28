@@ -5,6 +5,11 @@ Spec: `docs/superpowers/specs/2026-11-21-backlog-agent-design.md`. Vocabulary:
 `docs/adr/0004-a-land-gate-in-backlog-py-merges-what-a-review-run-clears.md`.
 Integration branch: `feat/backlog-agent-auto-pr-pipeline`.
 
+Status: all six tickets shipped, squash-merged as `65edb94` (#3) on 2026-11-28.
+On the integration branch, T1 to T3 are `04757b6`, T4 and T5 are `74068fe`, and
+T6 is `2cdf15d`. Later commits there fixed what reviews found. No review run has
+started yet, and nothing has landed.
+
 ## Task graph
 
 ```
