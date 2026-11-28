@@ -744,6 +744,8 @@ def review_tasks(
             pushed = review.get("pushed_at")
             if (
                 not (p.get("head") and pushed and refs)
+                or not p.get("base")
+                or p["base"] != r.get("default_branch")
                 or not in_review.issuperset(refs)
                 or owner_hold(p)
                 or review.get("checks", "pending") == "pending"
@@ -797,6 +799,8 @@ def land_block(
         return "verdict is stale"
     if pr.get("state") != "OPEN":
         return "not open"
+    if not pr.get("base") or pr["base"] != repo.get("default_branch"):
+        return "base not the default branch"
     if owner_hold(pr):
         return "held by the owner"
     refs, owner = issue_links(name, pr), candidates.get("owner")
@@ -891,12 +895,10 @@ def land_work(
     for e in ledger.get("landed", []):
         repo = repos.get(e["repo"], {})
         if e["pr"] in repo.get("reverted", []):
-            e["reverted"] = True
-        if (
-            repo.get("land")
-            if e.get("reverted")
-            else now - datetime.fromisoformat(e["at"]) <= LAND_RECORD
-        ):
+            e.setdefault("reverted", True)
+        if e.get("reverted") and not repo.get("land"):
+            e["reverted"] = False
+        if e.get("reverted") or now - datetime.fromisoformat(e["at"]) <= LAND_RECORD:
             kept.append(e)
     ledger["landed"] = kept
     verdicts = sorted(
@@ -929,8 +931,26 @@ def land(candidates: dict, ledger: dict, name: str, number: int, now: datetime) 
     owner = candidates.get("owner", "")
     repo, known = snapshot_pr(candidates, name, number)
     try:
+        candidates = {**candidates, "board": linear.board()}
+        info = gh("api", f"repos/{name}")
+        branch = info["default_branch"]
+        repo = {
+            **repo,
+            "land": LAND_TOPIC in info["topics"],
+            "default_branch": branch,
+            "main": sha_state(name, branch, required_checks(name, branch)),
+        }
+        landed = [
+            e
+            for e in ledger.get("landed", [])
+            if e["repo"] == name and "reverted" not in e
+        ]
+        reverted = reverted_prs(name, landed)
+        for e in landed:
+            if e["pr"] in reverted:
+                e["reverted"] = True
         pr = {**known, **pr_detail(name, number, owner)}
-    except RuntimeError as e:
+    except (RuntimeError, SystemExit) as e:
         return {**task, "why": str(e).splitlines()[-1]}
     why = land_block(candidates, repo, pr, entry, ledger, now, 0)
     if why:
@@ -1426,7 +1446,8 @@ def issue_record(i: dict, owner: str) -> dict:
             {
                 "author": login(c),
                 "created_at": c["createdAt"],
-                "by_agent": c["body"].lstrip().startswith(AGENT_MARKER),
+                "by_agent": login(c) == owner
+                and c["body"].lstrip().startswith(AGENT_MARKER),
             }
             for c in i["comments"]["nodes"]
         ],
@@ -1478,13 +1499,14 @@ PR_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     state isDraft mergeStateStatus headRefOid headRefName baseRefName
     additions deletions changedFiles mergeCommit { oid }
-    labels(first: 50) { nodes { name } }
+    labels(first: 100) { nodes { name } }
     commits(last: 1) { nodes { commit { committedDate } } }
-    comments(last: 100) { nodes { body createdAt author { __typename login } } }
-    reviews(last: 100) { nodes {
+    comments(last: 100) { pageInfo { hasPreviousPage } nodes {
+      body createdAt author { __typename login } } }
+    reviews(last: 100) { pageInfo { hasPreviousPage } nodes {
       body createdAt: submittedAt author { __typename login } } }
     reviewThreads(first: 100) { totalCount nodes { isResolved
-      comments(first: 100) { nodes {
+      comments(first: 100) { pageInfo { hasNextPage } nodes {
         body createdAt author { __typename login } } } } } } } }"""
 
 
@@ -1542,6 +1564,7 @@ def pr_detail(repo: str, number: int, owner: str) -> dict:
         "state": p["state"],
         "head": p["headRefOid"],
         "branch": p["headRefName"],
+        "base": p["baseRefName"],
         "draft": p["isDraft"],
         "merge_state": p["mergeStateStatus"],
         "merge_commit": (p["mergeCommit"] or {}).get("oid"),
@@ -1550,6 +1573,7 @@ def pr_detail(repo: str, number: int, owner: str) -> dict:
             "checks": sha_state(
                 repo, p["headRefOid"], required_checks(repo, p["baseRefName"])
             ),
+            # shortcut: the head commit's date stands in for the push time, record first-seen if an old commit pushed late matters
             "pushed_at": commits[-1]["commit"]["committedDate"] if commits else None,
             "files": [
                 f[k]
@@ -1561,7 +1585,13 @@ def pr_detail(repo: str, number: int, owner: str) -> dict:
             "lines": p["additions"] + p["deletions"],
             "unresolved": p["reviewThreads"]["totalCount"]
             - len(p["reviewThreads"]["nodes"])
-            + sum(not t["isResolved"] for t in opened),
+            + sum(not t["isResolved"] for t in opened)
+            + p["comments"]["pageInfo"]["hasPreviousPage"]
+            + p["reviews"]["pageInfo"]["hasPreviousPage"]
+            + sum(
+                t["comments"]["pageInfo"]["hasNextPage"]
+                for t in p["reviewThreads"]["nodes"]
+            ),
             "feedback_at": newest(
                 by_owner + [t["comments"]["nodes"][0] for t in opened]
             ),
@@ -1570,11 +1600,14 @@ def pr_detail(repo: str, number: int, owner: str) -> dict:
     }
 
 
-# shortcut: newest 100 commits since the oldest landing, page them if a repo exceeds that
-REVERT_QUERY = """query($owner: String!, $name: String!, $since: GitTimestamp!) {
+REVERT_QUERY = """query(
+  $owner: String!, $name: String!, $since: GitTimestamp!, $endCursor: String
+) {
   repository(owner: $owner, name: $name) { defaultBranchRef { target { ... on Commit {
-    history(first: 100, since: $since) { nodes {
-      message associatedPullRequests(first: 1) { nodes { headRefName } } } } } } } } }"""
+    history(first: 100, since: $since, after: $endCursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        message associatedPullRequests(first: 1) { nodes { headRefName } } } } } } } } }"""
 
 
 def reverted_prs(repo: str, landed: list[dict]) -> list[int]:
@@ -1582,9 +1615,11 @@ def reverted_prs(repo: str, landed: list[dict]) -> list[int]:
         return []
     owner, name = repo.split("/")
     since = min(landed, key=lambda e: datetime.fromisoformat(e["at"]))["at"]
-    reply = gh(
+    pages = gh(
         "api",
         "graphql",
+        "--paginate",
+        "--slurp",
         "-f",
         f"query={REVERT_QUERY}",
         "-f",
@@ -1594,14 +1629,24 @@ def reverted_prs(repo: str, landed: list[dict]) -> list[int]:
         "-f",
         f"since={since}",
     )
-    branch = reply["data"]["repository"]["defaultBranchRef"]
-    commits = branch["target"]["history"]["nodes"] if branch else []
+    commits = [
+        c
+        for page in pages
+        if (branch := page["data"]["repository"]["defaultBranchRef"])
+        for c in branch["target"]["history"]["nodes"]
+    ]
+    shas = {
+        e["pr"]: e["sha"] or (pr_node(repo, e["pr"])["mergeCommit"] or {}).get("oid")
+        for e in landed
+    }
     return sorted(
         {
             e["pr"]
             for e in landed
             for c in commits
-            if f"This reverts commit {e['sha']}" in c["message"]
+            if (
+                shas[e["pr"]] and f"This reverts commit {shas[e['pr']]}" in c["message"]
+            )
             or any(
                 p["headRefName"].startswith(f"revert-{e['pr']}-")
                 for p in c["associatedPullRequests"]["nodes"]
@@ -1676,6 +1721,7 @@ def collect(landed: list[dict] | tuple = ()) -> dict:
                 "main": sha_state(name, branch["target"]["oid"], required)
                 if branch
                 else None,
+                "default_branch": branch["name"] if branch else None,
                 "prs": [
                     {
                         "number": p["number"],
@@ -1698,7 +1744,12 @@ def collect(landed: list[dict] | tuple = ()) -> dict:
                 "other_prs": others,
                 "land": LAND_TOPIC in topics and name not in NEVER_LAND_REPOS,
                 "reverted": reverted_prs(
-                    name, [e for e in landed if e["repo"] == name]
+                    name,
+                    [
+                        e
+                        for e in landed
+                        if e["repo"] == name and e.get("reverted") is not True
+                    ],
                 ),
             }
         )
@@ -1738,6 +1789,7 @@ def main() -> None:
         "status", choices=["done", "blocked", "failed", "land", "no-land", *OUTCOMES]
     )
     p.add_argument("note")
+    p.add_argument("--task", default="")
     sub.add_parser("collect")
     sub.add_parser("board")
     p = sub.add_parser("apply")
@@ -1820,6 +1872,16 @@ def locked(args: argparse.Namespace) -> None:
         assign(ledger, args.key, args.task_id)
         write_lock(WORK, args.key, ledger["tasks"][args.key])
     else:
+        entry = ledger["tasks"].get(args.key)
+        if (
+            review_pr(args.key)
+            and entry
+            and entry["status"] == "running"
+            and entry["task_id"] != args.task
+        ):
+            raise SystemExit(
+                f"{args.key} is run by another task, so this result is dropped"
+            )
         note = sys.stdin.read().strip() if args.note == "-" else args.note
         print(finish(ledger, args.key, args.status, note, now))
         release(WORK, args.key)
