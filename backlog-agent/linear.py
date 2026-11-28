@@ -52,7 +52,7 @@ ISSUES = """query($team: String!, $after: String) {
       state { name }
       labels(first: 20) { nodes { name parent { name } } }
       attachments(first: 10) { nodes { id url } }
-      history(first: 100) { nodes {
+      history(first: 100) { pageInfo { hasNextPage } nodes {
         createdAt actor { id } fromState { name } toState { name } } } } } }"""
 
 CREATE_ISSUE = """mutation($input: IssueCreateInput!) {
@@ -232,6 +232,7 @@ def card(node: dict, agent: str, owner: str) -> dict:
             ),
             key=itemgetter("at"),
         ),
+        "history_cut": node["history"]["pageInfo"]["hasNextPage"],
     }
 
 

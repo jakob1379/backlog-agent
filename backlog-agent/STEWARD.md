@@ -2,8 +2,8 @@
 
 You run last in an hourly run, after its children. Your job is to keep this
 agent's own docs and prompts true to reality. The run summary at the end of your
-prompt lists this run's `finish` lines, the `plan` output, any failed starts and
-the children's `HANDOFF:` blocks.
+prompt lists this run's `finish` lines, the `plan` output, the `land` output,
+any failed starts and the children's `HANDOFF:` blocks.
 
 `W=/home/jsg/Documents/jsg/backlog-agent`. Start every Bash command that talks
 to GitHub with `export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token);` and
@@ -19,9 +19,12 @@ Compare what the files say with what is true:
   the record of how dependency work was built in phases; there are no phases
   now, so don't add phase status to them.
 - `$W/backlog-agent/GLOSSARY.md` and `$W/docs/adr/`: terms and decisions against
-  what the prompts and `backlog.py` do.
-- `$W/docs/superpowers/plans/2026-11-21-backlog-triage-tickets.md`: tickets
-  against what has shipped (`git -C $W log --oneline`).
+  what the prompts and `backlog.py` do. That includes
+  `0004-a-land-gate-in-backlog-py-merges-what-a-review-run-clears.md`, the
+  decision on review runs and the land gate.
+- `$W/docs/superpowers/plans/2026-11-21-backlog-triage-tickets.md` and
+  `2026-11-27-land-gate-tickets.md` beside it: tickets against what has shipped
+  (`git -C $W log --oneline`).
 - `PROMPT.md`, `CHILD.md` and this file against the `HANDOFF:` blocks: a refused
   command, a step that keeps failing, or a rule two children read differently
   means the file is wrong.
@@ -34,9 +37,12 @@ Compare what the files say with what is true:
 
 Edit only `$W/docs/` and the `.md` files in `$W/backlog-agent/`. Never edit
 `backlog.py`, the ledger or lockfiles; when a fix needs `backlog.py`, name it in
-your result instead. Never loosen a guardrail, and never let a doc claim
-something you didn't check. Commit and push as `PROMPT.md` step 6 says, one
-commit per concern.
+your result instead. Never loosen a guardrail, the land gate, the findings
+record, or the verdict rubric and the `review` section's rules in `CHILD.md`:
+when the docs and the gate disagree, the docs change, and a change that would
+let more land goes in your result for the owner. Never let a doc claim something
+you didn't check. Commit and push as `PROMPT.md` step 6 says, one commit per
+concern.
 
 ## Finish
 

@@ -10,6 +10,7 @@ import sys
 import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from http.client import HTTPException
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -49,6 +50,54 @@ OUTCOMES = {
     "unable-to-fix": "Needs info",
     "not-actionable": "Canceled",
 }
+REVIEW_ROUNDS = 3
+REVIEW_QUIET = timedelta(minutes=30)
+AGENT_BRANCH = r"backlog-agent/.+-\d+-(build|triage)"
+LAND_TOPIC = "backlog-agent-land"
+NEVER_LAND_REPOS = {
+    "jakob1379/backlog-agent",
+    "jakob1379/nix-config",
+    "jakob1379/converge-review",
+}
+LAND_DELAY = timedelta(hours=24)
+LAND_MAX_FILES = 10
+LAND_MAX_LINES = 300
+LAND_DAILY_CAP = 3
+LAND_RECORD = timedelta(days=60)
+FINDING_RECORD = 5
+HOLD_LABEL = "agent:hold"
+COMMIT = r"\b[0-9a-f]{40}\b"
+UNREAD = (
+    RuntimeError,
+    ValueError,
+    LookupError,
+    TypeError,
+    AttributeError,
+    OSError,
+    HTTPException,
+)
+PROTECTED_NAMES = """
+.github .gitlab-ci.yml .pre-commit-config.yaml CODEOWNERS
+.claude .agents .cursor* .mcp.json CLAUDE.md CLAUDE.local.md AGENTS.md GEMINI.md
+SKILL.md
+pyproject.toml setup.py setup.cfg requirements*.txt tox.ini noxfile.py pytest.ini
+conftest.py .coveragerc codecov.y*ml package.json tsconfig*.json jest.config.*
+vitest.config.* playwright.config.* Cargo.toml go.mod go.sum *.lock
+package-lock.json pnpm-lock.yaml *.nix Makefile justfile Dockerfile*
+*compose*.y*ml ruff.toml .ruff.toml mypy.ini biome.json* eslint.config.*
+.eslintrc*
+scripts *.sh .env*
+.gitmodules Pipfile bun.lockb npm-shrinkwrap.json .npmrc .husky .circleci
+Taskfile.y*ml requirements bin
+"""
+PROTECTED = re.compile(
+    "(?:^|/)(?:"
+    + "|".join(
+        re.escape(name).replace(r"\*", "[^/]*") for name in PROTECTED_NAMES.split()
+    )
+    + ")(?:/|$)",
+    re.IGNORECASE,
+)
 
 LEDGER = Path(os.environ.get("BACKLOG_LEDGER", Path(__file__).with_name("ledger.json")))
 WORK = Path(
@@ -99,7 +148,36 @@ def scan_repo(key: str) -> str | None:
     return m and m[1]
 
 
+def review_pr(key: str) -> tuple[str, int] | None:
+    m = re.fullmatch(r"(.+)#(\d+):review", key)
+    return m and (m[1], int(m[2]))
+
+
+def finish_review(ledger: dict, key: str, status: str, note: str, now: datetime) -> str:
+    entry = ledger["tasks"].get(key)
+    if not entry or entry["status"] != "running":
+        if entry and entry["status"] == "land" and status != "land":
+            entry["status"] = "no-land"
+            return "no-land"
+        raise SystemExit(f"{key} is not running, so it takes no verdict")
+    if status == "land" and not re.match("clean " + COMMIT, note):
+        status = "no-land"
+    elif status not in ("land", "no-land"):
+        status = "failed"
+    head = re.search(COMMIT, note)
+    entry.update(
+        status=status,
+        note=note,
+        finished=now.isoformat(),
+        crashed=status == "failed",
+        head=head and head[0],
+    )
+    return status
+
+
 def finish(ledger: dict, key: str, status: str, note: str, now: datetime) -> str:
+    if review_pr(key):
+        return finish_review(ledger, key, status, note, now)
     entry = ledger["tasks"][key]
     if status not in (
         {*OUTCOMES, "blocked"} if backlog_kind(key) else {"done", "blocked"}
@@ -308,6 +386,11 @@ def present_keys(candidates: dict) -> set[str]:
             keys.add(f"{name}:add-ci")
         for i in r.get("issues", []):
             keys |= {f"{name}#{i['number']}:{kind}" for kind in BACKLOG_TIERS}
+        keys |= {
+            f"{name}#{p['number']}:review"
+            for p in r.get("other_prs", [])
+            if "review" in p
+        }
     return keys
 
 
@@ -337,7 +420,7 @@ def health(candidates: dict, ledger: dict, tasks: list[dict], now: datetime) -> 
             and ledger.get("origins", {}).get(
                 f"{c['link']['repo']}#{c['link']['number']}"
             )
-            == "topup"
+            in ("topup", "finding")
             for c in cards
         ),
         "stale_review": sum(
@@ -389,7 +472,9 @@ def owner_replied(issue: dict, history: list, owner: str | None) -> bool:
 
 
 def issue_links(name: str, p: dict) -> list[str]:
-    return [f"{name}#{n}" for n in p["linked_issues"]] + p.get("linked_refs", [])
+    return [f"{name}#{n}" for n in p.get("linked_issues", [])] + p.get(
+        "linked_refs", []
+    )
 
 
 def label_rank(issue: dict, card: dict) -> int:
@@ -397,16 +482,20 @@ def label_rank(issue: dict, card: dict) -> int:
     return 0 if "security" in labels else 1 if "bug" in labels else 2
 
 
+def open_issues(candidates: dict) -> dict:
+    return {
+        f"{r['repo']}#{i['number']}": i
+        for r in candidates["repos"]
+        for i in r.get("issues", [])
+    }
+
+
 def backlog_work(
     candidates: dict, ledger: dict, now: datetime
 ) -> tuple[list[dict], list[dict], dict]:
     owner = candidates.get("owner")
     scope = {r["repo"] for r in candidates["repos"]}
-    issues = {
-        f"{r['repo']}#{i['number']}": i
-        for r in candidates["repos"]
-        for i in r.get("issues", [])
-    }
+    issues = open_issues(candidates)
     linked = {
         ref
         for r in candidates["repos"]
@@ -435,10 +524,21 @@ def backlog_work(
             ops.append({"op": "close", "card": c["id"], "to": "Done"})
     cards = list(chosen.items())
     status = {c["id"]: c["status"] for c in chosen.values()}
+    landing = {r["repo"] for r in candidates["repos"] if r.get("land") is True}
+    earned = finding_record(ledger, now) >= FINDING_RECORD
+
+    def unlocked(ref):
+        return (
+            earned
+            and ref.split("#")[0] in landing
+            and scan_filed(ledger, ref, issues[ref])
+        )
 
     def queue(kind, ref, card, origin):
         issue = issues[ref]
         if kind == "triage":
+            if origin == "finding" and not unlocked(ref):
+                origin = "topup"
             origins[ref] = origin
         task = {
             "key": f"{ref}:{kind}",
@@ -492,12 +592,11 @@ def backlog_work(
                 del ledger["tasks"][k]
                 continue
             outcome = e["status"]
-            if (
-                outcome == "fix-pending"
-                and kind == "triage"
-                and origins.get(ref) != "owner"
-            ):
-                outcome = "needs-approval"
+            if outcome == "fix-pending" and kind == "triage":
+                if origins.get(ref) == "finding" and not unlocked(ref):
+                    origins[ref] = "topup"
+                if origins.get(ref) not in ("owner", "finding"):
+                    outcome = "needs-approval"
             op = outcome_op(c, outcome)
             if op:
                 ops.append(op)
@@ -551,13 +650,44 @@ def backlog_work(
             key=lambda x: x[:3],
         )
         for _, _, ref, c in pool[: max(0, TOPUP_LIMIT - counts["Needs triage"])]:
-            to_triage(ref, c, "topup")
+            to_triage(ref, c, "finding" if unlocked(ref) else "topup")
     ranked.sort(key=lambda x: x[:3])
     return [task for *_, task in ranked], ops, status
 
 
 def scan_filed(ledger: dict, ref: str, issue: dict) -> bool:
     return bool(issue.get("by_agent")) or ref in ledger.get("found", [])
+
+
+def sponsor(history: list[dict]) -> str | None:
+    for h in reversed(history):
+        if h["actor"] == "owner":
+            asked = h["to"] in ("In Review", "Approved", "Needs triage")
+            return "owner" if asked else None
+        if h["actor"] != "agent":
+            return None
+        if h["from"] == "Backlog" or (
+            h["to"] == "Needs triage" and h["from"] != "Needs info"
+        ):
+            return "topup" if all(m["actor"] == "agent" for m in history) else None
+    return None
+
+
+def reset_findings(ledger: dict, now: datetime) -> None:
+    times = [now.isoformat(), *(e["at"] for e in ledger.get("landed", []))]
+    if since := ledger.get("findings_since"):
+        times.append(since)
+    ledger["findings_since"] = max(times, key=datetime.fromisoformat)
+
+
+def finding_record(ledger: dict, now: datetime) -> int:
+    since = ledger.get("findings_since")
+    return sum(
+        bool(e.get("finding") and e["sha"])
+        and now - datetime.fromisoformat(e["at"]) <= LAND_RECORD
+        and (not since or later(e["at"], since))
+        for e in ledger.get("landed", [])
+    )
 
 
 def scan_tasks(
@@ -624,6 +754,334 @@ def scan_tasks(
         }
         for *_, repo, head in sorted(due)[:1]
     ]
+
+
+def owner_hold(p: dict) -> bool:
+    labels = set(p.get("labels", [HOLD_LABEL]))
+    return bool(p.get("draft", True) or {HOLD_LABEL, "agent:blocked"} & labels)
+
+
+def later(a: str | None, b: str | None) -> bool:
+    return bool(a and b) and datetime.fromisoformat(a) > datetime.fromisoformat(b)
+
+
+def review_due(p: dict, entry: dict | None) -> bool:
+    if not entry:
+        return True
+    review, started = p["review"], entry["started"]
+    return (
+        entry["status"] == "failed"
+        or entry.get("head") != p["head"]
+        or later(review.get("feedback_at"), started)
+        or (review.get("checks") == "red" and later(review.get("pushed_at"), started))
+    ) and (
+        entry["attempts"] < REVIEW_ROUNDS
+        or later(review.get("owner_feedback_at"), entry["finished"])
+    )
+
+
+def review_tasks(
+    candidates: dict, ledger: dict, now: datetime, busy: frozenset
+) -> list[dict]:
+    tasks = ledger["tasks"]
+    if (
+        "board" not in candidates
+        or any(review_pr(k) for k in busy)
+        or any(e["status"] == "running" and review_pr(k) for k, e in tasks.items())
+    ):
+        return []
+    in_review = {
+        f"{c['link']['repo']}#{c['link']['number']}"
+        for c in candidates["board"]["cards"]
+        if c["link"] and c["link"]["type"] == "issue" and c["status"] == "In Review"
+    }
+    due = []
+    for r in candidates["repos"]:
+        for p in r.get("other_prs", []):
+            review, refs = p.get("review", {}), issue_links(r["repo"], p)
+            pushed = review.get("pushed_at")
+            if (
+                not (p.get("head") and pushed and refs)
+                or p.get("state") != "OPEN"
+                or not p.get("base")
+                or p["base"] != r.get("default_branch")
+                or not in_review.issuperset(refs)
+                or owner_hold(p)
+                or review.get("checks", "pending") == "pending"
+                or any(
+                    tasks.get(f"{ref}:{kind}", {}).get("status")
+                    in ("running", "failed")
+                    for ref in refs
+                    for kind in BACKLOG_TIERS
+                )
+            ):
+                continue
+            last = max(
+                datetime.fromisoformat(t)
+                for t in (pushed, review.get("feedback_at"))
+                if t
+            )
+            key = f"{r['repo']}#{p['number']}:review"
+            entry = tasks.get(key)
+            if now - last >= REVIEW_QUIET and review_due(p, entry):
+                due.append((last, key, r["repo"], p, entry))
+    return [
+        {
+            "key": key,
+            "kind": "review",
+            "repo": repo,
+            "pr": p["number"],
+            "head": p["head"],
+            "round": (entry["attempts"] if entry else 0) + 1,
+        }
+        for _, key, repo, p, entry in sorted(due, key=lambda d: d[:2])[:1]
+    ]
+
+
+def lower(state: str | None) -> str:
+    return (state or "none").lower()
+
+
+def land_block(
+    candidates: dict,
+    repo: dict,
+    pr: dict,
+    entry: dict | None,
+    ledger: dict,
+    now: datetime,
+    taken: int,
+) -> str | None:
+    name, head, review = repo["repo"], pr.get("head"), pr.get("review", {})
+    if not entry or entry.get("status") != "land":
+        return "no verdict"
+    if not head or entry.get("head") != head:
+        return "verdict is stale"
+    if pr.get("state") != "OPEN":
+        return "not open"
+    if not pr.get("base") or pr["base"] != repo.get("default_branch"):
+        return "base not the default branch"
+    if owner_hold(pr):
+        return "held by the owner"
+    refs, owner = issue_links(name, pr), candidates.get("owner")
+    issues = open_issues(candidates)
+    if not (refs and owner) or any(
+        issues.get(ref, {}).get("author") != owner for ref in refs
+    ):
+        return "issue not the owner's"
+    cards = {}
+    for c in candidates.get("board", {}).get("cards", []):
+        if c["link"] and c["link"]["type"] == "issue":
+            ref = f"{c['link']['repo']}#{c['link']['number']}"
+            cards.setdefault(ref, []).append(c)
+    origins = ledger.get("origins", {})
+    earned = finding_record(ledger, now) >= FINDING_RECORD
+    for ref in refs:
+        if not scan_filed(ledger, ref, issues[ref]):
+            continue
+        by = {
+            sponsor(c["history"])
+            for c in cards.get(ref, [])
+            if c["status"] == "In Review" and c.get("history_cut") is False
+        }
+        on_record = "topup" in by and earned and origins.get(ref) == "finding"
+        if "owner" not in by and not on_record:
+            return "issue not the owner's"
+    for ref in refs:
+        statuses = [c["status"] for c in cards.get(ref, [])] or [None]
+        stray = [s for s in statuses if s not in CLOSED_STATUSES | {"In Review"}]
+        if stray or "In Review" not in statuses:
+            return f"card {lower((stray or statuses)[0])}"
+    if any(
+        "review" in other
+        and (r["repo"], other["number"]) != (name, pr.get("number"))
+        and set(refs) & set(issue_links(r["repo"], other))
+        for r in candidates["repos"]
+        for other in r.get("other_prs", [])
+    ):
+        return "split across pull requests"
+    if any(r.get("prs_cut", True) for r in candidates["repos"]):
+        return "pull requests not all read"
+    if pr.get("merge_state") != "CLEAN":
+        return f"merge state {lower(pr.get('merge_state'))}"
+    if review.get("checks") != "green":
+        return f"checks {lower(review.get('checks'))}"
+    if repo.get("main") != "green":
+        return f"default branch {lower(repo.get('main'))}"
+    started = entry.get("started")
+    if (
+        review.get("unresolved") != 0
+        or not started
+        or "feedback_at" not in review
+        or later(review["feedback_at"], started)
+    ):
+        return "open feedback"
+    changed, lines = review.get("changed_files"), review.get("lines")
+    if (
+        changed is None
+        or lines is None
+        or changed > LAND_MAX_FILES
+        or lines > LAND_MAX_LINES
+    ):
+        return "too large"
+    files = review.get("files")
+    if files is None or len(files) < changed:
+        return "protected path none"
+    for path in files:
+        if PROTECTED.search(path):
+            return f"protected path {path}"
+    landed = ledger.get("landed", [])
+    if any(e["repo"] == name and e.get("reverted") for e in landed):
+        return "paused after a revert"
+    if repo.get("land") is not True or name in NEVER_LAND_REPOS:
+        return "shadow"
+    if head in (entry.get("offered"), entry.get("tried")):
+        return "merge not made"
+    today = now.astimezone(TZ).date()
+    if (
+        taken
+        + sum(
+            datetime.fromisoformat(e["at"]).astimezone(TZ).date() == today
+            for e in landed
+        )
+        >= LAND_DAILY_CAP
+    ):
+        return "daily limit"
+    finished = entry.get("finished")
+    if not finished:
+        return "lands none"
+    due = datetime.fromisoformat(finished) + LAND_DELAY
+    return f"lands {due.isoformat()}" if now < due else None
+
+
+def snapshot_pr(candidates: dict, name: str, number: int) -> tuple[dict, dict]:
+    repos = {r["repo"]: r for r in candidates["repos"]}
+    repo: dict = repos.get(name, {"repo": name})
+    prs = {p["number"]: p for p in repo.get("other_prs", [])}
+    return repo, prs.get(number, {})
+
+
+def land_work(
+    candidates: dict, ledger: dict, now: datetime
+) -> tuple[list[dict], list[dict]]:
+    repos = {r["repo"]: r for r in candidates["repos"]}
+    kept = []
+    for e in ledger.get("landed", []):
+        repo = repos.get(e["repo"], {})
+        if e["pr"] in repo.get("reverted", []) and "reverted" not in e:
+            e["reverted"] = True
+            reset_findings(ledger, now)
+        if e.get("reverted") and repo.get("land") is False:
+            e["reverted"] = False
+        if e.get("reverted") or now - datetime.fromisoformat(e["at"]) <= LAND_RECORD:
+            kept.append(e)
+    ledger["landed"] = kept
+    verdicts = sorted(
+        (e.get("finished") or "", key, *ref)
+        for key, e in ledger["tasks"].items()
+        if (ref := review_pr(key)) and e["status"] == "land"
+    )
+    lands, greenlit = [], []
+    for _, key, name, number in verdicts:
+        entry = ledger["tasks"][key]
+        repo, pr = snapshot_pr(candidates, name, number)
+        why = land_block(candidates, repo, pr, entry, ledger, now, len(lands))
+        if not why and any(t["repo"] == name for t in lands):
+            why = "default branch pending"
+        task = {"key": key, "repo": name, "pr": number}
+        if why:
+            greenlit.append({**task, "why": why, "new": entry.get("held") != why})
+            entry["held"] = why
+        else:
+            entry["offered"] = pr["head"]
+            lands.append({**task, "head": pr["head"]})
+    return lands, greenlit
+
+
+def land(
+    candidates: dict,
+    ledger: dict,
+    name: str,
+    number: int,
+    head: str | None,
+    now: datetime,
+) -> dict:
+    task = {"repo": name, "pr": number}
+    entry = ledger["tasks"].get(f"{name}#{number}:review")
+    if not (entry and head and entry.get("offered") == entry.get("head") == head):
+        return {**task, "why": "not offered"}
+    entry["offered"] = None
+    owner = candidates.get("owner", "")
+    repo, known = snapshot_pr(candidates, name, number)
+    try:
+        candidates = {**candidates, "board": linear.board()}
+        info = gh("api", f"repos/{name}")
+        branch = info["default_branch"]
+        repo = {
+            **repo,
+            "land": LAND_TOPIC in info["topics"],
+            "default_branch": branch,
+            "main": sha_state(name, branch, required_checks(name, branch)),
+        }
+        fresh = [e for e in ledger.get("landed", []) if "reverted" not in e]
+        origins = ledger.get("origins", {})
+        wide = any(origins.get(ref) == "finding" for ref in issue_links(name, known))
+        for where in {name} | {e["repo"] for e in fresh if wide}:
+            landed = [e for e in fresh if e["repo"] == where]
+            reverted = reverted_prs(where, landed)
+            for e in landed:
+                if e["pr"] in reverted:
+                    e["reverted"] = True
+                    reset_findings(ledger, now)
+        pr = {**known, **pr_detail(name, number, owner)}
+    except (*UNREAD, SystemExit) as e:
+        return {**task, "why": str(e).splitlines()[-1]}
+    why = land_block(candidates, repo, pr, entry, ledger, now, 0)
+    if why:
+        return {**task, "why": why}
+    entry["tried"] = head
+    issues = open_issues(candidates)
+    record = {
+        **task,
+        "head": head,
+        "sha": None,
+        "at": now.isoformat(),
+        "finding": any(
+            scan_filed(ledger, ref, issues[ref])
+            for ref in (f"{name}#{n}" for n in pr.get("linked_issues", []))
+        ),
+    }
+    ledger.setdefault("landed", []).append(record)
+    save_ledger(LEDGER, ledger)
+    merge = subprocess.run(
+        [
+            "gh",
+            "pr",
+            "merge",
+            str(number),
+            "--repo",
+            name,
+            "--squash",
+            "--match-head-commit",
+            head,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    try:
+        after = pr_node(name, number)
+    except UNREAD:
+        after = None
+    merged = bool(after and after["state"] == "MERGED" and after["headRefOid"] == head)
+    sha = record["sha"] = (
+        (after["mergeCommit"] or {}).get("oid") if after and merged else None
+    )
+    if after and not merged:
+        ledger["landed"].remove(record)
+    if not merged:
+        said = merge.stderr.strip().splitlines() or ["merge not made"]
+        return {**task, "why": said[-1]}
+    return {**task, "sha": sha}
 
 
 def tidy_cards(cards: list[dict], scope: set[str]) -> tuple[list[dict], set[str]]:
@@ -715,6 +1173,7 @@ def owner_cards(
         for key, e in ledger["tasks"].items()
         if not backlog_kind(key)
         and not scan_repo(key)
+        and not review_pr(key)
         and e["status"] in ("done", "blocked")
         for m in re.finditer(PR_URL, e["note"])
     }
@@ -761,7 +1220,7 @@ def owner_cards(
         if "needs-review" in p.get("labels", []) and (name, p["number"]) in agent_prs
     }
     for key, e in ledger["tasks"].items():
-        if backlog_kind(key):
+        if backlog_kind(key) or review_pr(key):
             continue
         if e["status"] in ("done", "blocked") and key in review:
             to = "In Review"
@@ -789,7 +1248,7 @@ def plan(
     thread_id: str = "",
     busy: frozenset = frozenset(),
 ) -> dict:
-    present = present_keys(candidates)
+    present, untidied = present_keys(candidates), candidates
     tidy_ops = []
     if "board" in candidates:
         board = candidates["board"]
@@ -926,6 +1385,8 @@ def plan(
                 continue
             review_room -= 1
         ready.append(t)
+    ready += review_tasks(candidates, ledger, now, busy)
+    lands, greenlit = land_work(untidied, ledger, now)
     backlog_tasks, card_ops, card_status = backlog_work(candidates, ledger, now)
     card_ops += owner_cards(candidates, ledger, present, now) + tidy_ops
     ready += [t for t in backlog_tasks if t["key"] not in busy]
@@ -972,6 +1433,9 @@ def plan(
         "rotate_token": rotate_token,
         "resolved": resolved,
         "newly_blocked": newly_blocked,
+        "lands": lands,
+        "greenlit": greenlit,
+        "findings": {"record": finding_record(ledger, now), "needed": FINDING_RECORD},
         "health": health(candidates, ledger, tasks, now),
     }
 
@@ -987,8 +1451,9 @@ QUERY = """query($endCursor: String) { viewer { login
       nameWithOwner isFork owner { login }
       repositoryTopics(first: 20) { nodes { topic { name } } }
       defaultBranchRef { name target { oid ... on Commit { committedDate } } }
-      pullRequests(states: OPEN, first: 50) { nodes {
-        number title body createdAt isDraft mergeable headRefOid author { login }
+      pullRequests(states: OPEN, first: 50) { totalCount nodes {
+        number title body createdAt isDraft mergeable headRefOid headRefName
+        isCrossRepository author { login }
         labels(first: 20) { nodes { name } }
         closingIssuesReferences(first: 10) { nodes { number repository { nameWithOwner } } }
         autoMergeRequest { enabledAt } } }
@@ -1077,7 +1542,8 @@ def issue_record(i: dict, owner: str) -> dict:
             {
                 "author": login(c),
                 "created_at": c["createdAt"],
-                "by_agent": c["body"].startswith(AGENT_MARKER),
+                "by_agent": login(c) == owner
+                and c["body"].lstrip().startswith(AGENT_MARKER),
             }
             for c in i["comments"]["nodes"]
         ],
@@ -1097,6 +1563,7 @@ def other_pr_record(name: str, p: dict) -> dict:
         "draft": p["isDraft"],
         "created_at": p["createdAt"],
         "labels": [lb["name"] for lb in p["labels"]["nodes"]],
+        "head": p["headRefOid"],
         "linked_issues": [
             int(ref.rpartition("#")[2])
             for ref in closes
@@ -1111,6 +1578,178 @@ def other_pr_record(name: str, p: dict) -> dict:
             }
         ),
     }
+
+
+def is_agent_pr(name: str, p: dict, record: dict, owner: str) -> bool:
+    return bool(
+        login(p) == owner
+        and not p["isCrossRepository"]
+        and re.fullmatch(AGENT_BRANCH, p["headRefName"])
+        and issue_links(name, record)
+    )
+
+
+# shortcut: last 100 comments and reviews, first 100 of a thread, page them if a PR exceeds that
+PR_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) { pullRequest(number: $number) {
+    state isDraft mergeStateStatus headRefOid baseRefName
+    additions deletions changedFiles mergeCommit { oid }
+    labels(first: 100) { nodes { name } }
+    commits(last: 1) { nodes { commit { committedDate } } }
+    comments(last: 100) { pageInfo { hasPreviousPage } nodes {
+      body createdAt lastEditedAt author { __typename login } } }
+    reviews(last: 100) { pageInfo { hasPreviousPage } nodes {
+      body createdAt: submittedAt lastEditedAt author { __typename login } } }
+    reviewThreads(first: 100) { totalCount nodes { isResolved
+      comments(first: 100) { pageInfo { hasNextPage } nodes {
+        body createdAt lastEditedAt author { __typename login } } } } } } } }"""
+
+
+def is_feedback(c: dict, owner: str, opens_thread: bool = False) -> bool:
+    author, text = c["author"] or {}, c["body"].lstrip()
+    kind = author.get("__typename")
+    return (
+        bool(text)
+        and not text.startswith(AGENT_MARKER)
+        and (
+            (kind == "User" and author.get("login") == owner)
+            or (kind == "Bot" and opens_thread)
+        )
+    )
+
+
+def newest(nodes: list[dict]) -> str | None:
+    times = [c["createdAt"] for c in nodes if c["createdAt"]]
+    return max(times, key=datetime.fromisoformat, default=None)
+
+
+def pr_node(repo: str, number: int) -> dict:
+    owner, name = repo.split("/")
+    reply = gh(
+        "api",
+        "graphql",
+        "-f",
+        f"query={PR_QUERY}",
+        "-f",
+        f"owner={owner}",
+        "-f",
+        f"name={name}",
+        "-F",
+        f"number={number}",
+    )
+    return reply["data"]["repository"]["pullRequest"]
+
+
+def pr_detail(repo: str, number: int, owner: str) -> dict:
+    p = pr_node(repo, number)
+    if p["state"] == "OPEN" and p["mergeStateStatus"] == "UNKNOWN":
+        time.sleep(5)
+        p = pr_node(repo, number)
+    threads = [t for t in p["reviewThreads"]["nodes"] if t["comments"]["nodes"]]
+    spoken = (
+        p["comments"]["nodes"]
+        + p["reviews"]["nodes"]
+        + [c for t in threads for c in t["comments"]["nodes"]]
+    )
+    by_owner = [
+        {"createdAt": c["lastEditedAt"] or c["createdAt"]}
+        for c in spoken
+        if is_feedback(c, owner)
+    ]
+    opened = [t for t in threads if is_feedback(t["comments"]["nodes"][0], owner, True)]
+    commits = p["commits"]["nodes"]
+    files = gh("api", f"repos/{repo}/pulls/{number}/files?per_page=100")
+    return {
+        "state": p["state"],
+        "head": p["headRefOid"],
+        "base": p["baseRefName"],
+        "draft": p["isDraft"],
+        "merge_state": p["mergeStateStatus"],
+        "labels": [lb["name"] for lb in p["labels"]["nodes"]],
+        "review": {
+            "checks": sha_state(
+                repo, p["headRefOid"], required_checks(repo, p["baseRefName"])
+            ),
+            # shortcut: the head commit's date stands in for the push time, record first-seen if an old commit pushed late matters
+            "pushed_at": commits[-1]["commit"]["committedDate"] if commits else None,
+            "files": [
+                f[k]
+                for f in files
+                for k in ("filename", "previous_filename")
+                if f.get(k)
+            ],
+            "changed_files": p["changedFiles"],
+            "lines": p["additions"] + p["deletions"],
+            "unresolved": p["reviewThreads"]["totalCount"]
+            - len(p["reviewThreads"]["nodes"])
+            + sum(not t["isResolved"] for t in opened)
+            + p["comments"]["pageInfo"]["hasPreviousPage"]
+            + p["reviews"]["pageInfo"]["hasPreviousPage"]
+            + sum(
+                t["comments"]["pageInfo"]["hasNextPage"]
+                for t in p["reviewThreads"]["nodes"]
+            ),
+            "feedback_at": newest(
+                by_owner + [t["comments"]["nodes"][0] for t in opened]
+            ),
+            "owner_feedback_at": newest(by_owner),
+        },
+    }
+
+
+REVERT_QUERY = """query(
+  $owner: String!, $name: String!, $since: GitTimestamp!, $endCursor: String
+) {
+  repository(owner: $owner, name: $name) { defaultBranchRef { target { ... on Commit {
+    history(first: 100, since: $since, after: $endCursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        message associatedPullRequests(first: 1) { nodes { headRefName } } } } } } } } }"""
+
+
+def reverted_prs(repo: str, landed: list[dict]) -> list[int]:
+    if not landed:
+        return []
+    owner, name = repo.split("/")
+    since = min(landed, key=lambda e: datetime.fromisoformat(e["at"]))["at"]
+    pages = gh(
+        "api",
+        "graphql",
+        "--paginate",
+        "--slurp",
+        "-f",
+        f"query={REVERT_QUERY}",
+        "-f",
+        f"owner={owner}",
+        "-f",
+        f"name={name}",
+        "-f",
+        f"since={since}",
+    )
+    commits = [
+        c
+        for page in pages
+        if (branch := page["data"]["repository"]["defaultBranchRef"])
+        for c in branch["target"]["history"]["nodes"]
+    ]
+    shas = {
+        e["pr"]: e["sha"] or (pr_node(repo, e["pr"])["mergeCommit"] or {}).get("oid")
+        for e in landed
+    }
+    return sorted(
+        {
+            e["pr"]
+            for e in landed
+            for c in commits
+            if (
+                shas[e["pr"]] and f"This reverts commit {shas[e['pr']]}" in c["message"]
+            )
+            or any(
+                p["headRefName"].startswith(f"revert-{e['pr']}-")
+                for p in c["associatedPullRequests"]["nodes"]
+            )
+        }
+    )
 
 
 def token_expiry() -> str | None:
@@ -1132,7 +1771,7 @@ def token_expiry() -> str | None:
     )
 
 
-def collect() -> dict:
+def collect(landed: list[dict] | tuple = ()) -> dict:
     generated = datetime.now(UTC).isoformat()
     # shortcut: first 50 PRs / 100 alerts per repo, paginate those if a repo ever exceeds them
     pages = gh("api", "graphql", "--paginate", "--slurp", "-f", f"query={QUERY}")
@@ -1150,7 +1789,19 @@ def collect() -> dict:
         required = required_checks(name, branch["name"]) if branch else []
         all_prs = node["pullRequests"]["nodes"]
         prs = [p for p in all_prs if login(p) == "dependabot"]
-        others = [other_pr_record(name, p) for p in all_prs if login(p) != "dependabot"]
+        rest = [p for p in all_prs if login(p) != "dependabot"]
+        others = [other_pr_record(name, p) for p in rest]
+        for p, o in zip(rest, others):
+            if is_agent_pr(name, p, o, owner):
+                try:
+                    o.update(pr_detail(name, p["number"], owner))
+                except UNREAD as e:
+                    o["review"] = {}
+                    print(
+                        f"{name}#{p['number']} not read, so no review run and no"
+                        f" landing for it this run: {e}",
+                        file=sys.stderr,
+                    )
         needs_review_open += sum(
             "needs-review" in {lb["name"] for lb in p["labels"]["nodes"]} for p in prs
         ) + sum(
@@ -1167,6 +1818,8 @@ def collect() -> dict:
                 "main": sha_state(name, branch["target"]["oid"], required)
                 if branch
                 else None,
+                "default_branch": branch["name"] if branch else None,
+                "prs_cut": node["pullRequests"]["totalCount"] > len(all_prs),
                 "prs": [
                     {
                         "number": p["number"],
@@ -1187,6 +1840,11 @@ def collect() -> dict:
                 ],
                 "issues": [issue_record(i, owner) for i in node["issues"]["nodes"]],
                 "other_prs": others,
+                "land": LAND_TOPIC in topics and name not in NEVER_LAND_REPOS,
+                "reverted": reverted_prs(
+                    name,
+                    [e for e in landed if e["repo"] == name and "reverted" not in e],
+                ),
             }
         )
     return {
@@ -1221,8 +1879,11 @@ def main() -> None:
     p.add_argument("task_id")
     p = sub.add_parser("finish")
     p.add_argument("key")
-    p.add_argument("status", choices=["done", "blocked", "failed", *OUTCOMES])
+    p.add_argument(
+        "status", choices=["done", "blocked", "failed", "land", "no-land", *OUTCOMES]
+    )
     p.add_argument("note")
+    p.add_argument("--task", default="")
     sub.add_parser("collect")
     sub.add_parser("board")
     p = sub.add_parser("apply")
@@ -1232,9 +1893,12 @@ def main() -> None:
     p = sub.add_parser("plan")
     p.add_argument("candidates", type=Path)
     p.add_argument("thread_id")
+    p = sub.add_parser("land")
+    p.add_argument("candidates", type=Path)
+    p.add_argument("plan", type=Path)
     args = ap.parse_args()
     if args.cmd == "collect":
-        snapshot = collect()
+        snapshot = collect(load_ledger(LEDGER).get("landed", []))
         if linear.CLIENT.exists():
             try:
                 snapshot["board"] = linear.board()
@@ -1275,6 +1939,24 @@ def locked(args: argparse.Namespace) -> None:
     if args.cmd == "running":
         print(json.dumps(running_tasks(ledger, now), indent=2))
         return
+    if args.cmd == "land":
+        candidates = json.loads(args.candidates.read_text())
+        result = {"landed": [], "refused": []}
+        try:
+            for t in json.loads(args.plan.read_text())["lands"]:
+                outcome = land(
+                    candidates,
+                    ledger,
+                    t["repo"],
+                    t["pr"],
+                    t.get("head"),
+                    datetime.now(UTC),
+                )
+                result["refused" if "why" in outcome else "landed"].append(outcome)
+                save_ledger(LEDGER, ledger)
+        finally:
+            print(json.dumps(result, indent=2))
+        return
     if args.cmd == "plan":
         busy, stale = sweep_locks(WORK, now)
         result = plan(
@@ -1291,6 +1973,16 @@ def locked(args: argparse.Namespace) -> None:
         assign(ledger, args.key, args.task_id)
         write_lock(WORK, args.key, ledger["tasks"][args.key])
     else:
+        entry = ledger["tasks"].get(args.key)
+        if (
+            review_pr(args.key)
+            and entry
+            and entry["status"] == "running"
+            and entry["task_id"] != args.task
+        ):
+            raise SystemExit(
+                f"{args.key} is run by another task, so this result is dropped"
+            )
         note = sys.stdin.read().strip() if args.note == "-" else args.note
         print(finish(ledger, args.key, args.status, note, now))
         release(WORK, args.key)

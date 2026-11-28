@@ -467,7 +467,7 @@ def board():
         ("Needs approval", "drag to", "approve", "owner"),
         ("Approved", "build starts", "next hour", "idle"),
         ("Build run", "one PR", "per repo", "run"),
-        ("In Review", "review", "and merge", "owner"),
+        ("In Review", "review, or the", "land gate merges", "owner"),
         ("Done", "every PR", "merged", "done"),
     ]
     movers = [MUTED, AGENT, AGENT, OWNER, AGENT, AGENT, OWNER]

@@ -4,13 +4,15 @@
 `B="python3 $W/backlog-agent/backlog.py"`.
 
 `backlog.py` holds every rule: ranking, holds, the 3-running and 100-a-day caps,
-retries, the ledger, when a repo is due a scan, and the triage state machine
-that decides how cards move on the owner's board. Your job is to run it, apply
-the card moves it decides, start the children it names one at a time, hand each
-one's lessons to the next, end with the steward, and report. Read the state only
-from its output (`running`, `plan`), change the ledger only through its `start`
-and `finish` commands, and change the board only through its `apply` command.
-Never write to Linear any other way, such as with a Linear connector or tool: an
+retries, the ledger, when a repo is due a scan, when a PR is due a review run,
+the land gate that decides which PRs land, and the triage state machine that
+decides how cards move on the owner's board. Your job is to run it, apply the
+card moves it decides, run its `land` command, start the children it names one
+at a time, hand each one's lessons to the next, end with the steward, and
+report. Read the state only from its output (`running`, `plan`), change the
+ledger only through its `start` and `finish` commands, change the board only
+through its `apply` command, and merge only through its `land` command. Never
+write to Linear any other way, such as with a Linear connector or tool: an
 approval only counts when the board's history shows the owner made it
 (`docs/adr/0002-agent-has-its-own-linear-identity.md`).
 
@@ -47,8 +49,10 @@ skip it unless it is `overdue`:
   no such line, the status is `failed`. A dependency or `scan` child's status is
   `done`, `blocked` or `failed`. A `triage` or `build` child's status is its
   outcome: `fix-pending`, `needs-approval`, `needs-repro`, `unable-to-fix` or
-  `not-actionable`, or `failed` when it crashed. `finish` only records it; the
-  next `plan` turns it into the card's move.
+  `not-actionable`, or `failed` when it crashed. A `review` child's status is
+  its verdict, `land` or `no-land`, or `failed` when it crashed. `finish` only
+  records it; the next `plan` turns it into the card's move, or runs the land
+  gate on a `land`.
 - `task_status` errors: each run is a new thread, and only the thread that
   started a child (its `thread_id`) can read it. That thread reconciles the
   child when it finishes, so leave the entry alone.
@@ -63,9 +67,34 @@ $B finish '<key>' <status> - <<'NOTE_END'
 NOTE_END
 ```
 
+For a `review` key, add the child's task id, in step 1 and in every wake-up:
+
+```
+$B finish '<key>' --task <task id> <status> - <<'NOTE_END'
+<note>
+NOTE_END
+```
+
+`<task id>` is the id of the child whose result you record: the `taskId` you got
+when you started it, or the entry's `task_id` from `running` that you gave to
+`task_status`. Leave `--task` out only when that id is empty or the child never
+started.
+
 Keep the status it prints, because `failed` can come back as `blocked`. For each
 pull request URL the note names, call `link_pull_request` with it, so the PR
 shows on this run's thread and not only on the child's.
+
+A `review` child's note starts with the verdict's reason and the head commit it
+covers, and `finish` reads both from the note. Pass that note to `finish`
+unchanged: never edit, shorten or reorder it. Never record `land` for a child
+whose last `RESULT:` line does not say `land`: the land gate merges on that
+status. Keep the status `finish` prints here too, because it stores a `land` it
+can't tie to the reason `clean` and a head commit as `no-land`. `finish` refuses
+a review key whose entry is not running: when it does, show its message as that
+key's status in the report and go on. It also refuses with
+`<key> is run by another task, so this result is dropped` when the task id is
+not the entry's: a newer review run owns the key. Drop this child's result,
+never record it again without `--task`, show the message the same way and go on.
 
 Done when no ledger entry is `running` with a terminal task behind it.
 
@@ -82,7 +111,9 @@ with the error's last line and stop. `collect` reads the GitHub repos and, when
 no board yet: `plan` decides no card moves and starts no `triage` or `build`
 task. If `collect` prints a `board not read` line, the credentials exist but
 Linear failed: put that line under **Needs you** and go on; this run makes no
-card moves.
+card moves. If it prints a `<repo>#<pr> not read` line, GitHub failed on that
+one PR: it gets no review run and cannot land this run. Put that line under
+**Needs you** and go on.
 
 Then apply the card moves `plan` decided before starting any child:
 
@@ -113,13 +144,39 @@ If the command itself fails, put its last line under **Needs you**, and release
 every `triage` and `build` task in `dispatch` the same way. Then go on with the
 remaining tasks.
 
+Then land what the land gate cleared. When the plan's `lands` list is not empty,
+run:
+
+```
+export GH_TOKEN=$(cat ~/.config/backlog-agent/gh-token); $B land $TMPDIR/candidates-<thread>.json $TMPDIR/plan-<thread>.json
+```
+
+Run it with
+`allowed_domains: ["api.github.com", "github.com", "api.linear.app"]` and
+`timeout: 600000`. Before each merge it reads again what the land gate reads:
+the board, the repo's land topic, the default branch's checks and its reverts,
+and the PR itself. It runs the land gate on those fresh reads and merges only
+what still passes, pinned to the head commit the verdict names. A read that
+fails, or whose reply it cannot use, refuses that PR alone and merges nothing
+for it. `plan` offers one PR per repo each run, so the next one is judged
+against the default branch the first merge made. It prints `landed` and
+`refused`: keep both for step 5.
+
+When the permission gate refuses the command or it fails, put its last line
+under **Needs you** and do nothing else about it. Never merge a PR any other
+way, never run `gh pr merge` yourself, and never edit the plan file: the `land`
+command is the only merge that runs the land gate first. The gate holds a PR
+whose merge was tried and not made, or whose `land` command never ran, until it
+has a new head, so the owner merges it or pushes to it. A second `land` with the
+same plan does not try that head again.
+
 ## 3. Dispatch, one child at a time
 
 `dispatch` is this run's queue. `plan` has already claimed every task in it, so
 start them in order, one at a time: start the first now, and each next one when
 the previous child finishes (see the wake-ups below). Never run two of this
-run's children at once. A `triage`, `build` or `scan` task starts exactly like a
-dependency task: `CHILD.md` has a section for each kind.
+run's children at once. A `triage`, `build`, `scan` or `review` task starts
+exactly like a dependency task: `CHILD.md` has a section for each kind.
 
 To start a task:
 
@@ -145,35 +202,58 @@ done, with `delegate_task`: the same `target`, `mode` and `isolation`,
 `role: "general"`, `title: "backlog: steward"`,
 `clientRequestId: "steward#<thread>"`, and
 `task: "Read and follow /home/jsg/Documents/jsg/backlog-agent/backlog-agent/STEWARD.md exactly. Run summary:"`
-followed by this run's `finish` lines, the `plan` output, the failed starts and
-every `HANDOFF:` block. Then end your turn; its wake-up posts the report. With
-nothing to report, skip the steward and go to step 5.
+followed by this run's `finish` lines, the `plan` output, the `land` output, the
+failed starts and every `HANDOFF:` block. Then end your turn; its wake-up posts
+the report. With nothing to report, skip the steward and go to step 5.
 
 ## 5. Report
 
 There is something to report when any of these happened this run: a `finish` in
 step 1, a failed start, a non-empty `dispatch`, `card_ops`, `resolved`,
 `newly_blocked` or `stale_locks`, `announce_cap` is true, `rotate_token` is set,
-a failed `apply`, or a self-change commit (step 6). In that case, after the
-steward has finished, reply with at most 10 lines, each linking to its PR or
-repo:
+a failed `apply`, a `not read` line from `collect`, a non-empty `landed` or
+`refused` from the `land` command, a `land` command that was refused or failed,
+a `greenlit` entry whose `new` is true, or a self-change commit (step 6). In
+that case, after the steward has finished, reply with at most 13 lines, each
+linking to its PR or repo:
 
 - **Started**: the keys from `dispatch`, each with the status its child finished
-  with.
+  with. A review's status is its verdict, `land` or `no-land`.
 - **Merged/closed**: the keys from `resolved`.
+- **Landed**: each PR in the `land` command's `landed`, with its link
+  `https://github.com/<repo>/pull/<pr>`.
+- **Lands next**: the plan's `greenlit` entries, each with its `why` (for
+  example `lands 2026-11-28T10:00:00+00:00`, `shadow` or `too large`). After one
+  whose `why` starts with `lands`, write `add the agent:hold label to stop it`.
+  An entry's `new` is true the first time the gate holds it for that reason, so
+  each pending landing and each reason shows once without any other news. `plan`
+  ran before this run's children, so add each review that finished `land` this
+  run with the words `the next run's land gate decides`.
+- **Findings record**: when the plan's `findings.record` is above 0,
+  `<findings.record> of <findings.needed>`. This line needs no link. `plan`
+  counted it before this run's `land`, so a finding that landed in this run
+  shows in the next report. At the full count a top-up triage run may fix a
+  finding in a repo with the land topic with no act by the owner. A revert of
+  any landing resets the count.
 - **Cards**: the `applied` ops, each as the card's identifier (from the
   snapshot's `board.cards`, matched on `id`; a `create` prints its new one), its
   new status, and the issue or pull request it links to.
 - **Needs you**: every `blocked` finish and every `newly_blocked` entry, with
   the owner action each one names. This includes admin steps from `add-ci`
-  results, a failed `apply`, and the steward's `OWNER:` line, and, when
-  `rotate_token` is set,
+  results, a failed `apply`, a `land` command that was refused or failed, each
+  `refused` entry of the `land` command with its `why`, each `greenlit` entry
+  whose `new` is true and whose `why` is none of `lands <time>`, `daily limit`
+  and `default branch pending` (review and merge the PR yourself; the land gate
+  holds it: `<why>`), and the steward's `OWNER:` line, and, when `rotate_token`
+  is set,
   `rotate the GitHub token in ~/.config/backlog-agent/gh-token, it expires <rotate_token>`
   with the permissions listed in the spec's Further Notes. A `triage` or `build`
   finish needs the owner too: `needs-approval` (approve the plan by moving the
-  card to Approved, or turn it down with Canceled), `needs-repro` or
-  `unable-to-fix` (answer on the issue), and `fix-pending` (review the pull
-  requests).
+  card to Approved, or turn it down with Canceled), and `needs-repro` or
+  `unable-to-fix` (answer on the issue). A `fix-pending` finish needs nothing
+  from the owner yet, because a review run takes its PRs next. A `review` finish
+  of `no-land` needs the owner (review the PR; the verdict comment on it says
+  why).
 - **Failed to start**: the keys whose `delegate_task` failed, with the error.
 - **Cleaned up**: the keys in `stale_locks`.
 - **Cap**: when `announce_cap` is true, say the daily cap of 100 is reached and
@@ -208,12 +288,17 @@ something in it, each with its count and a one-line hint (for example
   line, counted once each. Colour it `--warning` with a `!`, a 16% tint and a
   1px outline at 45% of that colour; at 0, dim it to 55% opacity.
 - **Started**: the `dispatch` count.
+- **Landed**: the count of `landed`, with ✓ in `--success`, the hint naming the
+  PRs.
+- **Lands next**: the count of `greenlit` entries whose `why` starts with
+  `lands`, the hint naming the earliest time. Leave the tile out at 0.
 - **Cards**: the count of `applied` ops, plus `pending` left for the next run,
   the hint naming the moves (for example `2 to Needs approval, 1 created`).
-- One tile per finish status that occurred (`done` and `fix-pending` with ✓ in
-  `--success`; `blocked`, `needs-approval`, `needs-repro` and `unable-to-fix`
-  with ! in `--warning`; `not-actionable` with – in its own `--chart-N`;
-  `failed` with ✕ in `--destructive`), the hint naming what it produced.
+- One tile per finish status that occurred (`done`, `fix-pending` and `land`
+  with ✓ in `--success`; `blocked`, `needs-approval`, `needs-repro`,
+  `unable-to-fix` and `no-land` with ! in `--warning`; `not-actionable` with –
+  in its own `--chart-N`; `failed` with ✕ in `--destructive`), the hint naming
+  what it produced.
 - **Self-changes**: the step 6 and steward commits.
 - **Used today**: `used_today` plus the `dispatch` count, of 100, with the
   `queued` count as the hint.
@@ -264,6 +349,17 @@ result shows one of its rules is wrong. The steward follows these rules too:
   `CHILD.md` (no `--admin`, no alert dismissal, no settings changes, sandbox
   stays on except for `nix` checks and the three kinds of command a scan may
   run). Those changes need the owner.
+- Never loosen the land gate (`land_block`, `sponsor`, `scan_filed`,
+  `PROTECTED`, `AGENT_BRANCH`, `NEVER_LAND_REPOS`, the `LAND_*` and `REVIEW_*`
+  constants, the feedback rule and the `land` command in `backlog.py`, and
+  `history_cut`, the `actor` mapping and the one-owner check in `linear.py`).
+  Never loosen the findings record either (`FINDING_RECORD`, `finding_record`,
+  `reset_findings`, the top-up's unlock in `backlog_work`, and the rule that a
+  `fix-pending` with origin `finding` reaches In Review only while the ref is
+  unlocked). And never loosen the verdict rubric or the `review` section's rules
+  in `CHILD.md`. A `why` that keeps a PR from landing is the gate working, not a
+  rule that is wrong. A change that would let more land needs the owner: put it
+  under **Needs you**.
 
 ## Wake-ups
 
